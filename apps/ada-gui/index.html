@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ADA GUI</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%80%3C/text%3E%3C/svg%3E" />
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <h1>ADA 驱动控制台</h1>
+      <p class="subtitle">
+        原生桌面控制台。
+      </p>
+
+      <details class="card">
+        <summary>远程管理平台（可选）</summary>
+        <p class="hint">写入本机密钥文件；API Key 留空则保留已保存值。</p>
+        <label class="lbl" for="remoteUrl">接入地址</label>
+        <input type="text" id="remoteUrl" placeholder="https://ada-control.example.com" autocomplete="off" />
+        <label class="lbl" for="apiKey">API Key</label>
+        <input type="password" id="apiKey" placeholder="留空则保留已保存的密钥" autocomplete="off" />
+        <div class="row">
+          <button type="button" id="btnSaveRemote">保存到本机密钥</button>
+        </div>
+        <hr />
+        <p class="hint">Android SDK 路径（用于 Appium/adb 环境变量）</p>
+        <label class="lbl" for="androidHome">ANDROID_HOME</label>
+        <input type="text" id="androidHome" placeholder="例如：D:\Android\Sdk" autocomplete="off" />
+        <div class="row">
+          <button type="button" id="btnPickAndroidHome" class="secondary">选择目录</button>
+          <button type="button" id="btnSaveAndroidHome">保存 ANDROID_HOME</button>
+        </div>
+        <hr />
+        <p class="hint">Appium Home 路径（用于统一 driver 安装与读取）</p>
+        <label class="lbl" for="appiumHome">APPIUM_HOME</label>
+        <input type="text" id="appiumHome" placeholder="例如：C:\Users\你的用户名" autocomplete="off" />
+        <div class="row">
+          <button type="button" id="btnPickAppiumHome" class="secondary">选择目录</button>
+          <button type="button" id="btnSaveAppiumHome">保存 APPIUM_HOME</button>
+        </div>
+      </details>
+
+      <section class="card">
+        <h2>常用操作</h2>
+        <div class="row">
+          <button type="button" id="btnDetect">自动探测本地 Agent</button>
+          <button type="button" id="btnHealth">健康检查</button>
+          <button type="button" id="btnSetup" class="secondary">打开配置向导</button>
+        </div>
+      </section>
+
+      <details class="card">
+        <summary>MCP / 服务管理</summary>
+        <p class="hint">用于启动本机 MCP 远程服务（HTTP），并复用下方日志面板查看输出。</p>
+        <label class="lbl" for="mcpRemoteHost">监听地址</label>
+        <input type="text" id="mcpRemoteHost" value="127.0.0.1" autocomplete="off" />
+        <label class="lbl" for="mcpRemotePort">端口</label>
+        <input type="number" id="mcpRemotePort" value="8787" min="1" max="65535" />
+        <label class="lbl" for="mcpRemoteApiKey">鉴权 Token（api-key）</label>
+        <input type="password" id="mcpRemoteApiKey" placeholder="必填" autocomplete="off" />
+        <label><input type="checkbox" id="mcpRemoteAllowRisky" /> 允许高风险命令（默认关闭）</label>
+        <label class="lbl" for="mcpRemoteRiskyMode">风险命令策略模式</label>
+        <select id="mcpRemoteRiskyMode">
+          <option value="whitelist" selected>白名单（仅允许列表中的风险命令）</option>
+          <option value="blacklist">黑名单（禁止列表中的风险命令）</option>
+        </select>
+        <label class="lbl" for="mcpRemoteRiskyCommands">风险命令列表（逗号分隔）</label>
+        <input type="text" id="mcpRemoteRiskyCommands" value="custom" autocomplete="off" />
+        <div class="row">
+          <button type="button" id="btnMcpRemoteStart">启动 MCP 远程服务</button>
+          <button type="button" id="btnMcpRemoteStop" class="danger">停止 MCP 远程服务</button>
+          <button type="button" id="btnMcpRemoteStatus" class="secondary">查看运行状态</button>
+          <button type="button" id="btnMcpRemoteCopyConfig" class="secondary">复制接入配置</button>
+        </div>
+        <p class="hint">配置变更后需重启 MCP 远程服务才会生效。</p>
+      </details>
+
+      <details class="card">
+        <summary>安装依赖</summary>
+        <p class="hint">分组安装，与 Web 控制台一致；完整安装等价于 <code>--only=all</code>。</p>
+        <label><input type="checkbox" id="depFull" /> 完整安装（Playwright + Appium + 配置中的全部驱动）</label>
+        <div id="depGroups">
+          <fieldset class="subgr">
+            <legend><label><input type="checkbox" id="grpPw" /> Playwright</label></legend>
+            <p class="hint">可选浏览器通道；不勾选具体项则按配置文件默认。</p>
+            <div class="deps-grid">
+              <label><input type="checkbox" id="pwChromium" /> chromium</label>
+              <label><input type="checkbox" id="pwChrome" /> chrome</label>
+              <label><input type="checkbox" id="pwFirefox" /> firefox</label>
+              <label><input type="checkbox" id="pwWebkit" /> webkit</label>
+              <label><input type="checkbox" id="pwMsedge" /> msedge</label>
+              <label><input type="checkbox" id="pwAll" /> 全部浏览器（all）</label>
+            </div>
+          </fieldset>
+          <fieldset class="subgr">
+            <legend><label><input type="checkbox" id="grpAp" /> Appium</label></legend>
+            <p class="hint">不勾选任何平台则仅安装 Appium 主包。</p>
+            <div class="deps-grid">
+              <label><input type="checkbox" id="apAndroid" /> Android（UiAutomator2）</label>
+              <label><input type="checkbox" id="apIos" /> iOS（XCUITest）</label>
+              <label><input type="checkbox" id="apHarmony" /> Harmony（harmonyos）</label>
+            </div>
+          </fieldset>
+        </div>
+        <label class="dep-force"
+          ><input type="checkbox" id="depForce" />重新安装</label
+        >
+        <div class="row">
+          <button type="button" id="btnInstall">开始安装</button>
+          <button type="button" id="btnStopInstall" class="danger" disabled>停止安装</button>
+        </div>
+      </details>
+
+      <section class="card">
+        <div class="log-head">
+          <h2>日志</h2>
+          <button type="button" id="btnClearLogs" class="secondary">清空日志</button>
+        </div>
+        <textarea id="logs" readonly></textarea>
+      </section>
+    </main>
+  </body>
+</html>

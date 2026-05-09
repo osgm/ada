@@ -1,0 +1,47 @@
+[
+  {
+    "requestId": "appium-harmony-real-click-001",
+    "sessionId": "appium-harmony-real-session-1",
+    "platform": "harmony",
+    "command": "click",
+    "payload": {
+      "real": true,
+      "serverUrl": "http://127.0.0.1:4723",
+      "capabilities": {
+        "platformName": "harmonyos",
+        "appium:automationName": "harmonyos"
+      },
+      "point": [0.5, 0.3]
+    }
+  },
+  {
+    "requestId": "appium-harmony-real-shot-001",
+    "sessionId": "appium-harmony-real-session-1",
+    "platform": "harmony",
+    "command": "screenshot",
+    "payload": {
+      "real": true,
+      "serverUrl": "http://127.0.0.1:4723",
+      "capabilities": {
+        "platformName": "harmonyos",
+        "appium:automationName": "harmonyos"
+      }
+    }
+  },
+  {
+    "requestId": "appium-harmony-real-swipe-001",
+    "sessionId": "appium-harmony-real-session-1",
+    "platform": "harmony",
+    "command": "swipe",
+    "payload": {
+      "real": true,
+      "serverUrl": "http://127.0.0.1:4723",
+      "capabilities": {
+        "platformName": "harmonyos",
+        "appium:automationName": "harmonyos"
+      },
+      "from": [0.5, 0.8],
+      "to": [0.5, 0.3]
+    }
+  }
+]

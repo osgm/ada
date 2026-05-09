@@ -1,0 +1,23 @@
+[
+  {
+    "requestId": "web-real-open-001",
+    "sessionId": "web-real-session-1",
+    "platform": "web",
+    "command": "click",
+    "payload": {
+      "url": "https://example.com",
+      "locator": {
+        "text": "More information"
+      }
+    }
+  },
+  {
+    "requestId": "web-real-shot-001",
+    "sessionId": "web-real-session-1",
+    "platform": "web",
+    "command": "screenshot",
+    "payload": {
+      "url": "https://example.com"
+    }
+  }
+]

@@ -1,0 +1,70 @@
+agent:
+  id: "ada-agent-local"
+  mode: "foreground"
+  setupOnFirstRun: true
+
+bootstrapUI:
+  enabled: true
+  mode: "auto" # auto | cli | gui
+  host: "127.0.0.1"
+  port: 17650
+  autoOpenBrowser: true
+  sessionTtlSec: 600
+  secretsProvider: "auto" # auto | keychain | credman | file
+  native:
+    enabled: false
+    command: "" # e.g. ./bootstrap-ui / .\bootstrap-ui.exe
+    args: []
+    timeoutMs: 120000
+    fallbackToWeb: true
+
+transport:
+  mode: "auto"
+  streamProtocol: "websocket"
+  requestPath: "/api/v1/execute"
+  healthPath: "/health"
+  streamPath: "/ws"
+  requestTimeoutMs: 15000
+
+graphics:
+  enabled: false
+  fallbackOnSemanticFailure: false
+  minConfidence: 0.8
+
+monitoring:
+  enabled: false
+  platforms: ["web", "android", "ios", "harmony"] # 可选子集
+  sampleEvery: 1 # 每 N 条操作采样一次，1 表示全量
+  outputDir: "artifacts/monitoring"
+  onFailureOnly: false # true 时仅失败操作抓图，性能更优
+  groupBySession: true # 按 sessionId/requestId 分层归档
+  nonBlocking: true # true 时监控异步执行，不阻塞主链路
+  resolution:
+    maxWidth: 1280
+    maxHeight: 720
+    keepAspectRatio: true # 保持比例，避免监控图像变形
+
+queue:
+  inboxDir: "tasks/inbox"
+  processedDir: "tasks/processed"
+  failedDir: "tasks/failed"
+  pollIntervalMs: 3000
+  maxFileRetryAttempts: 2
+
+dependencies:
+  autoInstallOnStart: true
+  playwrightBrowser: "chromium" # chromium | firefox | webkit | all
+  playwrightInstallTargets: ["chrome"] # chromium | chrome | msedge | firefox | webkit | all
+  playwrightDownloadHost: "https://npmmirror.com/mirrors/playwright"
+  npmRegistryCandidates:
+    - "https://registry.npmmirror.com"
+    - "https://mirrors.cloud.tencent.com/npm"
+    - "https://repo.huaweicloud.com/repository/npm"
+    - "https://registry.npmjs.org"
+  playwrightHostCandidates:
+    - "https://npmmirror.com/mirrors/playwright"
+    - "https://playwright.azureedge.net"
+
+appium:
+  serverUrl: "http://127.0.0.1:4723"
+  requiredDrivers: ["uiautomator2", "xcuitest", "harmonyos"]

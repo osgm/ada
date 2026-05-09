@@ -1,0 +1,11 @@
+[
+  {
+    "requestId": "appium-harmony-probe-001",
+    "sessionId": "appium-harmony-probe-session",
+    "platform": "harmony",
+    "command": "swipe",
+    "payload": {
+      "probe": true
+    }
+  }
+]

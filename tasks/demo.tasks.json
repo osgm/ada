@@ -1,0 +1,23 @@
+[
+  {
+    "requestId": "task-web-01",
+    "sessionId": "session-web-01",
+    "platform": "web",
+    "command": "click",
+    "payload": {
+      "locator": {
+        "testId": "signup-btn"
+      }
+    }
+  },
+  {
+    "requestId": "task-android-01",
+    "sessionId": "session-android-01",
+    "platform": "android",
+    "command": "swipe",
+    "payload": {
+      "from": [0.5, 0.8],
+      "to": [0.5, 0.3]
+    }
+  }
+]

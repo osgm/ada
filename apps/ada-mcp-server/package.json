@@ -1,0 +1,40 @@
+{
+  "name": "@ada/mcp-server",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "ada-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./dist/main.js",
+    "./stdio": "./dist/main.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "prebuild": "node ../../scripts/generate-bundled-config.mjs",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build",
+    "pack:dry-run": "npm run build && npm pack --dry-run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ada/agent-core": "0.1.0",
+    "@ada/contracts": "0.1.0",
+    "@ada/core-kernel": "0.1.0",
+    "@ada/core-runtime": "0.1.0",
+    "@ada/driver-appium": "0.1.0",
+    "@ada/driver-playwright": "0.1.0",
+    "@ada/plugin-host": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "jimp": "^1.6.0"
+  }
+}

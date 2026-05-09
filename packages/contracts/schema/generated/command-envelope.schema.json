@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ada/contracts/command-envelope.schema.json",
+  "title": "CommandEnvelope",
+  "type": "object",
+  "required": [
+    "requestId",
+    "sessionId",
+    "platform",
+    "command"
+  ],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "web",
+        "android",
+        "ios"
+      ]
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "click",
+        "type",
+        "swipe",
+        "assertVisible",
+        "screenshot",
+        "navigate",
+        "hover",
+        "press",
+        "select",
+        "scroll",
+        "wait",
+        "assertText",
+        "getText",
+        "back",
+        "home",
+        "launchApp",
+        "terminateApp",
+        "custom"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "idempotencyKey": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

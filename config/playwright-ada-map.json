@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "defaultArgs": {
+    "tool": "ada_web_action",
+    "allowMock": false,
+    "payload": {
+      "headless": false
+    }
+  },
+  "mappings": {
+    "page.goto": { "command": "navigate", "payload": { "url": "$url" } },
+    "page.click": { "command": "click", "payload": { "locator": { "css": "$selector" } } },
+    "page.getByText.click": { "command": "click", "payload": { "locator": { "text": "$text" } } },
+    "locator.fill": { "command": "type", "payload": { "locator": "$locator", "text": "$text" } },
+    "locator.hover": { "command": "hover", "payload": { "locator": "$locator" } },
+    "page.keyboard.press": { "command": "press", "payload": { "key": "$key" } },
+    "locator.press": { "command": "press", "payload": { "locator": "$locator", "key": "$key" } },
+    "page.waitForTimeout": { "command": "wait", "payload": { "timeoutMs": "$ms" } },
+    "page.goBack": { "command": "back", "payload": {} },
+    "page.reload": { "command": "reload", "payload": {} },
+    "page.close": { "command": "closeTab", "payload": {} },
+    "expect.toBeVisible": { "command": "assertVisible", "payload": { "locator": "$locator" } },
+    "expect.toContainText": { "command": "assertText", "payload": { "locator": "$locator", "expectedText": "$text" } },
+    "locator.textContent": { "command": "getText", "payload": { "locator": "$locator" } },
+    "page.screenshot": { "command": "screenshot", "payload": {} },
+    "page.mouse.wheel": { "command": "scroll", "payload": { "deltaX": "$deltaX", "deltaY": "$deltaY" } },
+    "page.goForward": { "command": "forward", "payload": {} },
+    "context.newPage": { "command": "newTab", "payload": {} },
+    "context.switchTab": { "command": "switchTab", "payload": { "tabIndex": "$tabIndex" } },
+    "locator.setInputFiles": { "command": "uploadFile", "payload": { "locator": "$locator", "filePath": "$filePath" } },
+    "locator.dragTo": {
+      "command": "dragDrop",
+      "payload": { "sourceLocator": "$sourceLocator", "targetLocator": "$targetLocator" }
+    },
+    "page.evaluate": { "command": "custom", "payload": { "action": "evaluate", "script": "$script" } }
+  }
+}

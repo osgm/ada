@@ -1,0 +1,10 @@
+{
+  "generatedAt": "2026-04-29T01:50:44.123Z",
+  "schemas": [
+    "command-envelope.schema.json",
+    "command-result.schema.json",
+    "response-envelope.schema.json",
+    "event-envelope.schema.json",
+    "artifact-index.schema.json"
+  ]
+}

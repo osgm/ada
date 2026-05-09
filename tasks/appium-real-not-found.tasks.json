@@ -1,0 +1,20 @@
+[
+  {
+    "requestId": "appium-real-not-found-001",
+    "sessionId": "appium-real-session-not-found",
+    "platform": "android",
+    "command": "assertVisible",
+    "payload": {
+      "real": true,
+      "serverUrl": "http://127.0.0.1:4723",
+      "capabilities": {
+        "platformName": "Android",
+        "appium:automationName": "UiAutomator2",
+        "appium:deviceName": "Android"
+      },
+      "locator": {
+        "uiautomator": "new UiSelector().resourceId(\"non.existing.id\")"
+      }
+    }
+  }
+]

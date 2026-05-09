@@ -1,0 +1,8 @@
+[
+  {
+    "requestId": "bad-001",
+    "sessionId": "bad-session",
+    "platform": "unknown",
+    "command": "click"
+  }
+]

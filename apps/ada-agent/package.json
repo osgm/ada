@@ -1,0 +1,46 @@
+{
+  "name": "@ada/agent",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/main.js",
+  "exports": {
+    ".": "./src/main.ts",
+    "./config": "./src/config.ts",
+    "./secrets": "./src/secrets.ts",
+    "./dependency-installer": "./src/dependency-installer.ts",
+    "./doctor": "./src/doctor.ts",
+    "./plugin-registry": "./src/plugin-registry.ts",
+    "./setup-cli": "./src/setup-cli.ts",
+    "./setup-native": "./src/setup-native.ts",
+    "./bootstrap-ui": "./src/bootstrap-ui.ts",
+    "./setup-state": "./src/setup-state.ts",
+    "./transport-client": "./src/transport-client.ts",
+    "./queue-runner": "./src/queue-runner.ts",
+    "./runtime": "./src/runtime.ts",
+    "./task-loader": "./src/task-loader.ts",
+    "./logger": "./src/logger.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/main.ts start",
+    "setup": "tsx src/main.ts setup",
+    "demo": "tsx src/main.ts run-demo",
+    "prebuild": "node ../../scripts/generate-bundled-config.mjs",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ada/contracts": "0.1.0",
+    "@ada/core-kernel": "0.1.0",
+    "@ada/core-runtime": "0.1.0",
+    "@ada/agent-core": "0.1.0",
+    "@ada/plugin-host": "0.1.0",
+    "@ada/transport-http": "0.1.0",
+    "@ada/transport-stream": "0.1.0",
+    "@ada/driver-playwright": "0.1.0",
+    "@ada/driver-appium": "0.1.0",
+    "@ada/mcp-server": "0.1.0",
+    "js-yaml": "^4.1.0",
+    "jimp": "^1.6.0"
+  }
+}

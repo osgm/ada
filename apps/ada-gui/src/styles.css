@@ -1,0 +1,233 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #f2fbf8 0%, #f7fbff 45%, #f9fafc 100%);
+  color: #1f2a37;
+}
+
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 20px 28px;
+}
+
+h1 {
+  margin: 0;
+  color: #0f766e;
+  letter-spacing: 0.2px;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 1.02rem;
+  color: #155e75;
+}
+
+.subtitle {
+  color: #4b6877;
+  margin: 8px 0 16px;
+  font-size: 14px;
+}
+
+.hint {
+  font-size: 12px;
+  color: #608096;
+  margin: 0 0 10px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #d7edf0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 8px 22px rgba(13, 60, 76, 0.08);
+  backdrop-filter: blur(3px);
+}
+
+details.card {
+  padding-top: 0;
+}
+
+details.card > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 700;
+  font-size: 16px;
+  color: #0f766e;
+  padding: 14px 2px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+details.card > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.card > summary::before {
+  content: "▸";
+  color: #14b8a6;
+  font-size: 14px;
+  transform: translateY(-1px);
+  transition: transform 0.18s ease;
+}
+
+details.card[open] > summary::before {
+  transform: rotate(90deg) translateX(1px);
+}
+
+details.card[open] > summary {
+  border-bottom: 1px solid #e0eff2;
+  margin-bottom: 10px;
+}
+
+.lbl {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+label {
+  font-size: 14px;
+}
+
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #c2d9e2;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #f8fdff;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: #34b8cc;
+  box-shadow: 0 0 0 3px rgba(52, 184, 204, 0.16);
+}
+
+.deps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+
+fieldset.subgr {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #d7e7ee;
+  background: #fbfeff;
+  border-radius: 8px;
+}
+
+fieldset.subgr legend {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+#depGroups.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+label.dep-force {
+  display: block;
+  margin-top: 10px;
+}
+
+.deps-grid label {
+  font-weight: 500;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 8px;
+}
+
+button {
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 100%);
+  color: #fff;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 14px rgba(16, 121, 158, 0.2);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+}
+
+button:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 16px rgba(16, 121, 158, 0.23);
+}
+
+button.secondary {
+  background: linear-gradient(135deg, #70879a 0%, #60748a 100%);
+}
+
+button.secondary:hover {
+  filter: brightness(1.03);
+}
+
+button.danger {
+  background: linear-gradient(135deg, #ff7f7f 0%, #e44f6a 100%);
+  box-shadow: 0 6px 14px rgba(210, 80, 80, 0.2);
+}
+
+button.danger:hover {
+  filter: brightness(1.02);
+}
+
+.status {
+  margin-top: 12px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.status span {
+  font-weight: 600;
+}
+
+.log-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.log-head h2 {
+  margin: 0;
+}
+
+textarea {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid #bfd3dc;
+  border-radius: 10px;
+  padding: 10px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  background: #0e2337;
+  color: #d6eef7;
+}

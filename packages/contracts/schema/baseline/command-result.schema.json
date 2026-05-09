@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ada/contracts/command-result.schema.json",
+  "title": "CommandResult",
+  "type": "object",
+  "required": [
+    "requestId",
+    "success"
+  ],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "errorCode": {
+      "type": "string"
+    },
+    "errorMessage": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

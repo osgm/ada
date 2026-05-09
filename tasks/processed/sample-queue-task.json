@@ -1,0 +1,13 @@
+[
+  {
+    "requestId": "queue-web-001",
+    "sessionId": "queue-session-web",
+    "platform": "web",
+    "command": "click",
+    "payload": {
+      "locator": {
+        "testId": "submit"
+      }
+    }
+  }
+]
