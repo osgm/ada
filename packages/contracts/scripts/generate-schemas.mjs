@@ -29,7 +29,8 @@ const commandEnum = [
   "home",
   "launchApp",
   "terminateApp",
-  "custom"
+  "custom",
+  "invoke"
 ];
 
 function recordLike() {

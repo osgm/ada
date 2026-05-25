@@ -33,11 +33,223 @@ __export(index_exports, {
   default: () => index_default
 });
 module.exports = __toCommonJS(index_exports);
+
+// packages/driver-rpc/src/index.ts
+var PLAYWRIGHT_OBJECT_TYPES = /* @__PURE__ */ new Set([
+  "Page",
+  "Frame",
+  "Locator",
+  "BrowserContext",
+  "Browser",
+  "Response",
+  "CDPSession",
+  "ElementHandle",
+  "JSHandle",
+  "Worker",
+  "Request",
+  "Route",
+  "WebSocket"
+]);
+function asRecord(value) {
+  return typeof value === "object" && value !== null ? value : {};
+}
+function getString(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function normalizeInvokePayload(raw, defaultMode) {
+  const payload = asRecord(raw);
+  const legacyCustom = asRecord(payload.custom);
+  const httpBlock = asRecord(payload.http);
+  const httpMethod = getString(httpBlock.method) ?? getString(legacyCustom.method);
+  const httpPath = getString(httpBlock.path) ?? getString(legacyCustom.path);
+  const hasHttp = Boolean(httpMethod && httpPath);
+  const method = getString(payload.method);
+  const target = getString(payload.target);
+  const hasMethod = Boolean(method);
+  let mode = getString(payload.mode);
+  if (mode !== "method" && mode !== "http") {
+    mode = hasHttp ? "http" : hasMethod ? "method" : defaultMode;
+  }
+  if (mode === "http" && !hasHttp && hasMethod) {
+    mode = "method";
+  }
+  if (mode === "method" && !hasMethod && hasHttp) {
+    mode = "http";
+  }
+  if (mode === "http") {
+    if (!httpMethod || !httpPath) {
+      return null;
+    }
+    return {
+      mode: "http",
+      http: {
+        method: httpMethod,
+        path: httpPath,
+        body: httpBlock.body ?? legacyCustom.body
+      },
+      options: asRecord(payload.options)
+    };
+  }
+  if (!method) {
+    return null;
+  }
+  return {
+    mode: "method",
+    target: target ?? "page",
+    method,
+    args: Array.isArray(payload.args) ? payload.args : [],
+    locator: asRecord(payload.locator),
+    options: asRecord(payload.options)
+  };
+}
+function pickPayloadString(payload, options, key, aliases = [], envKey) {
+  const keys = [key, ...aliases];
+  for (const k of keys) {
+    const top = getString(payload[k]);
+    if (top) {
+      return top;
+    }
+    const nested = getString(options[k]);
+    if (nested) {
+      return nested;
+    }
+  }
+  if (envKey && typeof process.env[envKey] === "string" && process.env[envKey].length > 0) {
+    return process.env[envKey];
+  }
+  return "";
+}
+function resolveLocalBrowserFields(payload) {
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  return {
+    cdpEndpoint: pickPayloadString(p, options, "cdpEndpoint", ["browserURL", "cdpUrl"], "ADA_PLAYWRIGHT_CDP_ENDPOINT"),
+    executablePath: pickPayloadString(
+      p,
+      options,
+      "executablePath",
+      ["browserPath", "browserExecutable"],
+      "ADA_PLAYWRIGHT_EXECUTABLE_PATH"
+    ),
+    channel: pickPayloadString(p, options, "channel", [], "ADA_PLAYWRIGHT_CHANNEL"),
+    userDataDir: pickPayloadString(p, options, "userDataDir", [], "ADA_PLAYWRIGHT_USER_DATA_DIR")
+  };
+}
+function buildSessionKey(payload) {
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const local = resolveLocalBrowserFields(p);
+  const browser = getString(p.browser) ?? getString(options.browser) ?? "chromium";
+  const headless = typeof p.headless === "boolean" ? p.headless : typeof options.headless === "boolean" ? options.headless : "env";
+  const storageStatePath = getString(p.storageStatePath) ?? getString(options.storageStatePath) ?? "";
+  const storageState = p.storageState ?? options.storageState;
+  const storageKey = storageStatePath || (storageState !== void 0 ? JSON.stringify(storageState) : "");
+  return `${browser}|${headless}|${local.cdpEndpoint}|${local.executablePath}|${local.channel}|${local.userDataDir}|${storageKey}`;
+}
+function serializeRpcResult(value, depth = 0) {
+  if (depth > 10) {
+    return "[MaxDepth]";
+  }
+  if (value === void 0) {
+    return { __undefined: true };
+  }
+  if (value === null || typeof value !== "function") {
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+  } else {
+    return { __type: "Function", hint: "Functions are not serializable over invoke RPC" };
+  }
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) {
+    return { __type: "Buffer", encoding: "base64", data: value.toString("base64") };
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => serializeRpcResult(item, depth + 1));
+  }
+  const ctor = value.constructor?.name;
+  if (ctor && PLAYWRIGHT_OBJECT_TYPES.has(ctor)) {
+    return { __type: ctor, hint: "Live Playwright object; chain further invoke calls on page/context" };
+  }
+  if (value instanceof Map) {
+    const out = {};
+    for (const [k, v] of value.entries()) {
+      out[String(k)] = serializeRpcResult(v, depth + 1);
+    }
+    return out;
+  }
+  try {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === "function") {
+        continue;
+      }
+      out[k] = serializeRpcResult(v, depth + 1);
+    }
+    return out;
+  } catch {
+    return String(value);
+  }
+}
+function mergeOptionsIntoPayload(payload) {
+  const p = { ...asRecord(payload) };
+  const options = asRecord(p.options);
+  for (const key of [
+    "browser",
+    "headless",
+    "userDataDir",
+    "storageStatePath",
+    "storageState",
+    "launchOptions",
+    "contextOptions",
+    "cdpEndpoint",
+    "browserURL",
+    "cdpUrl",
+    "executablePath",
+    "browserPath",
+    "browserExecutable",
+    "channel",
+    "engine",
+    "browserName",
+    "browserBinary",
+    "profile",
+    "seleniumServerUrl"
+  ]) {
+    if (p[key] === void 0 && options[key] !== void 0) {
+      p[key] = options[key];
+    }
+  }
+  return p;
+}
+
+// plugins/driver-playwright/src/index.ts
 var import_node_module = require("node:module");
 var import_promises = __toESM(require("node:fs/promises"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
 var sessions = /* @__PURE__ */ new Map();
 var localRequire = (0, import_node_module.createRequire)(typeof __filename === "string" ? __filename : process.cwd());
+var SEMANTIC_COMMANDS = [
+  "click",
+  "type",
+  "assertVisible",
+  "screenshot",
+  "navigate",
+  "hover",
+  "press",
+  "select",
+  "scroll",
+  "forward",
+  "newTab",
+  "switchTab",
+  "uploadFile",
+  "dragDrop",
+  "wait",
+  "assertText",
+  "getText",
+  "back",
+  "reload",
+  "closeTab",
+  "custom"
+];
 async function loadPlaywrightModule() {
   const cwd = process.cwd();
   const candidates = [
@@ -58,15 +270,12 @@ async function loadPlaywrightModule() {
   }
   return await new Function('return import("playwright")')();
 }
-function getString(value) {
-  return typeof value === "string" ? value : void 0;
+function asRecord2(value) {
+  return typeof value === "object" && value !== null ? value : {};
 }
 function locatorFromPayload(page, payload) {
-  if (!payload) {
-    return void 0;
-  }
-  const locatorObj = payload.locator;
-  if (!locatorObj) {
+  const locatorObj = asRecord2(payload?.locator);
+  if (Object.keys(locatorObj).length === 0) {
     return void 0;
   }
   const testId = getString(locatorObj.testId);
@@ -92,39 +301,222 @@ function locatorFromPayload(page, payload) {
   return void 0;
 }
 function parseHeadless(payload) {
-  if (typeof payload?.headless === "boolean") {
-    return payload.headless;
+  const merged = mergeOptionsIntoPayload(payload);
+  if (typeof merged.headless === "boolean") {
+    return merged.headless;
   }
   return process.env.ADA_PLAYWRIGHT_HEADLESS !== "false";
 }
-function getNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
-}
-function getStringArray(value) {
-  if (!Array.isArray(value)) {
-    return [];
+function parseBrowserKind(payload) {
+  const merged = mergeOptionsIntoPayload(payload);
+  const raw = (getString(merged.browser) ?? process.env.ADA_PLAYWRIGHT_BROWSER ?? "chromium").toLowerCase();
+  if (raw === "firefox" || raw === "webkit") {
+    return raw;
   }
-  return value.filter((item) => typeof item === "string");
+  return "chromium";
+}
+async function resolveStorageState(payload) {
+  const merged = mergeOptionsIntoPayload(payload);
+  const pathStr = getString(merged.storageStatePath);
+  if (pathStr) {
+    const raw = await import_promises.default.readFile(pathStr, "utf8");
+    return JSON.parse(raw);
+  }
+  if (merged.storageState !== void 0) {
+    return merged.storageState;
+  }
+  return void 0;
+}
+async function closePlaywrightSession(pw) {
+  if (pw.connectedOverCdp) {
+    await pw.browser?.close().catch(() => void 0);
+    return;
+  }
+  await pw.context.close().catch(() => void 0);
+  if (!pw.persistent && pw.browser) {
+    await pw.browser.close().catch(() => void 0);
+  }
+}
+function applyLocalLaunchOverrides(baseLaunch, local, browserKind) {
+  if (local.executablePath) {
+    baseLaunch.executablePath = local.executablePath;
+  }
+  if (local.channel && browserKind === "chromium") {
+    baseLaunch.channel = local.channel;
+  }
+}
+async function createPlaywrightSession(playwrightModule, payload) {
+  const merged = mergeOptionsIntoPayload(payload);
+  const local = resolveLocalBrowserFields(merged);
+  const browserKind = parseBrowserKind(merged);
+  const headless = parseHeadless(merged);
+  const launchOptions = asRecord2(merged.launchOptions);
+  const contextOptions = { ...asRecord2(merged.contextOptions) };
+  const storageState = await resolveStorageState(merged);
+  if (storageState !== void 0) {
+    contextOptions.storageState = storageState;
+  }
+  const sessionKey = buildSessionKey(merged);
+  const localBrowser = {
+    cdpEndpoint: local.cdpEndpoint || void 0,
+    executablePath: local.executablePath || void 0,
+    channel: local.channel || void 0,
+    userDataDir: local.userDataDir || void 0
+  };
+  if (local.cdpEndpoint) {
+    const chromium = playwrightModule.chromium;
+    if (!chromium?.connectOverCDP) {
+      throw new Error("connectOverCDP requires playwright chromium (set browser=chromium or use Chrome CDP URL)");
+    }
+    const connectOptions = asRecord2(merged.connectOptions);
+    const browser2 = await chromium.connectOverCDP(local.cdpEndpoint, connectOptions);
+    const contexts = browser2.contexts();
+    const context2 = contexts[0] ?? await browser2.newContext(contextOptions);
+    const pages = context2.pages();
+    const page2 = pages[0] ?? await context2.newPage();
+    return {
+      browser: browser2,
+      context: context2,
+      page: page2,
+      headless,
+      browserKind: "chromium",
+      persistent: false,
+      connectedOverCdp: true,
+      sessionKey,
+      playwrightModule,
+      localBrowser: { ...localBrowser, cdpEndpoint: local.cdpEndpoint }
+    };
+  }
+  const userDataDir = local.userDataDir;
+  const launcher = playwrightModule[browserKind];
+  const baseLaunch = { headless, ...launchOptions };
+  applyLocalLaunchOverrides(baseLaunch, local, browserKind);
+  if (userDataDir) {
+    if (!launcher?.launchPersistentContext) {
+      throw new Error(`launchPersistentContext not available for ${browserKind}`);
+    }
+    const context2 = await launcher.launchPersistentContext(userDataDir, {
+      ...baseLaunch,
+      ...contextOptions
+    });
+    const pages = context2.pages();
+    const page2 = pages[0] ?? await context2.newPage();
+    return {
+      browser: typeof context2.browser === "function" ? context2.browser() : null,
+      context: context2,
+      page: page2,
+      headless,
+      browserKind,
+      persistent: true,
+      connectedOverCdp: false,
+      sessionKey,
+      playwrightModule,
+      localBrowser
+    };
+  }
+  if (!launcher?.launch) {
+    throw new Error(`playwright browser not available: ${browserKind}`);
+  }
+  const browser = await launcher.launch(baseLaunch);
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+  return {
+    browser,
+    context,
+    page,
+    headless,
+    browserKind,
+    persistent: false,
+    connectedOverCdp: false,
+    sessionKey,
+    playwrightModule,
+    localBrowser
+  };
 }
 async function ensurePlaywrightSession(session, payload) {
-  const expectedHeadless = parseHeadless(payload);
+  const merged = mergeOptionsIntoPayload(payload);
+  const sessionKey = buildSessionKey(merged);
   const existed = sessions.get(session.id);
+  if (existed && existed.sessionKey === sessionKey) {
+    return existed;
+  }
   if (existed) {
-    if (existed.headless === expectedHeadless) {
-      return existed;
-    }
-    await existed.context.close().catch(() => void 0);
-    await existed.browser.close().catch(() => void 0);
+    await closePlaywrightSession(existed);
     sessions.delete(session.id);
   }
   const playwrightModule = await loadPlaywrightModule();
-  const chromium = playwrightModule.chromium;
-  const browser = await chromium.launch({ headless: expectedHeadless });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  const pwSession = { browser, context, page, headless: expectedHeadless };
+  const pwSession = await createPlaywrightSession(playwrightModule, merged);
   sessions.set(session.id, pwSession);
   return pwSession;
+}
+function resolvePlaywrightTarget(pw, invoke) {
+  const target = (invoke.target ?? "page").toLowerCase();
+  if (target === "page") {
+    return pw.page;
+  }
+  if (target === "context") {
+    return pw.context;
+  }
+  if (target === "browser") {
+    if (!pw.browser) {
+      throw new Error("browser handle not available (persistent context may expose null browser)");
+    }
+    return pw.browser;
+  }
+  if (target === "playwright") {
+    return pw.playwrightModule;
+  }
+  if (target === "locator") {
+    const locator = locatorFromPayload(pw.page, { locator: invoke.locator });
+    if (!locator) {
+      throw new Error("invoke target=locator requires payload.locator");
+    }
+    return locator;
+  }
+  throw new Error(`unsupported invoke target: ${target}`);
+}
+async function executePlaywrightInvoke(command, pw, payload) {
+  const invoke = normalizeInvokePayload(payload, "method");
+  if (!invoke?.method) {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_INVALID_PAYLOAD",
+      errorMessage: "invoke requires payload.method (and optional target, args)"
+    };
+  }
+  const target = resolvePlaywrightTarget(pw, invoke);
+  const fn = target[invoke.method];
+  if (typeof fn !== "function") {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_METHOD_NOT_FOUND",
+      errorMessage: `Method not found: ${invoke.target ?? "page"}.${invoke.method}`
+    };
+  }
+  const args = Array.isArray(invoke.args) ? invoke.args : [];
+  const result = await fn.apply(target, args);
+  if (invoke.target === "context" && invoke.method === "newPage" && result) {
+    pw.page = result;
+  }
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "playwright",
+      command: "invoke",
+      mode: "real",
+      rpcMode: "method",
+      target: invoke.target ?? "page",
+      method: invoke.method,
+      value: serializeRpcResult(result),
+      browser: pw.browserKind,
+      headless: pw.headless,
+      connectedOverCdp: pw.connectedOverCdp,
+      localBrowser: pw.localBrowser
+    }
+  };
 }
 async function runMock(command, reason) {
   return {
@@ -139,35 +531,35 @@ async function runMock(command, reason) {
     }
   };
 }
+function failResult(command, code, message) {
+  return {
+    requestId: command.requestId,
+    success: false,
+    errorCode: code,
+    errorMessage: message
+  };
+}
+function getNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function getStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item) => typeof item === "string");
+}
 var playwrightPlugin = {
   manifest: {
     id: "driver-playwright",
     version: "0.1.0",
     engine: "playwright",
     platforms: ["web"],
-    capabilities: [
-      "click",
-      "type",
-      "assertVisible",
-      "screenshot",
-      "navigate",
-      "hover",
-      "press",
-      "select",
-      "scroll",
-      "forward",
-      "newTab",
-      "switchTab",
-      "uploadFile",
-      "dragDrop",
-      "wait",
-      "assertText",
-      "getText",
-      "back",
-      "reload",
-      "closeTab",
-      "custom"
-    ]
+    capabilities: [...SEMANTIC_COMMANDS, "invoke"],
+    semanticCommands: [...SEMANTIC_COMMANDS],
+    invoke: {
+      modes: ["method"],
+      targets: ["page", "context", "browser", "playwright", "locator"]
+    }
   },
   async init() {
   },
@@ -175,17 +567,26 @@ var playwrightPlugin = {
     return { id: `pw-${Date.now()}`, platform };
   },
   async execute(session, command) {
+    const cmd = command.command;
     const payload = command.payload;
     const forceMock = Boolean(payload?.mock);
     if (forceMock) {
       return runMock(command, "payload.mock=true");
+    }
+    if (cmd === "invoke") {
+      try {
+        const pw = await ensurePlaywrightSession(session, payload);
+        return await executePlaywrightInvoke(command, pw, payload);
+      } catch (error) {
+        return failResult(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
+      }
     }
     try {
       const pw = await ensurePlaywrightSession(session, payload);
       const page = pw.page;
       const url = getString(payload?.url);
       const locator = locatorFromPayload(page, payload);
-      if (command.command === "navigate") {
+      if (cmd === "navigate") {
         if (!url) {
           return runMock(command, "missing url");
         }
@@ -253,12 +654,7 @@ var playwrightPlugin = {
         const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
         const selected = pages[safeIndex];
         if (!selected) {
-          return {
-            requestId: command.requestId,
-            success: false,
-            errorCode: "TAB_NOT_FOUND",
-            errorMessage: `No tab found at index ${tabIndex}`
-          };
+          return failResult(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
         }
         pw.page = selected;
         await selected.bringToFront();
@@ -274,10 +670,10 @@ var playwrightPlugin = {
         }
         await locator.setInputFiles(targetPaths);
       } else if (command.command === "dragDrop") {
-        const sourceLocatorObj = payload?.sourceLocator ?? payload?.fromLocator;
-        const targetLocatorObj = payload?.targetLocator ?? payload?.toLocator;
-        const source = sourceLocatorObj ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
-        const target = targetLocatorObj ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
+        const sourceLocatorObj = asRecord2(payload?.sourceLocator ?? payload?.fromLocator);
+        const targetLocatorObj = asRecord2(payload?.targetLocator ?? payload?.toLocator);
+        const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
+        const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
         if (!source || !target) {
           return runMock(command, "missing source/target locator");
         }
@@ -298,12 +694,7 @@ var playwrightPlugin = {
         }
         const visible = await locator.isVisible();
         if (!visible) {
-          return {
-            requestId: command.requestId,
-            success: false,
-            errorCode: "ASSERT_NOT_VISIBLE",
-            errorMessage: "Target element is not visible."
-          };
+          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.");
         }
       } else if (command.command === "assertText") {
         if (!locator) {
@@ -315,12 +706,7 @@ var playwrightPlugin = {
         }
         const actual = await locator.textContent() ?? "";
         if (!actual.includes(expected)) {
-          return {
-            requestId: command.requestId,
-            success: false,
-            errorCode: "ASSERT_TEXT_MISMATCH",
-            errorMessage: `Expected text to include "${expected}", got "${actual}"`
-          };
+          return failResult(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`);
         }
       } else if (command.command === "getText") {
         if (!locator) {
@@ -330,7 +716,7 @@ var playwrightPlugin = {
         return {
           requestId: command.requestId,
           success: true,
-          data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless }
+          data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
         };
       } else if (command.command === "screenshot") {
         const dir = import_node_path.default.join(process.cwd(), "artifacts");
@@ -341,10 +727,20 @@ var playwrightPlugin = {
         return {
           requestId: command.requestId,
           success: true,
-          data: { driver: "playwright", command: command.command, screenshot: target, fullPage, headless: pw.headless }
+          data: {
+            driver: "playwright",
+            command: command.command,
+            screenshot: target,
+            fullPage,
+            headless: pw.headless,
+            browser: pw.browserKind
+          }
         };
       } else if (command.command === "custom") {
-        const action = getString(payload?.action);
+        const action = getString(payload?.action)?.toLowerCase();
+        if (action === "invoke" || payload?.method && !action) {
+          return executePlaywrightInvoke(command, pw, payload);
+        }
         if (action === "evaluate") {
           const script = getString(payload?.script);
           if (!script) {
@@ -354,10 +750,18 @@ var playwrightPlugin = {
           return {
             requestId: command.requestId,
             success: true,
-            data: { driver: "playwright", command: command.command, mode: "real", action, value, headless: pw.headless }
+            data: {
+              driver: "playwright",
+              command: command.command,
+              mode: "real",
+              action: "evaluate",
+              value: serializeRpcResult(value),
+              headless: pw.headless,
+              browser: pw.browserKind
+            }
           };
         }
-        return runMock(command, "unsupported custom action");
+        return runMock(command, "unsupported custom action; use action=evaluate|invoke or command=invoke");
       } else {
         return runMock(command, "unsupported command");
       }
@@ -368,10 +772,16 @@ var playwrightPlugin = {
           driver: "playwright",
           command: command.command,
           mode: "real",
-          headless: pw.headless
+          headless: pw.headless,
+          browser: pw.browserKind,
+          connectedOverCdp: pw.connectedOverCdp,
+          localBrowser: pw.localBrowser
         }
       };
     } catch (error) {
+      if (cmd === "custom") {
+        return failResult(command, "COMMAND_FAILED", error instanceof Error ? error.message : String(error));
+      }
       return runMock(command, error instanceof Error ? error.message : String(error));
     }
   },
@@ -380,16 +790,14 @@ var playwrightPlugin = {
     if (!existed) {
       return;
     }
-    await existed.context.close().catch(() => void 0);
-    await existed.browser.close().catch(() => void 0);
+    await closePlaywrightSession(existed);
     sessions.delete(session.id);
   },
   async dispose() {
-    for (const [id, session] of sessions) {
-      await session.context.close().catch(() => void 0);
-      await session.browser.close().catch(() => void 0);
-      sessions.delete(id);
+    for (const [, pw] of sessions) {
+      await closePlaywrightSession(pw);
     }
+    sessions.clear();
   }
 };
 var index_default = playwrightPlugin;

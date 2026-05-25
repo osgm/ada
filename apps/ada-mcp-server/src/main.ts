@@ -380,6 +380,126 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
+function invokePayloadSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      engine: {
+        type: "string",
+        enum: ["playwright", "selenium"],
+        description: "Web automation backend (default playwright). Use selenium for system Firefox/Chrome via GeckoDriver."
+      },
+      browserName: {
+        type: "string",
+        description: "Selenium browser: firefox | chrome | MicrosoftEdge"
+      },
+      browserBinary: { type: "string", description: "Selenium: path to installed browser executable" },
+      profile: { type: "string", description: "Selenium: Firefox profile or Chrome user-data directory" },
+      seleniumServerUrl: { type: "string", description: "Selenium Grid / standalone server URL for remote sessions" },
+      mode: { type: "string", enum: ["method", "http"], description: "method=Playwright in-process; http=Appium WebDriver route" },
+      target: {
+        type: "string",
+        description: "Playwright handle: page|context|browser|playwright|locator (with payload.locator)"
+      },
+      method: { type: "string", description: "Playwright method name or required with http.mode" },
+      args: { type: "array", items: {}, description: "JSON-serializable method arguments" },
+      http: {
+        type: "object",
+        properties: {
+          method: { type: "string" },
+          path: { type: "string" },
+          body: {}
+        },
+        required: ["method", "path"],
+        description: "Appium WebDriver HTTP passthrough"
+      },
+      locator: { type: "object" },
+      options: { type: "object", additionalProperties: true },
+      custom: { type: "object", description: "Legacy Appium HTTP block (method/path/body)" },
+      browser: { type: "string", enum: ["chromium", "firefox", "webkit"] },
+      headless: { type: "boolean" },
+      userDataDir: {
+        type: "string",
+        description: "Persistent profile directory (Chrome/Firefox user data path) for cookies/cache"
+      },
+      cdpEndpoint: {
+        type: "string",
+        description: "Attach to local Chromium via CDP, e.g. http://127.0.0.1:9222 (alias: browserURL, cdpUrl)"
+      },
+      browserURL: { type: "string", description: "Alias of cdpEndpoint" },
+      executablePath: {
+        type: "string",
+        description: "Local browser executable, e.g. C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+      },
+      browserPath: { type: "string", description: "Alias of executablePath" },
+      channel: {
+        type: "string",
+        description: "Chromium channel: chrome | msedge | chrome-beta | msedge-beta (uses installed browser)"
+      },
+      storageStatePath: { type: "string" },
+      real: { type: "boolean" },
+      serverUrl: { type: "string" },
+      capabilities: { type: "object" },
+      keepSession: { type: "boolean" }
+    },
+    additionalProperties: true
+  };
+}
+
+function mergeWebEngineIntoPayload(args: Record<string, unknown>): Record<string, unknown> {
+  const payload = { ...asRecord(args.payload) };
+  if (args.engine !== undefined && payload.engine === undefined) {
+    payload.engine = args.engine;
+  }
+  return payload;
+}
+
+function buildInvokeCommandPayload(args: Record<string, unknown>): Record<string, unknown> {
+  const nested = asRecord(args.payload);
+  const out: Record<string, unknown> = { ...nested };
+  const keys = [
+    "mode",
+    "target",
+    "method",
+    "args",
+    "http",
+    "locator",
+    "options",
+    "custom",
+    "browser",
+    "headless",
+    "userDataDir",
+    "cdpEndpoint",
+    "browserURL",
+    "cdpUrl",
+    "executablePath",
+    "browserPath",
+    "browserExecutable",
+    "channel",
+    "connectOptions",
+    "storageStatePath",
+    "storageState",
+    "launchOptions",
+    "contextOptions",
+    "real",
+    "serverUrl",
+    "capabilities",
+    "keepSession",
+    "mock",
+    "engine",
+    "browserName",
+    "browserBinary",
+    "profile",
+    "seleniumServerUrl"
+  ];
+  for (const key of keys) {
+    if (args[key] !== undefined && out[key] === undefined) {
+      out[key] = args[key];
+    }
+  }
+  return out;
+}
+
 function toCommandEnvelope(input: Record<string, unknown>): CommandEnvelope {
   const payload = asRecord(input.payload);
   return {
@@ -423,7 +543,8 @@ type SupportedCommand =
   | "home"
   | "launchApp"
   | "terminateApp"
-  | "custom";
+  | "custom"
+  | "invoke";
 
 const supportedCommands = new Set<string>([
   "click",
@@ -450,10 +571,11 @@ const supportedCommands = new Set<string>([
   "home",
   "launchApp",
   "terminateApp",
-  "custom"
+  "custom",
+  "invoke"
 ]);
 
-const riskyCommandDefaults = ["custom", "launchApp", "terminateApp"];
+const riskyCommandDefaults = ["custom", "invoke", "launchApp", "terminateApp"];
 const riskyCommandAllowlist = new Set<string>(
   (process.env.ADA_MCP_RISKY_COMMAND_WHITELIST ?? riskyCommandDefaults.join(","))
     .split(",")
@@ -486,6 +608,7 @@ function parseInstallScope(v: unknown): InstallScope {
   if (
     v === "all" ||
     v === "playwright" ||
+    v === "selenium" ||
     v === "appium" ||
     v === "drivers" ||
     v === "mobile" ||
@@ -663,18 +786,6 @@ async function loadTaskFile(taskFilePath: string): Promise<CommandEnvelope[]> {
   });
 }
 
-const server = new Server(
-  {
-    name: "ada-mcp-server",
-    version: "0.1.0"
-  },
-  {
-    capabilities: {
-      tools: {}
-    }
-  }
-);
-
 let shuttingDown = false;
 async function gracefulShutdown(reason: string): Promise<void> {
   if (shuttingDown) {
@@ -712,7 +823,10 @@ function scopedHealthSnapshot(snapshot: Record<string, unknown>, scope: "web" | 
   if (scope === "web") {
     out.dependencies = {
       playwrightInstalled: deps.playwrightInstalled,
-      playwrightLaunchOk: deps.playwrightLaunchOk
+      playwrightLaunchOk: deps.playwrightLaunchOk,
+      seleniumWebdriverInstalled: deps.seleniumWebdriverInstalled,
+      geckodriverOk: deps.geckodriverOk,
+      chromedriverOk: deps.chromedriverOk
     };
     return out;
   }
@@ -725,7 +839,8 @@ function scopedHealthSnapshot(snapshot: Record<string, unknown>, scope: "web" | 
   return out;
 }
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
+function wireAdaMcpProtocolServer(mcp: Server): void {
+  mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: "ada_health",
@@ -825,7 +940,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               "home",
               "launchApp",
               "terminateApp",
-              "custom"
+              "custom",
+              "invoke"
             ]
           },
           payload: { type: "object" },
@@ -851,11 +967,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "ada_web_action",
-      description: "Convenience tool: execute web action via driver-playwright",
+      name: "ada_invoke",
+      description:
+        "Unified driver RPC: Playwright method (web, mode=method), Selenium method/http (web, engine=selenium), Appium HTTP (mobile). Covers native APIs beyond semantic commands.",
       inputSchema: {
         type: "object",
         properties: {
+          requestId: { type: "string" },
+          sessionId: { type: "string" },
+          platform: { type: "string", enum: ["web", "android", "ios", "harmony"] },
+          mode: { type: "string", enum: ["method", "http"] },
+          target: { type: "string" },
+          method: { type: "string" },
+          args: { type: "array", items: {} },
+          http: {
+            type: "object",
+            properties: {
+              method: { type: "string" },
+              path: { type: "string" },
+              body: {}
+            },
+            required: ["method", "path"]
+          },
+          payload: invokePayloadSchema(),
+          allowMock: { type: "boolean" },
+          riskApproved: { type: "boolean", description: "Required for invoke (high risk)" },
+          monitor: {
+            type: "object",
+            properties: {
+              enabled: { type: "boolean" },
+              outputDir: { type: "string" },
+              maxWidth: { type: "number" },
+              maxHeight: { type: "number" },
+              keepAspectRatio: { type: "boolean" },
+              onFailureOnly: { type: "boolean" },
+              groupBySession: { type: "boolean" },
+              nonBlocking: { type: "boolean" }
+            },
+            additionalProperties: false
+          }
+        },
+        required: ["platform"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: "ada_web_action",
+      description: "Convenience tool: execute web action (default engine=playwright; use engine=selenium for system browser)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          engine: { type: "string", enum: ["playwright", "selenium"] },
           command: {
             type: "string",
             enum: [
@@ -884,7 +1046,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           sessionId: { type: "string" },
           requestId: { type: "string" },
-          payload: { type: "object" },
+          payload: invokePayloadSchema(),
           allowMock: { type: "boolean", description: "Allow mock fallback results instead of strict real-only mode." },
           riskApproved: { type: "boolean", description: "Acknowledge high-risk command execution" },
           monitor: {
@@ -962,16 +1124,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "ada_install_deps",
-      description: "Install ADA runtime dependencies (playwright/appium/drivers)",
+      description: "Install ADA runtime dependencies (playwright/selenium/appium/drivers)",
       inputSchema: {
         type: "object",
         properties: {
           only: {
             type: "string",
-            enum: ["all", "playwright", "mobile", "android", "ios", "harmony", "appium", "drivers"],
+            enum: ["all", "playwright", "selenium", "mobile", "android", "ios", "harmony", "appium", "drivers"],
             description: "Install scope"
           },
-          force: { type: "boolean", description: "Force reinstall selected scope" }
+          force: { type: "boolean", description: "Force reinstall selected scope" },
+          nativeDriversDir: {
+            type: "string",
+            description: "Native WebDriver directory (default dirver at workspace root)"
+          },
+          geckodriverVersion: {
+            type: "string",
+            description: "GeckoDriver version: 0.36.0 | latest | skip"
+          },
+          chromedriverVersion: {
+            type: "string",
+            description: "ChromeDriver major: 137 | 135 | match-chrome | latest | skip"
+          }
         },
         additionalProperties: false
       }
@@ -995,12 +1169,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "ada_close_session",
-      description: "Close one active session by platform + sessionId",
+      description: "Close one active session by platform + sessionId (web: optional engine playwright|selenium)",
       inputSchema: {
         type: "object",
         properties: {
           platform: { type: "string", enum: ["web", "android", "ios", "harmony"] },
-          sessionId: { type: "string" }
+          sessionId: { type: "string" },
+          engine: {
+            type: "string",
+            enum: ["playwright", "selenium"],
+            description: "Web only: which engine session to close (default playwright)"
+          },
+          payload: { type: "object", description: "Optional; engine may also be set here" }
         },
         required: ["platform", "sessionId"],
         additionalProperties: false
@@ -1135,7 +1315,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   ]
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
+mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   const tool = normalizeToolName(request.params.name);
   const args = asRecord(request.params.arguments);
 
@@ -1182,7 +1362,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     const only = parseInstallScope(args.only);
     const force = args.force === true;
     const logs: string[] = [];
-    const summary = await installDependencies(only, force, (line) => logs.push(line));
+    const summary = await installDependencies(only, force, (line: string) => logs.push(line), {
+      ...(typeof args.nativeDriversDir === "string" ? { nativeDriversDir: args.nativeDriversDir } : {}),
+      ...(typeof args.geckodriverVersion === "string" ? { geckodriverVersion: args.geckodriverVersion } : {}),
+      ...(typeof args.chromedriverVersion === "string" ? { chromedriverVersion: args.chromedriverVersion } : {})
+    });
     return textResult({
       status: "ok",
       only,
@@ -1213,8 +1397,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     if (!sessionId) {
       throw new Error("sessionId is required");
     }
-    const closed = await closeSession(platform, sessionId);
-    return textResult({ status: "ok", closed, platform, sessionId });
+    const payload = mergeWebEngineIntoPayload(args);
+    const engine =
+      platform === "web" && typeof payload.engine === "string" ? (payload.engine as "playwright" | "selenium") : undefined;
+    const closed = await closeSession(platform, sessionId, { engine, payload });
+    return textResult({ status: "ok", closed, platform, sessionId, engine });
   }
   if (tool === "ada_close_all_sessions") {
     const closed = await closeAllSessions();
@@ -1505,6 +1692,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     assertRealResult(result, "ada_execute", allowMock(args));
     return textResult(result);
   }
+  if (tool === "ada_invoke") {
+    ensureRiskAllowed("invoke", args);
+    const platform = normalizePlatform(args.platform);
+    const payload = buildInvokeCommandPayload(args);
+    if (platform !== "web" && payload.real !== false) {
+      payload.real = true;
+    }
+    const envelope: CommandEnvelope = {
+      requestId: String(args.requestId ?? `invoke-${Date.now()}`),
+      sessionId: String(args.sessionId ?? "mcp-invoke"),
+      platform,
+      command: "invoke",
+      payload
+    };
+    await withTiming(`ensureAppiumServerReady(${platform})`, () => ensureAppiumServerReady(platform));
+    const result = await withTiming(`runCommand(${platform}:invoke)`, () => runCommand(envelope));
+    const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
+    if (maybeJob) {
+      await maybeJob;
+    }
+    assertRealResult(result, "ada_invoke", allowMock(args));
+    return textResult(result);
+  }
   if (tool === "ada_web_action") {
     const command = normalizeCommand(args.command);
     ensureRiskAllowed(command, args);
@@ -1514,7 +1724,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     const envelope = toCommandEnvelope({
       ...args,
       platform: "web",
-      command
+      command,
+      payload: mergeWebEngineIntoPayload(args)
     });
     const result = await withTiming(`runCommand(web:${command})`, () => runCommand(envelope));
     const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
@@ -1550,7 +1761,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   }
 
   throw new Error(`Unknown tool: ${tool}`);
-});
+  });
+}
+
+export function createAdaMcpProtocolServer(): Server {
+  const instance = new Server(
+    {
+      name: "ada-mcp-server",
+      version: "0.1.0"
+    },
+    {
+      capabilities: {
+        tools: {}
+      }
+    }
+  );
+  wireAdaMcpProtocolServer(instance);
+  return instance;
+}
+
+export const server = createAdaMcpProtocolServer();
 
 export async function startMcpServer(): Promise<void> {
   const binaryCommand = process.execPath;
@@ -1584,7 +1814,7 @@ export async function startMcpServer(): Promise<void> {
   };
   console.error("[ADA-MCP] config hint (binary):");
   console.error(JSON.stringify(configHint, null, 2));
-  console.error("[ADA-MCP] note: MCP tool names use ada_snake_case (e.g. ada_install_deps, ada_web_action)");
+  console.error("[ADA-MCP] note: MCP tool names use ada_snake_case (e.g. ada_install_deps, ada_invoke, ada_web_action)");
   console.error("[ADA-MCP] config hint (npm dev):");
   console.error(JSON.stringify(npmDevHint, null, 2));
 

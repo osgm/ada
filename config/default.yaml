@@ -64,6 +64,10 @@ dependencies:
   playwrightHostCandidates:
     - "https://npmmirror.com/mirrors/playwright"
     - "https://playwright.azureedge.net"
+  # 原生 WebDriver（geckodriver / chromedriver）统一放在项目 dirver 目录
+  nativeDriversDir: "dirver"
+  geckodriverVersion: "latest" # 如 0.36.0；install-deps --only=selenium 时下载到此目录
+  chromedriverVersion: "latest" # 如 137、135、match-chrome（匹配本机 Chrome 主版本）
 
 appium:
   serverUrl: "http://127.0.0.1:4723"

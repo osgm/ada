@@ -1,5 +1,8 @@
 export type Platform = "web" | "android" | "ios" | "harmony";
 
+/** Desktop web automation backend (routed by plugin-host when platform=web). */
+export type WebEngine = "playwright" | "selenium";
+
 export type CommandType =
   | "click"
   | "type"
@@ -25,7 +28,34 @@ export type CommandType =
   | "home"
   | "launchApp"
   | "terminateApp"
-  | "custom";
+  | "custom"
+  | "invoke";
+
+export type InvokeMode = "method" | "http";
+
+export interface InvokeHttpPayload {
+  method: string;
+  path: string;
+  body?: unknown;
+}
+
+/** Unified driver RPC payload (Playwright method mode or Appium HTTP mode). */
+export interface InvokePayload {
+  mode?: InvokeMode;
+  target?: string;
+  method?: string;
+  args?: unknown[];
+  http?: InvokeHttpPayload;
+  locator?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+  /** Legacy Appium custom HTTP block; normalized by @ada/driver-rpc */
+  custom?: InvokeHttpPayload;
+}
+
+export interface PluginInvokeManifest {
+  modes: InvokeMode[];
+  targets?: string[];
+}
 
 export interface CommandEnvelope {
   requestId: string;
@@ -82,5 +112,9 @@ export interface PluginManifest {
   version: string;
   platforms: Platform[];
   capabilities: string[];
-  engine: "playwright" | "appium";
+  engine: "playwright" | "appium" | "selenium";
+  /** L1 semantic commands exposed by this driver */
+  semanticCommands?: string[];
+  /** L2 native RPC passthrough */
+  invoke?: PluginInvokeManifest;
 }

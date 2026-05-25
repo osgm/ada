@@ -2,12 +2,15 @@ import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import type { CommandEnvelope } from "@ada/contracts";
 import type { DriverPlugin } from "@ada/plugin-sdk";
+import { PluginHost } from "@ada/plugin-host";
 import playwrightPlugin from "@ada/driver-playwright";
 import appiumPlugin from "@ada/driver-appium";
+import seleniumPlugin from "@ada/driver-selenium";
 
 after(async () => {
   await playwrightPlugin.dispose();
   await appiumPlugin.dispose();
+  await seleniumPlugin.dispose();
 });
 
 function baseCommand(overrides: Partial<CommandEnvelope>): CommandEnvelope {
@@ -28,6 +31,70 @@ async function runAndAssertResult(plugin: DriverPlugin, command: CommandEnvelope
   assert.equal(typeof result.success, "boolean");
   assert.equal(result.requestId, command.requestId);
 }
+
+test("plugin-host: web engine routing playwright vs selenium", async () => {
+  const host = new PluginHost();
+  host.register(playwrightPlugin);
+  host.register(seleniumPlugin);
+
+  const pw = host.resolve(
+    baseCommand({ platform: "web", command: "navigate", payload: { url: "https://example.com" } })
+  );
+  assert.equal(pw.manifest.engine, "playwright");
+
+  const sel = host.resolve(
+    baseCommand({ platform: "web", command: "navigate", payload: { engine: "selenium", url: "https://example.com" } })
+  );
+  assert.equal(sel.manifest.engine, "selenium");
+});
+
+test("plugin-host: missing selenium engine throws WEB_ENGINE_SELENIUM_NOT_INSTALLED", async () => {
+  const host = new PluginHost();
+  host.register(playwrightPlugin);
+  assert.throws(
+    () =>
+      host.resolve(
+        baseCommand({ platform: "web", command: "navigate", payload: { engine: "selenium" } })
+      ),
+    /WEB_ENGINE_SELENIUM_NOT_INSTALLED/
+  );
+});
+
+test("selenium plugin conformance: mock navigate contract", async () => {
+  await runAndAssertResult(
+    seleniumPlugin,
+    baseCommand({
+      platform: "web",
+      command: "navigate",
+      payload: { engine: "selenium", mock: true, url: "https://example.com" }
+    })
+  );
+});
+
+test("selenium plugin conformance: newTab mock contract", async () => {
+  await runAndAssertResult(
+    seleniumPlugin,
+    baseCommand({
+      platform: "web",
+      command: "newTab",
+      payload: { engine: "selenium", mock: true, url: "https://example.com" }
+    })
+  );
+});
+
+test("selenium plugin conformance: invoke invalid payload", async () => {
+  const session = await seleniumPlugin.createSession("web");
+  const result = await seleniumPlugin.execute(
+    session,
+    baseCommand({
+      platform: "web",
+      command: "invoke",
+      payload: { engine: "selenium", mock: true }
+    })
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "INVOKE_INVALID_PAYLOAD");
+});
 
 test("playwright plugin conformance: command result contract", async () => {
   await runAndAssertResult(
@@ -118,6 +185,38 @@ test("playwright plugin conformance: navigation/tab commands contract", async ()
     })
   );
   assert.equal(closeTab.success, true);
+});
+
+test("playwright plugin conformance: invoke invalid payload returns standard error", async () => {
+  const session = await playwrightPlugin.createSession("web");
+  const result = await playwrightPlugin.execute(
+    session,
+    baseCommand({
+      requestId: "conformance-pw-invoke-invalid",
+      platform: "web",
+      command: "invoke",
+      payload: {}
+    })
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "INVOKE_INVALID_PAYLOAD");
+});
+
+test("appium plugin conformance: invoke invalid payload returns standard error", async () => {
+  const session = await appiumPlugin.createSession("android");
+  const result = await appiumPlugin.execute(
+    session,
+    baseCommand({
+      requestId: "conformance-appium-invoke-invalid",
+      platform: "android",
+      command: "invoke",
+      payload: { real: true, serverUrl: "http://127.0.0.1:4723", capabilities: {} }
+    })
+  );
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errorCode === "INVOKE_INVALID_PAYLOAD" || result.errorCode === "APPIUM_SESSION_CREATE_FAILED"
+  );
 });
 
 test("appium plugin conformance: command result contract", async () => {

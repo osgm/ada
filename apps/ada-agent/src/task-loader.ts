@@ -23,7 +23,15 @@ const allowedCommands = new Set<CommandType>([
   "home",
   "launchApp",
   "terminateApp",
-  "custom"
+  "custom",
+  "invoke",
+  "forward",
+  "newTab",
+  "switchTab",
+  "uploadFile",
+  "dragDrop",
+  "reload",
+  "closeTab"
 ]);
 
 function assertTask(value: unknown, index: number): CommandEnvelope {
@@ -39,7 +47,7 @@ function assertTask(value: unknown, index: number): CommandEnvelope {
   if (typeof requestId !== "string" || typeof sessionId !== "string") {
     throw new Error(`Task[${index}] requestId/sessionId must be string.`);
   }
-  if (platform !== "web" && platform !== "android" && platform !== "ios") {
+  if (platform !== "web" && platform !== "android" && platform !== "ios" && platform !== "harmony") {
     throw new Error(`Task[${index}] platform invalid: ${String(platform)}`);
   }
   if (typeof command !== "string" || !allowedCommands.has(command as CommandType)) {

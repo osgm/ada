@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-29T01:50:44.123Z",
+  "generatedAt": "2026-05-25T04:53:41.226Z",
   "schemas": [
     "command-envelope.schema.json",
     "command-result.schema.json",

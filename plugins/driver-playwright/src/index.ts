@@ -1,18 +1,63 @@
-import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import type { CommandEnvelope, CommandResult, InvokePayload } from "@ada/contracts";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
+import {
+  buildSessionKey,
+  getString,
+  mergeOptionsIntoPayload,
+  normalizeInvokePayload,
+  resolveLocalBrowserFields,
+  serializeRpcResult
+} from "@ada/driver-rpc";
 import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+type PlaywrightBrowserKind = "chromium" | "firefox" | "webkit";
+
 interface PlaywrightSession {
-  browser: any;
+  browser: any | null;
   context: any;
   page: any;
   headless: boolean;
+  browserKind: PlaywrightBrowserKind;
+  persistent: boolean;
+  connectedOverCdp: boolean;
+  sessionKey: string;
+  playwrightModule: any;
+  localBrowser?: {
+    cdpEndpoint?: string;
+    executablePath?: string;
+    channel?: string;
+    userDataDir?: string;
+  };
 }
 
 const sessions = new Map<string, PlaywrightSession>();
 const localRequire = createRequire(typeof __filename === "string" ? __filename : process.cwd());
+
+const SEMANTIC_COMMANDS = [
+  "click",
+  "type",
+  "assertVisible",
+  "screenshot",
+  "navigate",
+  "hover",
+  "press",
+  "select",
+  "scroll",
+  "forward",
+  "newTab",
+  "switchTab",
+  "uploadFile",
+  "dragDrop",
+  "wait",
+  "assertText",
+  "getText",
+  "back",
+  "reload",
+  "closeTab",
+  "custom"
+] as const;
 
 async function loadPlaywrightModule(): Promise<any> {
   const cwd = process.cwd();
@@ -34,22 +79,19 @@ async function loadPlaywrightModule(): Promise<any> {
   try {
     return localRequire("playwright");
   } catch {
-    // fall through to dynamic import
+    // fall through
   }
 
   return await new Function('return import("playwright")')();
 }
 
-function getString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 function locatorFromPayload(page: any, payload?: Record<string, unknown>): any {
-  if (!payload) {
-    return undefined;
-  }
-  const locatorObj = payload.locator as Record<string, unknown> | undefined;
-  if (!locatorObj) {
+  const locatorObj = asRecord(payload?.locator);
+  if (Object.keys(locatorObj).length === 0) {
     return undefined;
   }
 
@@ -77,43 +119,250 @@ function locatorFromPayload(page: any, payload?: Record<string, unknown>): any {
 }
 
 function parseHeadless(payload?: Record<string, unknown>): boolean {
-  if (typeof payload?.headless === "boolean") {
-    return payload.headless;
+  const merged = mergeOptionsIntoPayload(payload);
+  if (typeof merged.headless === "boolean") {
+    return merged.headless;
   }
   return process.env.ADA_PLAYWRIGHT_HEADLESS !== "false";
 }
 
-function getNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function parseBrowserKind(payload?: Record<string, unknown>): PlaywrightBrowserKind {
+  const merged = mergeOptionsIntoPayload(payload);
+  const raw = (getString(merged.browser) ?? process.env.ADA_PLAYWRIGHT_BROWSER ?? "chromium").toLowerCase();
+  if (raw === "firefox" || raw === "webkit") {
+    return raw;
+  }
+  return "chromium";
 }
 
-function getStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
+async function resolveStorageState(payload?: Record<string, unknown>): Promise<unknown | undefined> {
+  const merged = mergeOptionsIntoPayload(payload);
+  const pathStr = getString(merged.storageStatePath);
+  if (pathStr) {
+    const raw = await fs.readFile(pathStr, "utf8");
+    return JSON.parse(raw) as unknown;
   }
-  return value.filter((item): item is string => typeof item === "string");
+  if (merged.storageState !== undefined) {
+    return merged.storageState;
+  }
+  return undefined;
+}
+
+async function closePlaywrightSession(pw: PlaywrightSession): Promise<void> {
+  if (pw.connectedOverCdp) {
+    await pw.browser?.close().catch(() => undefined);
+    return;
+  }
+  await pw.context.close().catch(() => undefined);
+  if (!pw.persistent && pw.browser) {
+    await pw.browser.close().catch(() => undefined);
+  }
+}
+
+function applyLocalLaunchOverrides(
+  baseLaunch: Record<string, unknown>,
+  local: ReturnType<typeof resolveLocalBrowserFields>,
+  browserKind: PlaywrightBrowserKind
+): void {
+  if (local.executablePath) {
+    baseLaunch.executablePath = local.executablePath;
+  }
+  if (local.channel && browserKind === "chromium") {
+    baseLaunch.channel = local.channel;
+  }
+}
+
+async function createPlaywrightSession(
+  playwrightModule: any,
+  payload?: Record<string, unknown>
+): Promise<PlaywrightSession> {
+  const merged = mergeOptionsIntoPayload(payload);
+  const local = resolveLocalBrowserFields(merged);
+  const browserKind = parseBrowserKind(merged);
+  const headless = parseHeadless(merged);
+  const launchOptions = asRecord(merged.launchOptions);
+  const contextOptions = { ...asRecord(merged.contextOptions) };
+  const storageState = await resolveStorageState(merged);
+  if (storageState !== undefined) {
+    contextOptions.storageState = storageState;
+  }
+
+  const sessionKey = buildSessionKey(merged);
+  const localBrowser = {
+    cdpEndpoint: local.cdpEndpoint || undefined,
+    executablePath: local.executablePath || undefined,
+    channel: local.channel || undefined,
+    userDataDir: local.userDataDir || undefined
+  };
+
+  if (local.cdpEndpoint) {
+    const chromium = playwrightModule.chromium;
+    if (!chromium?.connectOverCDP) {
+      throw new Error("connectOverCDP requires playwright chromium (set browser=chromium or use Chrome CDP URL)");
+    }
+    const connectOptions = asRecord(merged.connectOptions);
+    const browser = await chromium.connectOverCDP(local.cdpEndpoint, connectOptions);
+    const contexts = browser.contexts();
+    const context = contexts[0] ?? (await browser.newContext(contextOptions));
+    const pages = context.pages();
+    const page = pages[0] ?? (await context.newPage());
+    return {
+      browser,
+      context,
+      page,
+      headless,
+      browserKind: "chromium",
+      persistent: false,
+      connectedOverCdp: true,
+      sessionKey,
+      playwrightModule,
+      localBrowser: { ...localBrowser, cdpEndpoint: local.cdpEndpoint }
+    };
+  }
+
+  const userDataDir = local.userDataDir;
+  const launcher = playwrightModule[browserKind];
+  const baseLaunch: Record<string, unknown> = { headless, ...launchOptions };
+  applyLocalLaunchOverrides(baseLaunch, local, browserKind);
+
+  if (userDataDir) {
+    if (!launcher?.launchPersistentContext) {
+      throw new Error(`launchPersistentContext not available for ${browserKind}`);
+    }
+    const context = await launcher.launchPersistentContext(userDataDir, {
+      ...baseLaunch,
+      ...contextOptions
+    });
+    const pages = context.pages();
+    const page = pages[0] ?? (await context.newPage());
+    return {
+      browser: typeof context.browser === "function" ? context.browser() : null,
+      context,
+      page,
+      headless,
+      browserKind,
+      persistent: true,
+      connectedOverCdp: false,
+      sessionKey,
+      playwrightModule,
+      localBrowser
+    };
+  }
+
+  if (!launcher?.launch) {
+    throw new Error(`playwright browser not available: ${browserKind}`);
+  }
+  const browser = await launcher.launch(baseLaunch);
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+  return {
+    browser,
+    context,
+    page,
+    headless,
+    browserKind,
+    persistent: false,
+    connectedOverCdp: false,
+    sessionKey,
+    playwrightModule,
+    localBrowser
+  };
 }
 
 async function ensurePlaywrightSession(session: DriverSession, payload?: Record<string, unknown>): Promise<PlaywrightSession> {
-  const expectedHeadless = parseHeadless(payload);
+  const merged = mergeOptionsIntoPayload(payload);
+  const sessionKey = buildSessionKey(merged);
   const existed = sessions.get(session.id);
+  if (existed && existed.sessionKey === sessionKey) {
+    return existed;
+  }
   if (existed) {
-    if (existed.headless === expectedHeadless) {
-      return existed;
-    }
-    await existed.context.close().catch(() => undefined);
-    await existed.browser.close().catch(() => undefined);
+    await closePlaywrightSession(existed);
     sessions.delete(session.id);
   }
 
-  const playwrightModule = (await loadPlaywrightModule()) as any;
-  const chromium = playwrightModule.chromium;
-  const browser = await chromium.launch({ headless: expectedHeadless });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  const pwSession: PlaywrightSession = { browser, context, page, headless: expectedHeadless };
+  const playwrightModule = await loadPlaywrightModule();
+  const pwSession = await createPlaywrightSession(playwrightModule, merged);
   sessions.set(session.id, pwSession);
   return pwSession;
+}
+
+function resolvePlaywrightTarget(pw: PlaywrightSession, invoke: InvokePayload): any {
+  const target = (invoke.target ?? "page").toLowerCase();
+  if (target === "page") {
+    return pw.page;
+  }
+  if (target === "context") {
+    return pw.context;
+  }
+  if (target === "browser") {
+    if (!pw.browser) {
+      throw new Error("browser handle not available (persistent context may expose null browser)");
+    }
+    return pw.browser;
+  }
+  if (target === "playwright") {
+    return pw.playwrightModule;
+  }
+  if (target === "locator") {
+    const locator = locatorFromPayload(pw.page, { locator: invoke.locator });
+    if (!locator) {
+      throw new Error("invoke target=locator requires payload.locator");
+    }
+    return locator;
+  }
+  throw new Error(`unsupported invoke target: ${target}`);
+}
+
+async function executePlaywrightInvoke(
+  command: CommandEnvelope,
+  pw: PlaywrightSession,
+  payload?: Record<string, unknown>
+): Promise<CommandResult> {
+  const invoke = normalizeInvokePayload(payload, "method");
+  if (!invoke?.method) {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_INVALID_PAYLOAD",
+      errorMessage: "invoke requires payload.method (and optional target, args)"
+    };
+  }
+
+  const target = resolvePlaywrightTarget(pw, invoke);
+  const fn = target[invoke.method];
+  if (typeof fn !== "function") {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_METHOD_NOT_FOUND",
+      errorMessage: `Method not found: ${invoke.target ?? "page"}.${invoke.method}`
+    };
+  }
+
+  const args = Array.isArray(invoke.args) ? invoke.args : [];
+  const result = await fn.apply(target, args);
+  if (invoke.target === "context" && invoke.method === "newPage" && result) {
+    pw.page = result;
+  }
+
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "playwright",
+      command: "invoke",
+      mode: "real",
+      rpcMode: "method",
+      target: invoke.target ?? "page",
+      method: invoke.method,
+      value: serializeRpcResult(result),
+      browser: pw.browserKind,
+      headless: pw.headless,
+      connectedOverCdp: pw.connectedOverCdp,
+      localBrowser: pw.localBrowser
+    }
+  };
 }
 
 async function runMock(command: CommandEnvelope, reason?: string): Promise<CommandResult> {
@@ -130,35 +379,38 @@ async function runMock(command: CommandEnvelope, reason?: string): Promise<Comma
   };
 }
 
+function failResult(command: CommandEnvelope, code: string, message: string): CommandResult {
+  return {
+    requestId: command.requestId,
+    success: false,
+    errorCode: code,
+    errorMessage: message
+  };
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+}
+
 const playwrightPlugin: DriverPlugin = {
   manifest: {
     id: "driver-playwright",
     version: "0.1.0",
     engine: "playwright",
     platforms: ["web"],
-    capabilities: [
-      "click",
-      "type",
-      "assertVisible",
-      "screenshot",
-      "navigate",
-      "hover",
-      "press",
-      "select",
-      "scroll",
-      "forward",
-      "newTab",
-      "switchTab",
-      "uploadFile",
-      "dragDrop",
-      "wait",
-      "assertText",
-      "getText",
-      "back",
-      "reload",
-      "closeTab",
-      "custom"
-    ]
+    capabilities: [...SEMANTIC_COMMANDS, "invoke"],
+    semanticCommands: [...SEMANTIC_COMMANDS],
+    invoke: {
+      modes: ["method"],
+      targets: ["page", "context", "browser", "playwright", "locator"]
+    }
   },
 
   async init() {},
@@ -168,20 +420,29 @@ const playwrightPlugin: DriverPlugin = {
   },
 
   async execute(session: DriverSession, command: CommandEnvelope): Promise<CommandResult> {
+    const cmd = command.command;
     const payload = command.payload;
     const forceMock = Boolean(payload?.mock);
     if (forceMock) {
       return runMock(command, "payload.mock=true");
     }
 
+    if (cmd === "invoke") {
+      try {
+        const pw = await ensurePlaywrightSession(session, payload);
+        return await executePlaywrightInvoke(command, pw, payload);
+      } catch (error) {
+        return failResult(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
+      }
+    }
+
     try {
       const pw = await ensurePlaywrightSession(session, payload);
       const page = pw.page;
       const url = getString(payload?.url);
-
       const locator = locatorFromPayload(page, payload);
 
-      if (command.command === "navigate") {
+      if (cmd === "navigate") {
         if (!url) {
           return runMock(command, "missing url");
         }
@@ -249,12 +510,7 @@ const playwrightPlugin: DriverPlugin = {
         const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
         const selected = pages[safeIndex];
         if (!selected) {
-          return {
-            requestId: command.requestId,
-            success: false,
-            errorCode: "TAB_NOT_FOUND",
-            errorMessage: `No tab found at index ${tabIndex}`
-          };
+          return failResult(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
         }
         pw.page = selected;
         await selected.bringToFront();
@@ -270,10 +526,11 @@ const playwrightPlugin: DriverPlugin = {
         }
         await locator.setInputFiles(targetPaths);
       } else if (command.command === "dragDrop") {
-        const sourceLocatorObj = (payload?.sourceLocator ?? payload?.fromLocator) as Record<string, unknown> | undefined;
-        const targetLocatorObj = (payload?.targetLocator ?? payload?.toLocator) as Record<string, unknown> | undefined;
-        const source = sourceLocatorObj ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
-        const target = targetLocatorObj ? locatorFromPayload(page, { locator: targetLocatorObj }) : undefined;
+        const sourceLocatorObj = asRecord(payload?.sourceLocator ?? payload?.fromLocator);
+        const targetLocatorObj = asRecord(payload?.targetLocator ?? payload?.toLocator);
+        const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
+        const target =
+          Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : undefined;
         if (!source || !target) {
           return runMock(command, "missing source/target locator");
         }
@@ -294,12 +551,7 @@ const playwrightPlugin: DriverPlugin = {
         }
         const visible = await locator.isVisible();
         if (!visible) {
-          return {
-            requestId: command.requestId,
-            success: false,
-            errorCode: "ASSERT_NOT_VISIBLE",
-            errorMessage: "Target element is not visible."
-          };
+          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.");
         }
       } else if (command.command === "assertText") {
         if (!locator) {
@@ -311,12 +563,7 @@ const playwrightPlugin: DriverPlugin = {
         }
         const actual = (await locator.textContent()) ?? "";
         if (!actual.includes(expected)) {
-          return {
-            requestId: command.requestId,
-            success: false,
-            errorCode: "ASSERT_TEXT_MISMATCH",
-            errorMessage: `Expected text to include "${expected}", got "${actual}"`
-          };
+          return failResult(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`);
         }
       } else if (command.command === "getText") {
         if (!locator) {
@@ -326,7 +573,7 @@ const playwrightPlugin: DriverPlugin = {
         return {
           requestId: command.requestId,
           success: true,
-          data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless }
+          data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
         };
       } else if (command.command === "screenshot") {
         const dir = path.join(process.cwd(), "artifacts");
@@ -337,10 +584,20 @@ const playwrightPlugin: DriverPlugin = {
         return {
           requestId: command.requestId,
           success: true,
-          data: { driver: "playwright", command: command.command, screenshot: target, fullPage, headless: pw.headless }
+          data: {
+            driver: "playwright",
+            command: command.command,
+            screenshot: target,
+            fullPage,
+            headless: pw.headless,
+            browser: pw.browserKind
+          }
         };
       } else if (command.command === "custom") {
-        const action = getString(payload?.action);
+        const action = getString(payload?.action)?.toLowerCase();
+        if (action === "invoke" || (payload?.method && !action)) {
+          return executePlaywrightInvoke(command, pw, payload);
+        }
         if (action === "evaluate") {
           const script = getString(payload?.script);
           if (!script) {
@@ -350,10 +607,18 @@ const playwrightPlugin: DriverPlugin = {
           return {
             requestId: command.requestId,
             success: true,
-            data: { driver: "playwright", command: command.command, mode: "real", action, value, headless: pw.headless }
+            data: {
+              driver: "playwright",
+              command: command.command,
+              mode: "real",
+              action: "evaluate",
+              value: serializeRpcResult(value),
+              headless: pw.headless,
+              browser: pw.browserKind
+            }
           };
         }
-        return runMock(command, "unsupported custom action");
+        return runMock(command, "unsupported custom action; use action=evaluate|invoke or command=invoke");
       } else {
         return runMock(command, "unsupported command");
       }
@@ -365,10 +630,16 @@ const playwrightPlugin: DriverPlugin = {
           driver: "playwright",
           command: command.command,
           mode: "real",
-          headless: pw.headless
+          headless: pw.headless,
+          browser: pw.browserKind,
+          connectedOverCdp: pw.connectedOverCdp,
+          localBrowser: pw.localBrowser
         }
       };
     } catch (error) {
+      if (cmd === "custom") {
+        return failResult(command, "COMMAND_FAILED", error instanceof Error ? error.message : String(error));
+      }
       return runMock(command, error instanceof Error ? error.message : String(error));
     }
   },
@@ -378,17 +649,15 @@ const playwrightPlugin: DriverPlugin = {
     if (!existed) {
       return;
     }
-    await existed.context.close().catch(() => undefined);
-    await existed.browser.close().catch(() => undefined);
+    await closePlaywrightSession(existed);
     sessions.delete(session.id);
   },
 
   async dispose() {
-    for (const [id, session] of sessions) {
-      await session.context.close().catch(() => undefined);
-      await session.browser.close().catch(() => undefined);
-      sessions.delete(id);
+    for (const [, pw] of sessions) {
+      await closePlaywrightSession(pw);
     }
+    sessions.clear();
   }
 };
 

@@ -40,7 +40,8 @@
 为避免开发阶段目标发散，当前版本统一采用以下约束：
 
 - 第一阶段以本地四入口交付为主（`ada-agent/ada-mcp/ada-gui/ada-web`），`ada-control` 延后到第二阶段。
-- 驱动插件仅保留 `driver-playwright`、`driver-appium` 两条主链路（`driver-appium` 统一承载 Android/iOS/Harmony）。
+- 驱动基线：**`driver-playwright`（Web 默认）+ `driver-appium`（Android/iOS/Harmony）**；**`driver-selenium` 为 Web 可选引擎**（`payload.engine=selenium`），不替代 Playwright、不与 Appium 并列默认。
+- Web 双引擎路由与完整分层见 **`docs/ADA-整体架构设计-确认稿.md`**（确认后再开发 Selenium 插件）。
 - 图形交互层仅做接口与安全护栏预留，默认关闭，不进入首期关键路径。
 - 执行主通道采用双工长连接；保留最小 HTTP 管理能力（注册/健康检查/配置）。
 - 第一阶段成功标准：可执行程序在 Win/macOS/Linux 启动并完成 Web + Mobile 基础任务集。
@@ -96,7 +97,7 @@
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│  L2 驱动插件运行时：Playwright / Appium（首期基线）             │
+│  L2 驱动插件：Playwright（Web 默认）/ Appium（移动）/ Selenium（Web 可选） │
 └───────────────────────────┬─────────────────────────────────┘
                             │ 桥接（HTTP/gRPC/WS/CLI）
 ┌───────────────────────────▼─────────────────────────────────┐
@@ -206,7 +207,8 @@
 
 | 平台/场景 | 参考实现方向 |
 |-----------|----------------|
-| Web | Playwright |
+| Web（默认） | Playwright |
+| Web（可选） | Selenium（WebDriver，系统 Firefox/Chrome 等） |
 | Android | Appium + UIAutomator2（首期） |
 | iOS | Appium + WDA / XCUITest（首期） |
 | HarmonyOS NEXT | Appium 3 + appium-harmonyos-driver（首期） |
@@ -444,6 +446,7 @@ ada/
   /plugins
     driver-playwright/
     driver-appium/
+    driver-selenium/   # 可选，Web engine=selenium
   test/
     conformance/
     integration/

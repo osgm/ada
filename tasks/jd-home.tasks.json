@@ -1,0 +1,22 @@
+[
+  {
+    "requestId": "jd-home-nav-001",
+    "sessionId": "jd-home-session-1",
+    "platform": "web",
+    "command": "navigate",
+    "payload": {
+      "url": "https://www.jd.com",
+      "headless": false
+    }
+  },
+  {
+    "requestId": "jd-home-shot-001",
+    "sessionId": "jd-home-session-1",
+    "platform": "web",
+    "command": "screenshot",
+    "payload": {
+      "url": "https://www.jd.com",
+      "headless": false
+    }
+  }
+]

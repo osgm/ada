@@ -46,7 +46,8 @@
         "home",
         "launchApp",
         "terminateApp",
-        "custom"
+        "custom",
+        "invoke"
       ]
     },
     "payload": {

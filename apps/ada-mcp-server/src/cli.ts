@@ -32,11 +32,16 @@ if (isServerMode) {
   const riskyCommands = parseRiskyCommands(
     argValue("--risky-commands", process.env.ADA_MCP_REMOTE_RISKY_COMMANDS ?? "custom")
   );
+  const allowedHostsRaw = argValue("--allowed-hosts", process.env.ADA_MCP_REMOTE_ALLOWED_HOSTS ?? "");
+  const allowedHosts = allowedHostsRaw
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
   if (!apiKey) {
     console.error("missing api key, set --api-key=xxx or ADA_MCP_REMOTE_API_KEY");
     process.exit(1);
   }
-  void startRemoteServer({ host, port, apiKey, allowRisky, riskyMode, riskyCommands }).catch((error) => {
+  void startRemoteServer({ host, port, apiKey, allowRisky, riskyMode, riskyCommands, allowedHosts }).catch((error) => {
     console.error(error);
     process.exit(1);
   });

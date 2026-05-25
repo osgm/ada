@@ -34,7 +34,8 @@ Playwright 用例直接兼容映射请见：`docs/Playwright-ADA-兼容映射.md
 - `ada_install_deps`：安装运行依赖（playwright/appium/drivers）
 - `ada_start_once`：以 `start --once` 模式执行一次队列处理
 - `ada_execute`：执行一条标准 ADA 命令
-- `ada_web_action`：便捷执行 Web 动作（driver-playwright）
+- `ada_invoke`：**统一驱动 RPC**（Playwright `method` / Appium `http` / Selenium `method|http` 透传）
+- `ada_web_action`：便捷执行 Web 动作（默认 `engine=playwright`；系统浏览器用 `engine=selenium`）
 - `ada_mobile_action`：便捷执行移动端动作（driver-appium）
 - `ada_run_task_file`：执行任务文件
 - `ada_batch_actions`：批量执行动作（单次请求内多步）
@@ -61,17 +62,143 @@ Playwright 用例直接兼容映射请见：`docs/Playwright-ADA-兼容映射.md
 - `stoppedOnFailure`
 
 说明：`ada_execute` / `ada_web_action` / `ada_mobile_action` / `ada_run_task_file` / `ada_batch_actions` 默认是**严格真实执行**，若需要允许 mock 回退可传 `allowMock: true`。
-高风险动作（如 `custom`、`launchApp`、`terminateApp`）默认需 `riskApproved=true`，可通过 `ada_risk_policy` 管理白名单。
+高风险动作（如 `custom`、`invoke`、`launchApp`、`terminateApp`）默认需 `riskApproved=true`，可通过 `ada_risk_policy` 管理白名单。
 上述 4 个执行类工具也支持可选 `monitor` 参数（单次调用监控开关），用于按调用粒度抓取监控截图。
 
 当前动作覆盖（第一阶段增强）：
 
-- Web：`navigate`、`click`、`hover`、`type`、`press`、`select`、`scroll`、`forward`、`newTab`、`switchTab`、`uploadFile`、`dragDrop`、`wait`、`assertVisible`、`assertText`、`getText`、`screenshot`、`back`、`reload`、`closeTab`、`custom`
-- App（Android/iOS/Harmony）：`click`、`type`、`swipe`、`wait`、`assertVisible`、`assertText`、`getText`、`screenshot`、`back`、`home`、`launchApp`、`terminateApp`、`custom`
+- Web：`navigate`、`click`、`hover`、`type`、`press`、`select`、`scroll`、`forward`、`newTab`、`switchTab`、`uploadFile`、`dragDrop`、`wait`、`assertVisible`、`assertText`、`getText`、`screenshot`、`back`、`reload`、`closeTab`、`custom`、`invoke`
+- App（Android/iOS/Harmony）：`click`、`type`、`swipe`、`wait`、`assertVisible`、`assertText`、`getText`、`screenshot`、`back`、`home`、`launchApp`、`terminateApp`、`custom`、`invoke`
 
 ---
 
 ## 3. 示例调用
+
+### 3.0 统一驱动 RPC（`ada_invoke`）
+
+高级能力请用 **`ada_invoke`**（Playwright 进程内 `method` RPC，Appium WebDriver `http` RPC）。
+
+Web 双引擎（`payload.engine`）：
+
+| engine | 驱动 | 典型场景 |
+|--------|------|----------|
+| 省略或 `playwright` | `driver-playwright` | 默认；Playwright 自带 Chromium/Firefox/WebKit |
+| `selenium` | `driver-selenium` | 本机已安装的 Firefox/Chrome + GeckoDriver/ChromeDriver |
+
+未安装 `driver-selenium` 时指定 `engine=selenium` 会返回 `WEB_ENGINE_SELENIUM_NOT_INSTALLED`（不会静默回退到 Playwright）。
+
+依赖检测与下载：`ada_install_deps` 的 `only=selenium` 会将 **geckodriver** / **chromedriver** 下载到项目根目录 **`dirver/`**（可通过 `nativeDriversDir` 或环境变量 `ADA_DRIVERS_DIR` 覆盖）。已手动放入 `dirver/geckodriver.exe`、`dirver/chromedriver137.exe` 等文件时会自动复用，除非 `force=true`。
+
+| 参数 | 说明 |
+|------|------|
+| `geckodriverVersion` | 如 `0.36.0`、`latest`；`skip` 表示不下载 |
+| `chromedriverVersion` | 如 `137`、`135`、`match-chrome`（匹配本机 Chrome 主版本）、`latest` |
+| `nativeDriversDir` | 默认 `dirver` |
+
+CLI 示例：
+
+```bash
+npx tsx apps/ada-agent/src/main.ts install-deps --only=selenium --chromedriver-version=137 --geckodriver-version=latest
+```
+
+关闭 Web 会话：`ada_close_session` 可传 `engine`（或写在 `payload.engine`），用于区分同一 `sessionId` 下的 Playwright 与 Selenium 会话。
+
+**Playwright（Firefox 打开京东）**：
+
+```json
+{
+  "platform": "web",
+  "sessionId": "mcp-jd-1",
+  "riskApproved": true,
+  "target": "page",
+  "method": "goto",
+  "args": ["https://www.jd.com"],
+  "payload": { "browser": "firefox", "headless": false }
+}
+```
+
+**Appium HTTP 透传**（兼容原 `payload.custom`）：
+
+```json
+{
+  "platform": "android",
+  "sessionId": "mcp-app-1",
+  "riskApproved": true,
+  "mode": "http",
+  "http": { "method": "GET", "path": "/source" },
+  "payload": {
+    "real": true,
+    "serverUrl": "http://127.0.0.1:4723",
+    "capabilities": { "platformName": "Android" }
+  }
+}
+```
+
+### 3.0.1 使用本机已安装的浏览器（Web）
+
+在 `payload`（或 `ada_invoke` 顶层同名字段）中支持：
+
+| 字段 | 说明 |
+|------|------|
+| `cdpEndpoint` / `browserURL` | 附着已开启远程调试的 **Chrome/Edge**（Chromium CDP），如 `http://127.0.0.1:9222` |
+| `executablePath` / `browserPath` | 本机浏览器可执行文件路径 |
+| `channel` | Chromium 专用：`chrome`、`msedge` 等（使用系统已安装浏览器） |
+| `userDataDir` | 用户数据目录（配置、Cookie、缓存）；与 `launchPersistentContext` 配合 |
+
+环境变量（可选）：`ADA_PLAYWRIGHT_CDP_ENDPOINT`、`ADA_PLAYWRIGHT_EXECUTABLE_PATH`、`ADA_PLAYWRIGHT_CHANNEL`、`ADA_PLAYWRIGHT_USER_DATA_DIR`。
+
+**方式 A：CDP 附着当前 Chrome（保留登录态）**
+
+1. 先手动启动 Chrome，例如：
+   ```text
+   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+   ```
+2. MCP 调用：
+   ```json
+   {
+     "platform": "web",
+     "sessionId": "mcp-local-chrome",
+     "riskApproved": true,
+     "target": "page",
+     "method": "goto",
+     "args": ["https://www.jd.com"],
+     "payload": { "cdpEndpoint": "http://127.0.0.1:9222" }
+   }
+   ```
+
+**方式 B：Firefox 可视化 + 用户配置目录（推荐）**
+
+使用 Playwright 自带的 Firefox（`npx playwright install firefox`），不要用系统菜单里的 `firefox.exe` 作为 `executablePath`（零售版不支持 Playwright 的 juggler 协议，会启动失败）。
+
+```json
+{
+  "command": "navigate",
+  "sessionId": "mcp-local-ff",
+  "payload": {
+    "url": "https://www.jd.com",
+    "browser": "firefox",
+    "headless": false,
+    "userDataDir": "D:\\ada-firefox-profile"
+  }
+}
+```
+
+`userDataDir` 指向**空目录或专用配置目录**即可持久化 Cookie；若填已有 Firefox 配置目录，请先关闭所有 Firefox 窗口避免 profile 锁冲突。
+
+**方式 C：系统已安装的 Chrome（无需手写 exe 路径）**
+
+```json
+{
+  "payload": {
+    "browser": "chromium",
+    "channel": "chrome",
+    "headless": false,
+    "userDataDir": "D:\\ada-chrome-profile"
+  }
+}
+```
+
+说明：CDP 模式仅支持 Chromium 系；断开 Playwright 会话**不会**关闭你已打开的 Chrome 窗口。
 
 ### 3.1 执行 Web 点击
 
@@ -280,6 +407,7 @@ ada-mcp-win.exe server --host=127.0.0.1 --port=8787 --api-key=your_token --allow
 - `--allow-risky`：高风险总开关，默认 `false`
 - `--risky-mode`：风险命令策略，`whitelist` 或 `blacklist`，默认 `whitelist`
 - `--risky-commands`：风险命令列表（逗号分隔），默认 `custom`
+- `--allowed-hosts`：逗号分隔的合法 `Host` 列表；监听 `0.0.0.0` / `::` 时建议配置（对应环境变量 `ADA_MCP_REMOTE_ALLOWED_HOSTS`）
 
 双模式说明：
 
@@ -292,7 +420,8 @@ ada-mcp-win.exe server --host=127.0.0.1 --port=8787 --api-key=your_token --allow
 - `GET /health`：健康检查（无需鉴权）
 - `GET /status`：远程服务状态（无需鉴权）
 - `GET /sessions`：当前活跃会话列表（需鉴权）
-- `POST /tool/call`：工具调用（需鉴权）
+- `POST /tool/call`：工具调用（需鉴权，兼容旧客户端）
+- `POST /mcp`、`GET /mcp`、`DELETE /mcp`：**MCP Streamable HTTP**（与 `@modelcontextprotocol/sdk` 的 `StreamableHTTPServerTransport` 一致，含可选 SSE），**需鉴权**。首次 `POST` 发送 JSON-RPC `initialize`（无 `Mcp-Session-Id`）；响应头携带 `Mcp-Session-Id` 后，后续请求必须带该头；需要服务端下行流时，客户端对同一端点发起 `GET` 且 `Accept` 含 `text/event-stream`。
 
 `/status` 额外返回运行统计字段（便于压测与巡检）：
 
@@ -302,6 +431,8 @@ ada-mcp-win.exe server --host=127.0.0.1 --port=8787 --api-key=your_token --allow
 - `authFailures`：鉴权失败次数
 - `lastRequestAt`：最近请求时间戳
 - `lastToolName`：最近一次调用的工具名
+- `streamableHttpPath`：规范 MCP 路径，固定为 `/mcp`
+- `mcpStreamableSessions`：当前 Streamable HTTP 活跃会话数
 
 鉴权方式（二选一）：
 
@@ -348,7 +479,6 @@ Cursor MCP 配置示例（本地 stdio，无需鉴权）：
 
 ```bash
 npm run mcp:pack:dry-run
-npm run mcp:publish:dry-run
 # 正式发布
 npm publish --workspace=@ada/mcp-server --access public
 ```

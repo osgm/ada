@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ada/contracts": "0.1.0",
+    "@ada/driver-rpc": "0.1.0",
     "@ada/plugin-host": "0.1.0",
     "@ada/plugin-sdk": "0.1.0"
   }

@@ -1,5 +1,6 @@
-import type { Platform } from "@ada/contracts";
+import type { CommandEnvelope, Platform, WebEngine } from "@ada/contracts";
 import type { DriverPlugin } from "@ada/plugin-sdk";
+import { manifestWebEngine, parseWebEngineFromPayload } from "@ada/driver-rpc";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -28,6 +29,7 @@ function assertManifest(plugin: DriverPlugin): void {
 
 export class PluginHost {
   private readonly plugins = new Map<Platform, DriverPlugin>();
+  private readonly webEngines = new Map<WebEngine, DriverPlugin>();
   private readonly manifests = new Map<string, DriverPlugin["manifest"]>();
   private readonly pluginById = new Map<string, DriverPlugin>();
   private readonly initializedPluginIds = new Set<string>();
@@ -37,24 +39,67 @@ export class PluginHost {
     if (this.manifests.has(plugin.manifest.id)) {
       throw new Error(`Plugin already registered: ${plugin.manifest.id}`);
     }
-    for (const platform of plugin.manifest.platforms) {
+
+    const mobilePlatforms = plugin.manifest.platforms.filter((p) => p !== "web");
+    if (plugin.manifest.platforms.includes("web")) {
+      const engine = manifestWebEngine(plugin.manifest);
+      if (this.webEngines.has(engine)) {
+        throw new Error(`Web engine already registered: ${engine} (reject ${plugin.manifest.id})`);
+      }
+      this.webEngines.set(engine, plugin);
+    }
+
+    for (const platform of mobilePlatforms) {
       if (this.plugins.has(platform)) {
         throw new Error(`Platform already has plugin (${platform}), reject: ${plugin.manifest.id}`);
       }
-    }
-    this.manifests.set(plugin.manifest.id, plugin.manifest);
-    this.pluginById.set(plugin.manifest.id, plugin);
-    for (const platform of plugin.manifest.platforms) {
       this.plugins.set(platform, plugin);
     }
+
+    this.manifests.set(plugin.manifest.id, plugin.manifest);
+    this.pluginById.set(plugin.manifest.id, plugin);
   }
 
-  resolve(platform: Platform): DriverPlugin {
-    const plugin = this.plugins.get(platform);
+  registerWebEngine(plugin: DriverPlugin): void {
+    this.register(plugin);
+  }
+
+  /** Resolve driver for a command (web routes by payload.engine). */
+  resolve(command: CommandEnvelope): DriverPlugin {
+    if (command.platform === "web") {
+      const engine = parseWebEngineFromPayload(command.payload);
+      const plugin = this.webEngines.get(engine);
+      if (!plugin) {
+        if (engine === "selenium") {
+          throw new Error(
+            "WEB_ENGINE_SELENIUM_NOT_INSTALLED: register @ada/driver-selenium and ensure GeckoDriver/ChromeDriver is on PATH"
+          );
+        }
+        throw new Error(`WEB_ENGINE_UNKNOWN: ${engine}`);
+      }
+      return plugin;
+    }
+    const plugin = this.plugins.get(command.platform);
     if (!plugin) {
-      throw new Error(`No plugin registered for platform: ${platform}`);
+      throw new Error(`No plugin registered for platform: ${command.platform}`);
     }
     return plugin;
+  }
+
+  /** Legacy: mobile platforms only; web defaults to playwright. */
+  resolvePlatform(platform: Platform): DriverPlugin {
+    if (platform === "web") {
+      const plugin = this.webEngines.get("playwright");
+      if (!plugin) {
+        throw new Error("No web engine registered (playwright)");
+      }
+      return plugin;
+    }
+    return this.resolve({ requestId: "", sessionId: "", platform, command: "navigate" });
+  }
+
+  listWebEngines(): WebEngine[] {
+    return Array.from(this.webEngines.keys());
   }
 
   listManifests(): DriverPlugin["manifest"][] {
@@ -96,7 +141,11 @@ export class PluginHost {
   }
 }
 
-const DEFAULT_PLUGIN_MODULE_IDS = ["@ada/driver-playwright", "@ada/driver-appium"];
+const DEFAULT_PLUGIN_MODULE_IDS = [
+  "@ada/driver-playwright",
+  "@ada/driver-appium",
+  "@ada/driver-selenium"
+];
 
 function isPluginModule(mod: unknown): mod is DriverPlugin {
   if (!mod || typeof mod !== "object") {

@@ -1,0 +1,39 @@
+[
+  {
+    "requestId": "selenium-ff-nav-001",
+    "sessionId": "selenium-ff",
+    "platform": "web",
+    "command": "navigate",
+    "payload": {
+      "engine": "selenium",
+      "browserName": "firefox",
+      "url": "https://example.com",
+      "mock": true
+    }
+  },
+  {
+    "requestId": "selenium-ff-title-001",
+    "sessionId": "selenium-ff",
+    "platform": "web",
+    "command": "invoke",
+    "payload": {
+      "engine": "selenium",
+      "mock": true,
+      "mode": "method",
+      "target": "driver",
+      "method": "getTitle",
+      "args": []
+    }
+  },
+  {
+    "requestId": "selenium-ff-shot-001",
+    "sessionId": "selenium-ff",
+    "platform": "web",
+    "command": "screenshot",
+    "payload": {
+      "engine": "selenium",
+      "mock": true,
+      "screenshotPath": "artifacts/selenium-firefox-mock.png"
+    }
+  }
+]

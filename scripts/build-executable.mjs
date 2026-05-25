@@ -96,10 +96,8 @@ async function bundleMcpStandalone() {
     platform: "node",
     format: "cjs",
     target: "node18",
-    sourcemap: false,
-    banner: {
-      js: "#!/usr/bin/env node"
-    }
+    sourcemap: false
+    // 勿再加 banner shebang：cli.ts 首行已有 #!，重复会导致 pkg 解析失败与运行时 MODULE_NOT_FOUND
   });
 }
 
@@ -122,6 +120,16 @@ async function bundleRuntimePlugins() {
     platform: "node",
     format: "cjs",
     target: "node18",
+    sourcemap: false
+  });
+  await build({
+    entryPoints: [path.join(root, "plugins", "driver-selenium", "src", "index.ts")],
+    outfile: path.join(pluginBuildDir, "driver-selenium.cjs"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node18",
+    external: ["selenium-webdriver"],
     sourcemap: false
   });
 }

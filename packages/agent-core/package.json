@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ada/agent": "0.1.0",
-    "@ada/contracts": "0.1.0"
+    "@ada/contracts": "0.1.0",
+    "@ada/driver-rpc": "0.1.0"
   }
 }

@@ -3,19 +3,33 @@
 .vscode/
 *.swp
 *.swo
-target/
 
-# Dependencies
+# Dependencies (install via npm install)
 node_modules/
+
+# Downloaded / local runtime (not source)
+dirver/
+appium/
+android-sdk/
+release/
 
 # Build outputs
-node_modules/
-release/
-appium/
+build/
 dist/
-release/
 out/
+target/
 coverage/
+*.tsbuildinfo
+
+# Packaged binaries & GUI native build
+apps/ada-gui/src-tauri/target/
+
+# Agent local state & task runtime
+.ada-agent/
+artifacts/
+tasks/inbox/
+tasks/processed/
+tasks/failed/
 
 # Logs
 logs/
@@ -25,17 +39,17 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment
+# Environment & secrets (npm token → user ~/.npmrc or npm login)
 .env
 .env.*
 !.env.example
+.npmrc.local
 
-# OS junk
+# OS / temp
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# Runtime / temp
 tmp/
 temp/
+.tmp*/
 *.tmp

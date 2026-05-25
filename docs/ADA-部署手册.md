@@ -433,7 +433,38 @@ MCP 服务（供大模型调用）开发启动：
 npm run mcp:dev
 ```
 
-详细接入方式见：`docs/ADA-MCP-接入手册.md`
+#### Cursor MCP 配置（研发环境，对应 `npm run mcp:dev`）
+
+在 Cursor 中配置本地 stdio MCP：写入用户级 `~/.cursor/mcp.json`，或项目级 `.cursor/mcp.json`（项目根目录下）。
+
+**说明：**
+
+- 使用 `command` + `args` 启动，为 **stdio 模式**，**不需要** API Key 或 OAuth。
+- `cwd` 必须为 ADA **仓库根目录**（含 `package.json` 且定义了 `mcp:dev` 脚本）；勿填用户主目录，否则会出现 `Missing script: "mcp:dev"` 或找不到 `cli.ts`。
+- 将配置中的 `D:\\WORKSPACE\\PLAN\\ada` 替换为本机实际仓库路径（注意大小写，如 `ada` / `ADA`）。
+- 保存后请在 Cursor 中禁用再启用该 MCP 服务器，或重启 Cursor。
+
+```json
+{
+  "mcpServers": {
+    "ada-mcp-dev": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "D:\\WORKSPACE\\PLAN\\ada\\apps\\ada-mcp-server\\src\\cli.ts"
+      ],
+      "cwd": "D:\\WORKSPACE\\PLAN\\ada",
+      "env": {
+        "ADA_PLAYWRIGHT_HEADLESS": "true"
+      }
+    }
+  }
+}
+```
+
+发布包场景（无需 Node/tsx）可改用 `release/ada-mcp-win.exe`，示例见 `docs/ADA-GUI-操作手册.md` 第 4 节。
+
+详细工具列表与远程 HTTP（`/mcp` + API Key）接入见：`docs/ADA-MCP-接入手册.md`
 
 说明：
 

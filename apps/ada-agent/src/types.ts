@@ -66,6 +66,12 @@ export interface AgentConfig {
     playwrightDownloadHost: string;
     npmRegistryCandidates: string[];
     playwrightHostCandidates: string[];
+    /** 原生 WebDriver 存放目录，默认 `dirver` */
+    nativeDriversDir?: string;
+    /** geckodriver 版本：如 `0.36.0`、`latest` */
+    geckodriverVersion?: string;
+    /** chromedriver 主版本：如 `137`、`135`、`latest`、`match-chrome` */
+    chromedriverVersion?: string;
   };
   appium: {
     serverUrl: string;

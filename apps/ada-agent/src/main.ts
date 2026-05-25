@@ -75,12 +75,24 @@ function readCommaList(argv: string[], name: string): string[] | undefined {
 function installDepsExtras(argv: string[]): InstallDependencyExtras | undefined {
   const pwTargets = readCommaList(argv, "playwright-targets");
   const appiumDrivers = readCommaList(argv, "appium-drivers");
-  if (pwTargets === undefined && appiumDrivers === undefined) {
+  const geckodriverVersion = readArg(argv, "geckodriver-version");
+  const chromedriverVersion = readArg(argv, "chromedriver-version");
+  const nativeDriversDir = readArg(argv, "drivers-dir");
+  if (
+    pwTargets === undefined &&
+    appiumDrivers === undefined &&
+    geckodriverVersion === undefined &&
+    chromedriverVersion === undefined &&
+    nativeDriversDir === undefined
+  ) {
     return undefined;
   }
   return {
     ...(pwTargets !== undefined ? { playwrightInstallTargetsOverride: pwTargets } : {}),
-    ...(appiumDrivers !== undefined ? { appiumRequiredDriversOverride: appiumDrivers } : {})
+    ...(appiumDrivers !== undefined ? { appiumRequiredDriversOverride: appiumDrivers } : {}),
+    ...(geckodriverVersion !== undefined ? { geckodriverVersion } : {}),
+    ...(chromedriverVersion !== undefined ? { chromedriverVersion } : {}),
+    ...(nativeDriversDir !== undefined ? { nativeDriversDir } : {})
   };
 }
 
@@ -88,6 +100,7 @@ function parseInstallScope(value?: string): InstallScope {
   if (
     value === "all" ||
     value === "playwright" ||
+    value === "selenium" ||
     value === "appium" ||
     value === "drivers" ||
     value === "mobile" ||
@@ -112,7 +125,8 @@ function printHelp(): void {
       "  plugins                   Print built-in plugin manifests",
       "  health                    Print runtime health snapshot",
       "  doctor                    Print diagnostics report",
-      "  install-deps [--only=...] [--force] [--playwright-targets=chromium,chrome,...] [--appium-drivers=android,ios,harmony]",
+      "  install-deps [--only=selenium] [--geckodriver-version=0.36.0|latest] [--chromedriver-version=137|match-chrome|latest]",
+      "              [--drivers-dir=dirver] [--playwright-targets=...] [--appium-drivers=...] [--force]",
       "  reset                     Clear local credentials",
       "  mcp                       Run MCP (stdio) for Cursor/IDE — same binary as packaged exe",
       "  core --action=...         Unified core bridge for GUI/Web/MCP adapters (health|doctor|setup|install-deps|patch-remote|start)",

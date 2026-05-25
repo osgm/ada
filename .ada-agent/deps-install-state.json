@@ -1,4 +1,9 @@
 {
   "playwrightReady": true,
-  "appiumReady": true
+  "appiumReady": true,
+  "seleniumChecked": true,
+  "geckodriverOk": true,
+  "chromedriverOk": true,
+  "androidHome": "D:\\WORK\\build\\Android\\android-sdk",
+  "appiumHome": "D:\\WORKSPACE\\PLAN\\ada\\appium"
 }

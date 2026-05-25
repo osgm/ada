@@ -5,6 +5,13 @@ import path from "node:path";
 import type { AgentConfig } from "./types.js";
 import { log } from "./logger.js";
 import { ensureLocalDataDir, resolveWorkspaceRoot } from "./config.js";
+import {
+  ensureNativeWebDrivers,
+  listChromedriverCfTVersions,
+  listLocalChromedriverVersions,
+  resolveNativeDrivers,
+  resolveNativeDriversDir
+} from "@ada/native-drivers";
 
 const require = createRequire(path.join(process.cwd(), "package.json"));
 
@@ -727,7 +734,16 @@ async function ensureAppiumDrivers(
   return missing;
 }
 
-export type InstallScope = "all" | "playwright" | "appium" | "drivers" | "mobile" | "android" | "ios" | "harmony";
+export type InstallScope =
+  | "all"
+  | "playwright"
+  | "selenium"
+  | "appium"
+  | "drivers"
+  | "mobile"
+  | "android"
+  | "ios"
+  | "harmony";
 
 const PW_INSTALL_TARGETS = new Set([
   "chromium",
@@ -782,6 +798,12 @@ export interface EnsureInstallOptions {
   playwrightInstallTargetsOverride?: string[];
   /** 覆盖本次要安装的 Appium 驱动（uiautomator2 / xcuitest / harmonyos）；传 [] 表示只处理 Appium 包、不装驱动 */
   appiumRequiredDriversOverride?: string[];
+  /** 原生驱动目录（默认 dirver） */
+  nativeDriversDir?: string;
+  /** geckodriver 版本：0.36.0 | latest | skip */
+  geckodriverVersion?: string;
+  /** chromedriver 主版本：137 | 135 | latest | match-chrome | skip */
+  chromedriverVersion?: string;
 }
 
 export interface InstallSummary {
@@ -793,14 +815,93 @@ export interface InstallSummary {
   skippedPackages: string[];
   installedDrivers: string[];
   skippedDrivers: string[];
+  nativeDriversDir?: string;
+  geckodriverPath?: string;
+  chromedriverPath?: string;
+  availableChromedriverMajors?: string[];
 }
 
 interface InstallState {
   playwrightReady?: boolean;
   appiumReady?: boolean;
   driversReady?: boolean;
+  seleniumChecked?: boolean;
+  geckodriverOk?: boolean;
+  chromedriverOk?: boolean;
   androidHome?: string;
   appiumHome?: string;
+}
+
+async function commandOnPath(command: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const checker = process.platform === "win32" ? "where" : "which";
+    const child = spawn(checker, [command], {
+      stdio: "ignore",
+      shell: process.platform === "win32"
+    });
+    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  });
+}
+
+async function ensureSeleniumNativeDrivers(
+  config: AgentConfig,
+  options: EnsureInstallOptions | undefined,
+  onLogLine?: (line: string) => void
+): Promise<{
+  geckodriverOk: boolean;
+  chromedriverOk: boolean;
+  seleniumWebdriverInstalled: boolean;
+  driversDir: string;
+  geckodriverPath?: string;
+  chromedriverPath?: string;
+}> {
+  const root = await resolveWorkspaceRoot(process.cwd());
+  const driversDir = path.resolve(
+    root,
+    options?.nativeDriversDir ?? config.dependencies.nativeDriversDir ?? "dirver"
+  );
+  const seleniumWebdriverInstalled = hasPackage("selenium-webdriver");
+  if (seleniumWebdriverInstalled) {
+    onLogLine?.("[selenium] npm 包 selenium-webdriver 已安装");
+  } else {
+    onLogLine?.("[selenium] npm 包 selenium-webdriver 未安装 — 在工作区根目录执行 npm install");
+  }
+
+  const geckoVer = options?.geckodriverVersion ?? config.dependencies.geckodriverVersion ?? "latest";
+  const chromeVer = options?.chromedriverVersion ?? config.dependencies.chromedriverVersion ?? "latest";
+
+  try {
+    const catalog = await listChromedriverCfTVersions();
+    onLogLine?.(
+      `[selenium] 可选 chromedriver 主版本（chrome-for-testing）: ${catalog
+        .slice(0, 12)
+        .map((x) => x.major)
+        .join(", ")}${catalog.length > 12 ? "…" : ""}`
+    );
+  } catch (error) {
+    onLogLine?.(
+      `[selenium] 无法拉取 chromedriver 版本列表: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  const resolved = await ensureNativeWebDrivers({
+    workspaceRoot: root,
+    driversDir,
+    force: options?.force,
+    geckodriverVersion: geckoVer,
+    chromedriverVersion: chromeVer,
+    onLogLine
+  });
+
+  return {
+    geckodriverOk: resolved.geckodriverOk,
+    chromedriverOk: resolved.chromedriverOk,
+    seleniumWebdriverInstalled,
+    driversDir,
+    geckodriverPath: resolved.geckodriverPath,
+    chromedriverPath: resolved.chromedriverPath
+  };
 }
 
 interface InstallEnvHomes {
@@ -892,6 +993,7 @@ export async function ensureDriverDependencies(config: AgentConfig, options?: En
   await ensureNodeEnvironmentForInstall(onLogLine);
   const missing: string[] = [];
   const needPlaywright = only === "all" || only === "playwright";
+  const needSelenium = only === "all" || only === "selenium";
   const needAppium =
     only === "all" || only === "appium" || only === "drivers" || only === "mobile" || only === "android" || only === "ios" || only === "harmony";
   const requestedDrivers =
@@ -971,6 +1073,16 @@ export async function ensureDriverDependencies(config: AgentConfig, options?: En
       progress("playwright.selfcheck.done");
     }
   }
+  if (needSelenium) {
+    progress("selenium.check.start");
+    onLogLine?.("[selenium] 检测 Selenium WebDriver 与原生驱动…");
+    const sel = await ensureSeleniumNativeDrivers(config, options, onLogLine);
+    state.seleniumChecked = true;
+    state.geckodriverOk = sel.geckodriverOk;
+    state.chromedriverOk = sel.chromedriverOk;
+    progress("selenium.check.done", sel);
+  }
+
   if (hasPackage("appium") && needAppium) {
     progress("appium.selfcheck.start");
     await verifyAppiumCommand();
@@ -1011,6 +1123,29 @@ export async function ensureDriverDependencies(config: AgentConfig, options?: En
   progress("deps.ensure.done", { installedPackages: installedPkgs, missingDetected: missing });
   log("info", { event: "deps.install.completed", details: { installedPackages: installedPkgs } });
   const requestedPackages = ["playwright", "appium"].filter((pkg) => (pkg === "playwright" ? needPlaywright : needAppium));
+  let nativeDriversDir: string | undefined;
+  let geckodriverPath: string | undefined;
+  let chromedriverPath: string | undefined;
+  let availableChromedriverMajors: string[] | undefined;
+  if (needSelenium) {
+    const root = await resolveWorkspaceRoot(process.cwd());
+    nativeDriversDir = path.resolve(
+      root,
+      options?.nativeDriversDir ?? config.dependencies.nativeDriversDir ?? "dirver"
+    );
+    availableChromedriverMajors = await listLocalChromedriverVersions(nativeDriversDir);
+    const resolved = await resolveNativeDrivers({
+      workspaceRoot: root,
+      driversDir: nativeDriversDir,
+      selection: {
+        geckodriverVersion: options?.geckodriverVersion ?? config.dependencies.geckodriverVersion,
+        chromedriverVersion: options?.chromedriverVersion ?? config.dependencies.chromedriverVersion
+      }
+    });
+    geckodriverPath = resolved.geckodriverPath;
+    chromedriverPath = resolved.chromedriverPath;
+  }
+
   const summary: InstallSummary = {
     scope: only,
     force,
@@ -1019,7 +1154,11 @@ export async function ensureDriverDependencies(config: AgentConfig, options?: En
     installedPackages: Array.from(new Set(installedPackages)),
     skippedPackages: requestedPackages.filter((pkg) => !installedPackages.includes(pkg)),
     installedDrivers: Array.from(new Set(installedDrivers)),
-    skippedDrivers: Array.from(new Set(skippedDrivers))
+    skippedDrivers: Array.from(new Set(skippedDrivers)),
+    nativeDriversDir,
+    geckodriverPath,
+    chromedriverPath,
+    availableChromedriverMajors
   };
   return summary;
 }
@@ -1027,6 +1166,9 @@ export async function ensureDriverDependencies(config: AgentConfig, options?: En
 export async function getDependencyHealth(config?: Pick<AgentConfig, "appium">): Promise<{
   playwrightInstalled: boolean;
   playwrightLaunchOk: boolean;
+  seleniumWebdriverInstalled: boolean;
+  geckodriverOk: boolean;
+  chromedriverOk: boolean;
   appiumInstalled: boolean;
   appiumCliOk: boolean;
   appiumDriversOk: boolean;
@@ -1062,9 +1204,19 @@ export async function getDependencyHealth(config?: Pick<AgentConfig, "appium">):
     }
   }
 
+  const root = await resolveWorkspaceRoot(process.cwd());
+  const driversDir = await resolveNativeDriversDir(root);
+  const native = await resolveNativeDrivers({ workspaceRoot: root, driversDir });
+  const seleniumWebdriverInstalled = hasPackage("selenium-webdriver");
+  const geckodriverOk = native.geckodriverOk;
+  const chromedriverOk = native.chromedriverOk;
+
   return {
     playwrightInstalled,
     playwrightLaunchOk,
+    seleniumWebdriverInstalled,
+    geckodriverOk,
+    chromedriverOk,
     appiumInstalled,
     appiumCliOk,
     appiumDriversOk,

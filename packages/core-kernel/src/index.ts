@@ -1,4 +1,5 @@
-import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import type { CommandEnvelope, CommandResult, WebEngine } from "@ada/contracts";
+import { parseWebEngineFromPayload } from "@ada/driver-rpc";
 import { PluginHost } from "@ada/plugin-host";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
 
@@ -15,12 +16,16 @@ interface ExecuteContext {
 export class DriverSessionManager {
   private readonly sessions = new Map<string, DriverSession>();
 
-  private sessionKey(platform: string, sessionId: string): string {
-    return `${platform}:${sessionId}`;
+  private sessionKey(command: Pick<CommandEnvelope, "platform" | "sessionId" | "payload">): string {
+    if (command.platform === "web") {
+      const engine = parseWebEngineFromPayload(command.payload);
+      return `web:${engine}:${command.sessionId}`;
+    }
+    return `${command.platform}:${command.sessionId}`;
   }
 
   async getOrCreate(plugin: DriverPlugin, command: CommandEnvelope): Promise<DriverSession> {
-    const key = this.sessionKey(command.platform, command.sessionId);
+    const key = this.sessionKey(command);
     const existed = this.sessions.get(key);
     if (existed) {
       return existed;
@@ -30,14 +35,24 @@ export class DriverSessionManager {
     return created;
   }
 
-  get(platform: string, sessionId: string): DriverSession | undefined {
-    const key = this.sessionKey(platform, sessionId);
+  get(command: Pick<CommandEnvelope, "platform" | "sessionId" | "payload">): DriverSession | undefined {
+    const key = this.sessionKey(command);
     return this.sessions.get(key);
   }
 
-  list(): Array<{ platform: string; sessionId: string; driverSessionId: string }> {
-    const items: Array<{ platform: string; sessionId: string; driverSessionId: string }> = [];
+  list(): Array<{ platform: string; sessionId: string; engine?: WebEngine; driverSessionId: string }> {
+    const items: Array<{ platform: string; sessionId: string; engine?: WebEngine; driverSessionId: string }> = [];
     for (const [key, session] of this.sessions.entries()) {
+      const parts = key.split(":");
+      if (parts[0] === "web" && parts.length >= 3) {
+        items.push({
+          platform: "web",
+          engine: parts[1] as WebEngine,
+          sessionId: parts.slice(2).join(":"),
+          driverSessionId: session.id
+        });
+        continue;
+      }
       const idx = key.indexOf(":");
       if (idx <= 0) {
         continue;
@@ -52,14 +67,32 @@ export class DriverSessionManager {
   }
 
   clear(command: CommandEnvelope): DriverSession | undefined {
-    const key = this.sessionKey(command.platform, command.sessionId);
+    const key = this.sessionKey(command);
     const existed = this.sessions.get(key);
     this.sessions.delete(key);
     return existed;
   }
 
-  clearByPlatformSession(platform: string, sessionId: string): DriverSession | undefined {
-    const key = this.sessionKey(platform, sessionId);
+  clearByPlatformSession(
+    platform: string,
+    sessionId: string,
+    options?: { engine?: WebEngine; payload?: Record<string, unknown> }
+  ): DriverSession | undefined {
+    if (platform === "web") {
+      const engine = options?.engine ?? parseWebEngineFromPayload(options?.payload);
+      const key = `web:${engine}:${sessionId}`;
+      const existed = this.sessions.get(key);
+      this.sessions.delete(key);
+      return existed;
+    }
+    const key = `${platform}:${sessionId}`;
+    const existed = this.sessions.get(key);
+    this.sessions.delete(key);
+    return existed;
+  }
+
+  clearWebSession(sessionId: string, engine: WebEngine): DriverSession | undefined {
+    const key = `web:${engine}:${sessionId}`;
     const existed = this.sessions.get(key);
     this.sessions.delete(key);
     return existed;
@@ -164,7 +197,7 @@ export class TaskExecutor {
   }
 
   private async resolveContext(command: CommandEnvelope): Promise<ExecuteContext> {
-    const plugin = this.pluginHost.resolve(command.platform);
+    const plugin = this.pluginHost.resolve(command);
     await this.pluginHost.ensureInitialized(plugin.manifest.id);
     const session = await this.sessions.getOrCreate(plugin, command);
     return { plugin, session };
@@ -207,9 +240,33 @@ export class TaskExecutor {
     return this.sessions.list();
   }
 
-  async closeSession(platform: string, sessionId: string): Promise<boolean> {
-    const plugin = this.pluginHost.resolve(platform as CommandEnvelope["platform"]);
-    const session = this.sessions.clearByPlatformSession(platform, sessionId);
+  async closeSession(
+    platform: string,
+    sessionId: string,
+    options?: { engine?: WebEngine; payload?: Record<string, unknown> }
+  ): Promise<boolean> {
+    const plat = platform as CommandEnvelope["platform"];
+    const engine =
+      plat === "web" ? (options?.engine ?? parseWebEngineFromPayload(options?.payload)) : undefined;
+    const plugin =
+      plat === "web"
+        ? this.pluginHost.resolve({
+            requestId: "",
+            sessionId,
+            platform: "web",
+            command: "navigate",
+            payload: { engine, ...options?.payload }
+          })
+        : this.pluginHost.resolve({
+            requestId: "",
+            sessionId,
+            platform: plat,
+            command: "navigate"
+          });
+    const session = this.sessions.clearByPlatformSession(platform, sessionId, {
+      engine,
+      payload: options?.payload
+    });
     if (!session) {
       return false;
     }
@@ -223,7 +280,10 @@ export class TaskExecutor {
     const all = this.sessions.list();
     let closed = 0;
     for (const item of all) {
-      const ok = await this.closeSession(item.platform, item.sessionId);
+      const ok = await this.closeSession(item.platform, item.sessionId, {
+        engine: item.engine,
+        payload: item.engine ? { engine: item.engine } : undefined
+      });
       if (ok) {
         closed += 1;
       }

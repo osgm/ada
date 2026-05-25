@@ -79,7 +79,10 @@ export const defaultConfig: AgentConfig = {
     playwrightHostCandidates: [
       "https://npmmirror.com/mirrors/playwright",
       "https://playwright.azureedge.net"
-    ]
+    ],
+    nativeDriversDir: "dirver",
+    geckodriverVersion: "latest",
+    chromedriverVersion: "latest"
   },
   appium: {
     serverUrl: "http://127.0.0.1:4723",

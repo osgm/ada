@@ -1,5 +1,6 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
+import { normalizeInvokePayload, serializeRpcResult } from "@ada/driver-rpc";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -375,6 +376,52 @@ async function findElement(
     return { ok: false, code: "LOOKUP_NOT_FOUND", error: "Element lookup returned invalid element id." };
   }
   return { ok: true, elementId };
+}
+
+async function executeAppiumInvokeHttp(
+  command: CommandEnvelope,
+  serverUrl: string,
+  sessionId: string,
+  payload: RealAppiumPayload,
+  reused: boolean
+): Promise<CommandResult> {
+  const invoke = normalizeInvokePayload(payload as Record<string, unknown>, "http");
+  if (!invoke?.http) {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_INVALID_PAYLOAD",
+      errorMessage: "invoke requires payload.http.{method,path} or legacy payload.custom.{method,path}"
+    };
+  }
+
+  const { method, path: rawPath, body } = invoke.http;
+  const requestPath = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+  const url = requestPath.includes("/session/")
+    ? `${serverUrl}${requestPath}`
+    : `${serverUrl}/session/${sessionId}${requestPath}`;
+  const result = await requestJson(method.toUpperCase(), url, body as Record<string, unknown> | undefined);
+  if (!result.ok) {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_HTTP_FAILED",
+      errorMessage: JSON.stringify(result.raw)
+    };
+  }
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "appium",
+      mode: "real",
+      command: command.command,
+      rpcMode: "http",
+      http: { method, path: requestPath },
+      value: serializeRpcResult(result.value),
+      reusedSession: reused
+    }
+  };
 }
 
 async function executeRealCommand(command: CommandEnvelope, payload: RealAppiumPayload): Promise<CommandResult> {
@@ -760,6 +807,10 @@ async function executeRealCommand(command: CommandEnvelope, payload: RealAppiumP
       };
     }
 
+    if (command.command === "invoke") {
+      return executeAppiumInvokeHttp(command, serverUrl, sessionId, payload, reused);
+    }
+
     if (command.command === "custom") {
       if ((payload.action ?? "").toLowerCase() === "listapps") {
         const listAppsResult = await executeSync(serverUrl, sessionId, "mobile: listApps", [{}]);
@@ -784,34 +835,15 @@ async function executeRealCommand(command: CommandEnvelope, payload: RealAppiumP
           }
         };
       }
-      const custom = payload.custom;
-      const method = custom?.method;
-      const rawPath = custom?.path;
-      if (!method || !rawPath) {
-        return {
-          requestId: command.requestId,
-          success: false,
-          errorCode: "APPIUM_CUSTOM_MISSING_METHOD_OR_PATH",
-          errorMessage: "custom requires payload.custom.method and payload.custom.path"
-        };
-      }
-      const requestPath = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-      const url = requestPath.includes("/session/")
-        ? `${serverUrl}${requestPath}`
-        : `${serverUrl}/session/${sessionId}${requestPath}`;
-      const result = await requestJson(method.toUpperCase(), url, custom.body);
-      if (!result.ok) {
-        return {
-          requestId: command.requestId,
-          success: false,
-          errorCode: "APPIUM_CUSTOM_FAILED",
-          errorMessage: JSON.stringify(result.raw)
-        };
+      const invoke = normalizeInvokePayload(payload as Record<string, unknown>, "http");
+      if (invoke?.http) {
+        return executeAppiumInvokeHttp(command, serverUrl, sessionId, payload, reused);
       }
       return {
         requestId: command.requestId,
-        success: true,
-        data: { driver: "appium", mode: "real", command: "custom", value: result.value, reusedSession: reused }
+        success: false,
+        errorCode: "APPIUM_CUSTOM_MISSING_METHOD_OR_PATH",
+        errorMessage: "custom requires payload.custom.{method,path} or use command=invoke with payload.http"
       };
     }
 
@@ -841,7 +873,12 @@ const appiumPlugin: DriverPlugin = {
     engine: "appium",
     platforms: ["android", "ios", "harmony"],
     capabilities: ["tap", "type", "swipe", "assertVisible", "screenshot"]
-      .concat(["click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom"])
+      .concat(["click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom", "invoke"]),
+    semanticCommands: ["tap", "type", "swipe", "assertVisible", "screenshot", "click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom"],
+    invoke: {
+      modes: ["http"],
+      targets: ["session"]
+    }
   },
 
   async init() {},

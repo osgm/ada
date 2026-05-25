@@ -7,7 +7,7 @@
 - 保持动作语义一致：导航、点击、输入、等待、断言、截图优先 1:1 映射。
 - 会话复用统一使用 `sessionId`，同一用例集固定一个 `sessionId`。
 - 默认真实执行：`allowMock=false`，避免误把 mock 当通过。
-- 对于 ADA 暂未覆盖的 Playwright 能力，降级到 `ada_web_action(command=custom, action=evaluate)`。
+- 对于 ADA 暂未覆盖的 Playwright 能力，优先使用 **`ada_invoke`**（`mode=method`，`target`+`method`+`args`）；页面内脚本可用 `ada_web_action(command=custom, action=evaluate)`。
 
 ## 2. 方法映射表（核心）
 

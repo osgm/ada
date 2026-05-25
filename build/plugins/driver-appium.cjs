@@ -33,6 +33,121 @@ __export(index_exports, {
   default: () => index_default
 });
 module.exports = __toCommonJS(index_exports);
+
+// packages/driver-rpc/src/index.ts
+var PLAYWRIGHT_OBJECT_TYPES = /* @__PURE__ */ new Set([
+  "Page",
+  "Frame",
+  "Locator",
+  "BrowserContext",
+  "Browser",
+  "Response",
+  "CDPSession",
+  "ElementHandle",
+  "JSHandle",
+  "Worker",
+  "Request",
+  "Route",
+  "WebSocket"
+]);
+function asRecord(value) {
+  return typeof value === "object" && value !== null ? value : {};
+}
+function getString(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function normalizeInvokePayload(raw, defaultMode) {
+  const payload = asRecord(raw);
+  const legacyCustom = asRecord(payload.custom);
+  const httpBlock = asRecord(payload.http);
+  const httpMethod = getString(httpBlock.method) ?? getString(legacyCustom.method);
+  const httpPath = getString(httpBlock.path) ?? getString(legacyCustom.path);
+  const hasHttp = Boolean(httpMethod && httpPath);
+  const method = getString(payload.method);
+  const target = getString(payload.target);
+  const hasMethod = Boolean(method);
+  let mode = getString(payload.mode);
+  if (mode !== "method" && mode !== "http") {
+    mode = hasHttp ? "http" : hasMethod ? "method" : defaultMode;
+  }
+  if (mode === "http" && !hasHttp && hasMethod) {
+    mode = "method";
+  }
+  if (mode === "method" && !hasMethod && hasHttp) {
+    mode = "http";
+  }
+  if (mode === "http") {
+    if (!httpMethod || !httpPath) {
+      return null;
+    }
+    return {
+      mode: "http",
+      http: {
+        method: httpMethod,
+        path: httpPath,
+        body: httpBlock.body ?? legacyCustom.body
+      },
+      options: asRecord(payload.options)
+    };
+  }
+  if (!method) {
+    return null;
+  }
+  return {
+    mode: "method",
+    target: target ?? "page",
+    method,
+    args: Array.isArray(payload.args) ? payload.args : [],
+    locator: asRecord(payload.locator),
+    options: asRecord(payload.options)
+  };
+}
+function serializeRpcResult(value, depth = 0) {
+  if (depth > 10) {
+    return "[MaxDepth]";
+  }
+  if (value === void 0) {
+    return { __undefined: true };
+  }
+  if (value === null || typeof value !== "function") {
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+  } else {
+    return { __type: "Function", hint: "Functions are not serializable over invoke RPC" };
+  }
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) {
+    return { __type: "Buffer", encoding: "base64", data: value.toString("base64") };
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => serializeRpcResult(item, depth + 1));
+  }
+  const ctor = value.constructor?.name;
+  if (ctor && PLAYWRIGHT_OBJECT_TYPES.has(ctor)) {
+    return { __type: ctor, hint: "Live Playwright object; chain further invoke calls on page/context" };
+  }
+  if (value instanceof Map) {
+    const out = {};
+    for (const [k, v] of value.entries()) {
+      out[String(k)] = serializeRpcResult(v, depth + 1);
+    }
+    return out;
+  }
+  try {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === "function") {
+        continue;
+      }
+      out[k] = serializeRpcResult(v, depth + 1);
+    }
+    return out;
+  } catch {
+    return String(value);
+  }
+}
+
+// plugins/driver-appium/src/index.ts
 var import_node_child_process = require("node:child_process");
 var import_promises = __toESM(require("node:fs/promises"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
@@ -311,6 +426,42 @@ async function findElement(serverUrl, sessionId, payload) {
     return { ok: false, code: "LOOKUP_NOT_FOUND", error: "Element lookup returned invalid element id." };
   }
   return { ok: true, elementId };
+}
+async function executeAppiumInvokeHttp(command, serverUrl, sessionId, payload, reused) {
+  const invoke = normalizeInvokePayload(payload, "http");
+  if (!invoke?.http) {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_INVALID_PAYLOAD",
+      errorMessage: "invoke requires payload.http.{method,path} or legacy payload.custom.{method,path}"
+    };
+  }
+  const { method, path: rawPath, body } = invoke.http;
+  const requestPath = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+  const url = requestPath.includes("/session/") ? `${serverUrl}${requestPath}` : `${serverUrl}/session/${sessionId}${requestPath}`;
+  const result = await requestJson(method.toUpperCase(), url, body);
+  if (!result.ok) {
+    return {
+      requestId: command.requestId,
+      success: false,
+      errorCode: "INVOKE_HTTP_FAILED",
+      errorMessage: JSON.stringify(result.raw)
+    };
+  }
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "appium",
+      mode: "real",
+      command: command.command,
+      rpcMode: "http",
+      http: { method, path: requestPath },
+      value: serializeRpcResult(result.value),
+      reusedSession: reused
+    }
+  };
 }
 async function executeRealCommand(command, payload) {
   const session = await getOrCreateRealSession(command, payload);
@@ -656,6 +807,9 @@ async function executeRealCommand(command, payload) {
         data: { driver: "appium", mode: "real", command: "screenshot", screenshot: output, reusedSession: reused }
       };
     }
+    if (command.command === "invoke") {
+      return executeAppiumInvokeHttp(command, serverUrl, sessionId, payload, reused);
+    }
     if (command.command === "custom") {
       if ((payload.action ?? "").toLowerCase() === "listapps") {
         const listAppsResult = await executeSync(serverUrl, sessionId, "mobile: listApps", [{}]);
@@ -680,32 +834,15 @@ async function executeRealCommand(command, payload) {
           }
         };
       }
-      const custom = payload.custom;
-      const method = custom?.method;
-      const rawPath = custom?.path;
-      if (!method || !rawPath) {
-        return {
-          requestId: command.requestId,
-          success: false,
-          errorCode: "APPIUM_CUSTOM_MISSING_METHOD_OR_PATH",
-          errorMessage: "custom requires payload.custom.method and payload.custom.path"
-        };
-      }
-      const requestPath = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-      const url = requestPath.includes("/session/") ? `${serverUrl}${requestPath}` : `${serverUrl}/session/${sessionId}${requestPath}`;
-      const result = await requestJson(method.toUpperCase(), url, custom.body);
-      if (!result.ok) {
-        return {
-          requestId: command.requestId,
-          success: false,
-          errorCode: "APPIUM_CUSTOM_FAILED",
-          errorMessage: JSON.stringify(result.raw)
-        };
+      const invoke = normalizeInvokePayload(payload, "http");
+      if (invoke?.http) {
+        return executeAppiumInvokeHttp(command, serverUrl, sessionId, payload, reused);
       }
       return {
         requestId: command.requestId,
-        success: true,
-        data: { driver: "appium", mode: "real", command: "custom", value: result.value, reusedSession: reused }
+        success: false,
+        errorCode: "APPIUM_CUSTOM_MISSING_METHOD_OR_PATH",
+        errorMessage: "custom requires payload.custom.{method,path} or use command=invoke with payload.http"
       };
     }
     return {
@@ -732,7 +869,12 @@ var appiumPlugin = {
     version: "0.1.0",
     engine: "appium",
     platforms: ["android", "ios", "harmony"],
-    capabilities: ["tap", "type", "swipe", "assertVisible", "screenshot"].concat(["click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom"])
+    capabilities: ["tap", "type", "swipe", "assertVisible", "screenshot"].concat(["click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom", "invoke"]),
+    semanticCommands: ["tap", "type", "swipe", "assertVisible", "screenshot", "click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom"],
+    invoke: {
+      modes: ["http"],
+      targets: ["session"]
+    }
   },
   async init() {
   },

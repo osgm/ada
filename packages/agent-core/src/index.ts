@@ -13,6 +13,7 @@ import { runSetupNative } from "@ada/agent/setup-native";
 import { runSetupUi } from "@ada/agent/bootstrap-ui";
 import { patchRemoteCredentials, persistAgentSetup } from "@ada/agent/setup-state";
 import { createRuntimeTransport } from "@ada/agent/transport-client";
+import { parseWebEngineFromPayload } from "@ada/driver-rpc";
 import { processQueueOnce, watchQueue } from "@ada/agent/queue-runner";
 import { runDemoTaskset, runForegroundLoop, runTaskset } from "@ada/agent/runtime";
 import { loadTaskFile } from "@ada/agent/task-loader";
@@ -56,6 +57,9 @@ export function getBuiltInPlugins() {
 export type InstallDependencyExtras = {
   playwrightInstallTargetsOverride?: string[];
   appiumRequiredDriversOverride?: string[];
+  nativeDriversDir?: string;
+  geckodriverVersion?: string;
+  chromedriverVersion?: string;
 };
 
 export async function installDependencies(
@@ -75,6 +79,14 @@ export async function applyRemoteCredentials(serverUrl: string, apiKey?: string)
 
 function hasPlatformTask(tasks: CommandEnvelope[], platform: "web" | "android" | "ios" | "harmony"): boolean {
   return tasks.some((task) => task.platform === platform);
+}
+
+function hasSeleniumWebTask(tasks: CommandEnvelope[]): boolean {
+  return tasks.some((task) => task.platform === "web" && parseWebEngineFromPayload(task.payload) === "selenium");
+}
+
+function hasPlaywrightWebTask(tasks: CommandEnvelope[]): boolean {
+  return tasks.some((task) => task.platform === "web" && parseWebEngineFromPayload(task.payload) !== "selenium");
 }
 
 function classifyExecutionFailure(errorCode: string): "environment" | "locator" | "assertion" | "driver" | "unknown" {
@@ -103,6 +115,7 @@ function classifyExecutionFailure(errorCode: string): "environment" | "locator" 
 function buildRemediationHints(input: {
   dependencyMissing: string[];
   browserNotLaunchable: boolean;
+  seleniumDriverMissing: boolean;
   appiumCliNotReady: boolean;
   appiumServerUnreachable: boolean;
   executionFailureTypes: Array<"environment" | "locator" | "assertion" | "driver" | "unknown">;
@@ -110,6 +123,9 @@ function buildRemediationHints(input: {
   const hints: string[] = [];
   if (input.dependencyMissing.length > 0) hints.push("运行 `./ada-agent install-deps` 补齐依赖");
   if (input.browserNotLaunchable) hints.push("执行 `./ada-agent doctor` 检查 Playwright 后重试安装浏览器");
+  if (input.seleniumDriverMissing) {
+    hints.push("Selenium 任务需 geckodriver/chromedriver：运行 `./ada-agent install-deps --only=selenium` 查看检测说明");
+  }
   if (input.appiumCliNotReady) hints.push("重新安装 Appium 后用 `tasks/appium-probe.tasks.json` 验证");
   if (input.appiumServerUnreachable) hints.push("先启动 Appium Server 并确认 `appium.serverUrl` 正确");
   if (input.executionFailureTypes.includes("locator")) hints.push("定位失败：检查 locator/elementId 是否正确");
@@ -127,11 +143,17 @@ function classifyRequireRealFailures(
   doctor: Awaited<ReturnType<typeof runDoctor>>
 ): Record<string, unknown> {
   const hasWebTask = hasPlatformTask(tasks, "web");
+  const hasSeleniumTask = hasSeleniumWebTask(tasks);
+  const hasPlaywrightTask = hasPlaywrightWebTask(tasks);
   const hasMobileTask = hasPlatformTask(tasks, "android") || hasPlatformTask(tasks, "ios") || hasPlatformTask(tasks, "harmony");
   const dependencyMissing: string[] = [];
-  if (hasWebTask && !deps.playwrightInstalled) dependencyMissing.push("playwright");
+  if (hasPlaywrightTask && !deps.playwrightInstalled) dependencyMissing.push("playwright");
+  if (hasSeleniumTask && !deps.seleniumWebdriverInstalled) dependencyMissing.push("selenium-webdriver");
   if (hasMobileTask && !deps.appiumInstalled) dependencyMissing.push("appium");
-  const browserNotLaunchable = hasWebTask && deps.playwrightInstalled && !deps.playwrightLaunchOk;
+  const browserNotLaunchable = hasPlaywrightTask && deps.playwrightInstalled && !deps.playwrightLaunchOk;
+  const seleniumDriverMissing =
+    hasSeleniumTask && !deps.geckodriverOk && !deps.chromedriverOk;
+  if (seleniumDriverMissing) dependencyMissing.push("geckodriver-or-chromedriver");
   const appiumCliNotReady = hasMobileTask && deps.appiumInstalled && !deps.appiumCliOk;
   const appiumServerReachable = Boolean(
     (doctor.checks as Record<string, unknown> | undefined)?.appiumServer &&
@@ -166,6 +188,7 @@ function classifyRequireRealFailures(
     remediationHints: buildRemediationHints({
       dependencyMissing,
       browserNotLaunchable,
+      seleniumDriverMissing,
       appiumCliNotReady,
       appiumServerUnreachable,
       executionFailureTypes

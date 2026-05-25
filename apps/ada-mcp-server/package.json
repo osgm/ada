@@ -1,40 +1,54 @@
 {
-  "name": "@ada/mcp-server",
+  "name": "@ada-mcp/mcp-server",
   "version": "0.1.0",
+  "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "private": false,
-  "type": "module",
-  "main": "./dist/main.js",
+  "type": "commonjs",
+  "main": "./dist/cli.cjs",
   "bin": {
-    "ada-mcp": "./dist/cli.js"
+    "ada-mcp": "./dist/cli.cjs"
   },
   "files": [
-    "dist",
+    "dist/cli.cjs",
+    "plugins",
     "README.md"
   ],
-  "exports": {
-    ".": "./dist/main.js",
-    "./stdio": "./dist/main.js"
-  },
   "scripts": {
     "dev": "tsx src/cli.ts",
     "prebuild": "node ../../scripts/generate-bundled-config.mjs",
     "build": "tsc -p tsconfig.json",
+    "build:npm": "node ../../scripts/build-mcp-npm.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm run build",
-    "pack:dry-run": "npm run build && npm pack --dry-run"
+    "prepublishOnly": "npm run build:npm",
+    "pack:dry-run": "npm run build:npm && npm pack --dry-run"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "express": "^5.2.1",
+    "jimp": "^1.6.0",
+    "js-yaml": "^4.1.0",
+    "playwright": "^1.59.1",
+    "selenium-webdriver": "^4.34.0"
+  },
+  "optionalDependencies": {
+    "appium": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
     "@ada/agent-core": "0.1.0",
+    "@ada/agent": "0.1.0",
     "@ada/contracts": "0.1.0",
     "@ada/core-kernel": "0.1.0",
     "@ada/core-runtime": "0.1.0",
     "@ada/driver-appium": "0.1.0",
     "@ada/driver-playwright": "0.1.0",
-    "@ada/plugin-host": "0.1.0",
-    "@modelcontextprotocol/sdk": "^1.17.5",
-    "jimp": "^1.6.0"
+    "@ada/driver-selenium": "0.1.0",
+    "@ada/plugin-host": "0.1.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
