@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ada-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ada-mcp/mcp-server"
+      ]
+    }
+  }
+}

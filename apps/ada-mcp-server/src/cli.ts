@@ -1,6 +1,4 @@
-#!/usr/bin/env node
-import { startMcpServer } from "./main.js";
-import { startRemoteServer } from "./remote-server.js";
+import { runBootstrapInstallDeps } from "./bootstrap-deps.js";
 
 function argValue(name: string, fallback = ""): string {
   const argv = process.argv.slice(2);
@@ -41,12 +39,20 @@ if (isServerMode) {
     console.error("missing api key, set --api-key=xxx or ADA_MCP_REMOTE_API_KEY");
     process.exit(1);
   }
-  void startRemoteServer({ host, port, apiKey, allowRisky, riskyMode, riskyCommands, allowedHosts }).catch((error) => {
+  void (async () => {
+    await runBootstrapInstallDeps(argv);
+    const { startRemoteServer } = await import("./remote-server.js");
+    await startRemoteServer({ host, port, apiKey, allowRisky, riskyMode, riskyCommands, allowedHosts });
+  })().catch((error) => {
     console.error(error);
     process.exit(1);
   });
 } else {
-  void startMcpServer().catch((error) => {
+  void (async () => {
+    await runBootstrapInstallDeps(argv);
+    const { startMcpServer } = await import("./main.js");
+    await startMcpServer();
+  })().catch((error) => {
     console.error(error);
     process.exit(1);
   });

@@ -78,7 +78,33 @@
 
 该程序用于向 MCP Host 暴露 ADA 工具能力，通常由 MCP Host 拉起。
 
-在 MCP Host 中建议使用以下完整配置（`ada-mcp-win.exe` 走 stdio，不需要额外 `mcp` 参数）：
+**npm 标准配置**（与 `docs/ADA-MCP-接入手册.md` §3.9 一致）：
+
+```json
+{
+  "mcpServers": {
+    "ada-mcp": {
+      "command": "pnpm",
+      "args": ["dlx", "@ada-mcp/launcher@0.1.7"]
+    }
+  }
+}
+```
+
+**npx 等价**：`npx -y @ada-mcp/launcher@0.1.7`（`0.1.7+` 内层同样用 npx，与 pnpm 测速逻辑一致）
+
+```json
+{
+  "mcpServers": {
+    "ada-mcp": {
+      "command": "npx",
+      "args": ["-y", "@ada-mcp/launcher@0.1.7"]
+    }
+  }
+}
+```
+
+**本地 exe 配置**（`ada-mcp-win.exe` 走 stdio，不需要额外 `mcp` 参数）：
 
 ```json
 {
@@ -91,7 +117,9 @@
         "ADA_PLAYWRIGHT_HEADLESS": "true",
         "ADA_NPM_PROXY_REGISTRY": "https://registry.npmmirror.com",
         "ADA_PNPM_PROXY_REGISTRY": "https://registry.npmmirror.com",
-        "ADA_INSTALL_STRATEGY_TIMEOUT_MS": "30000"
+        "PLAYWRIGHT_DOWNLOAD_HOST": "https://npmmirror.com/mirrors/playwright",
+        "ADA_INSTALL_STRATEGY_TIMEOUT_MS": "120000",
+        "ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS": "900000"
       }
     }
   }
@@ -99,6 +127,8 @@
 ```
 
 启动后可调用 `ada_health`、`ada_diagnostics`、`ada_web_action`、`ada_mobile_action` 等工具。
+
+代理与镜像环境变量说明见 `docs/ADA-MCP-接入手册.md` §3.9.2（含 `npm_config_registry`、`ADA_REGISTRY_CANDIDATES` 等）。
 
 ## 5. `ada-web-win.exe` 使用方法
 

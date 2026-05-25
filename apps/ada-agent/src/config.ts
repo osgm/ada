@@ -68,8 +68,8 @@ export const defaultConfig: AgentConfig = {
   dependencies: {
     autoInstallOnStart: true,
     playwrightBrowser: "chromium",
-    playwrightInstallTargets: ["chrome"],
-    playwrightDownloadHost: "https://npmmirror.com/mirrors/playwright",
+    playwrightInstallTargets: ["chromium"],
+    playwrightDownloadHost: "https://cdn.playwright.dev",
     npmRegistryCandidates: [
       "https://registry.npmmirror.com",
       "https://mirrors.cloud.tencent.com/npm",
@@ -77,12 +77,14 @@ export const defaultConfig: AgentConfig = {
       "https://registry.npmjs.org"
     ],
     playwrightHostCandidates: [
+      "https://cdn.playwright.dev",
+      "https://playwright.azureedge.net",
       "https://npmmirror.com/mirrors/playwright",
-      "https://playwright.azureedge.net"
+      "https://cdn.npmmirror.com/binaries/playwright"
     ],
     nativeDriversDir: "dirver",
     geckodriverVersion: "latest",
-    chromedriverVersion: "latest"
+    chromedriverVersion: "match-chrome"
   },
   appium: {
     serverUrl: "http://127.0.0.1:4723",

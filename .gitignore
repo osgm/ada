@@ -9,8 +9,8 @@ node_modules/
 
 # Downloaded / local runtime (not source)
 dirver/
-appium/
-android-sdk/
+APPIUM_HOME/
+ANDROID_HOME/
 release/
 
 # Build outputs
@@ -38,6 +38,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# MCP dlx preinstall probe artifacts (local)
+.ada-mcp-playwright-host
 
 # Environment & secrets (npm token → user ~/.npmrc or npm login)
 .env

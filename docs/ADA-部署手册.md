@@ -101,7 +101,8 @@ chmod +x ./ada-agent
 
 安装策略支持超时快速切换，可通过环境变量调整：
 
-- `ADA_INSTALL_STRATEGY_TIMEOUT_MS`（默认 `20000` 毫秒）
+- `ADA_INSTALL_STRATEGY_TIMEOUT_MS`（默认 `120000` 毫秒，npm/pnpm 装包）
+- `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`（默认 `900000` 毫秒，`playwright install` 下载浏览器）
 
 Appium driver 兼容性优化（默认开启）：
 
@@ -113,13 +114,20 @@ Appium driver 兼容性优化（默认开启）：
   - `ADA_APPIUM_DRIVER_SPEC_UIAUTOMATOR2`（默认 `appium-uiautomator2-driver@2`）
   - `ADA_APPIUM_DRIVER_SPEC_XCUITEST`（默认 `appium-xcuitest-driver@7`）
 
-可通过环境变量覆盖代理地址：
+可通过环境变量覆盖代理地址（`install-deps` / 启动时自动安装阶段会**测速选最快**；`pnpm dlx` 拉包本身不探测，见 `docs/ADA-MCP-接入手册.md` §3.9.2）：
 
-- `ADA_NPM_PROXY_REGISTRY`
-- `ADA_PNPM_PROXY_REGISTRY`
-- `PLAYWRIGHT_DOWNLOAD_HOST`（默认：`https://npmmirror.com/mirrors/playwright`）
-- `ADA_REGISTRY_CANDIDATES`（逗号分隔，覆盖 registry 候选列表）
-- `ADA_PLAYWRIGHT_HOST_CANDIDATES`（逗号分隔，覆盖 Playwright host 候选列表）
+| 变量 | 说明 |
+|------|------|
+| `npm_config_registry` | 本机 npm/pnpm 默认源；建议国内用户设置，加速 `dlx` / `npx` 拉包 |
+| `ADA_NPM_PROXY_REGISTRY` | npm 代理探测主候选（默认 `https://registry.npmmirror.com`） |
+| `ADA_PNPM_PROXY_REGISTRY` | pnpm 代理探测主候选（默认同上） |
+| `ADA_REGISTRY_CANDIDATES` | 额外 registry，逗号分隔，与配置文件中候选合并后测速 |
+| `PLAYWRIGHT_DOWNLOAD_HOST` | Playwright 浏览器 CDN（默认测速：`cdn.playwright.dev`、azureedge、npmmirror 等） |
+| `ADA_PLAYWRIGHT_HOST_CANDIDATES` | 额外 Playwright CDN，逗号分隔 |
+| `ADA_INSTALL_STRATEGY_TIMEOUT_MS` | npm/pnpm 装包超时（默认 `120000`） |
+| `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS` | `playwright install` 超时（默认 `900000`） |
+
+配置文件 `config/default.yaml` → `dependencies.npmRegistryCandidates` 默认含阿里云(npmmirror)、腾讯云、华为云、npm 官方（按优先级测速）；**无需配置环境变量即可探测**。MCP npm 包无工作区时使用内置同序列表（见 `dependency-installer.ts`）。
 
 执行命令：
 
@@ -490,7 +498,7 @@ npm run mcp:dev
 - `dependencies.autoInstallOnStart`：启动自动安装依赖
 - `dependencies.playwrightBrowser`：`chromium | firefox | webkit | all`
 - `dependencies.playwrightInstallTargets`：Playwright 下载目标数组（如 `["chrome"]`、`["chromium","firefox"]`、`["all"]`）
-- `dependencies.playwrightDownloadHost`：Playwright 浏览器下载镜像地址（默认 `https://npmmirror.com/mirrors/playwright`）
+- `dependencies.playwrightDownloadHost`：Playwright 浏览器 CDN 默认值（`https://cdn.playwright.dev`）；`playwrightHostCandidates` 含官方 CDN、azureedge、npmmirror 等，install-deps 时测速选取
 - `appium.serverUrl`：Appium Server 地址（`doctor` 会检查连通性）
 - `appium.requiredDrivers`：Appium 必备 driver 列表（默认 `uiautomator2`、`xcuitest`、`harmonyos`）
 - `transport.mode`：`auto | stream | http`（默认 `auto`，优先 stream 失败自动回退 http）

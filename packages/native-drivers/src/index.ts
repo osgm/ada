@@ -2,11 +2,62 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-/** 项目内默认原生驱动目录（与用户现�?`dirver` 文件夹一致） */
+/** ?????????????????????????????????????????`dirver` ???????????? */
 export const DEFAULT_NATIVE_DRIVERS_DIR = "dirver";
 
 const CHROME_FOR_TESTING_JSON =
   "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json";
+
+/** ????????????????????????????? */
+export const SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
+  {
+    browser: "Chrome/Chromium",
+    platforms: "Windows/Linux/macOS",
+    vendor: "\u8c37\u6b4c",
+    url: "https://chromedriver.storage.googleapis.com/index.html"
+  },
+  {
+    browser: "Firefox",
+    platforms: "Windows/Linux/macOS",
+    vendor: "Mozilla",
+    url: "https://github.com/mozilla/geckodriver/releases"
+  },
+  {
+    browser: "Edge",
+    platforms: "win10",
+    vendor: "\u5fae\u8f6f",
+    url: "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
+  },
+  {
+    browser: "Internet Explorer",
+    platforms: "Windows",
+    vendor: "Selenium \u9879\u76ee\u7ec4",
+    url: "https://selenium-release.storage.googleapis.com/index.html"
+  },
+  {
+    browser: "Safari",
+    platforms: "macOS El Capitan \u53ca\u66f4\u9ad8\u7248\u672c",
+    vendor: "\u82f9\u679c",
+    url: "\uff08\u7cfb\u7edf\u5185\u7f6e\uff0c\u65e0\u9700\u5355\u72ec\u4e0b\u8f7d\uff09"
+  },
+  {
+    browser: "Opera",
+    platforms: "Windows/macOS/Linux",
+    vendor: "Opera",
+    url: "https://github.com/operasoftware/operachromiumdriver/releases"
+  }
+] as const;
+
+export interface LocalBrowserInfo {
+  path: string;
+  version: string;
+  major: string;
+}
+
+export interface LocalBrowserDetection {
+  chrome?: LocalBrowserInfo;
+  firefox?: LocalBrowserInfo;
+}
 
 export interface NativeDriverSelection {
   geckodriverVersion?: string;
@@ -79,7 +130,7 @@ export async function resolveWorkspaceRoot(cwd = process.cwd()): Promise<string>
   return path.resolve(cwd);
 }
 
-/** 解析原生 WebDriver 存放目录（优�?ADA_DRIVERS_DIR，其�?dirver/driver/drivers�?*/
+/** ?????????? WebDriver ?????????????????ADA_DRIVERS_DIR???????dirver/driver/drivers??*/
 export async function resolveNativeDriversDir(workspaceRoot?: string): Promise<string> {
   const root = workspaceRoot ? path.resolve(workspaceRoot) : await resolveWorkspaceRoot();
   const fromEnv = process.env.ADA_DRIVERS_DIR?.trim();
@@ -142,7 +193,7 @@ async function listExecutablesInDir(driversDir: string): Promise<string[]> {
   return files;
 }
 
-/** 扫描 dirver 目录中已存在�?chromedriver 主版本号（如 chromedriver137.exe �?137�?*/
+/** ???? dirver ???????????????chromedriver ???????????? chromedriver137.exe ???137??*/
 export async function listLocalChromedriverVersions(driversDir: string): Promise<string[]> {
   const files = await listExecutablesInDir(driversDir);
   const versions = new Set<string>();
@@ -407,30 +458,176 @@ export async function resolveChromedriverCfTVersion(requested?: string): Promise
   return hit.version;
 }
 
-async function detectInstalledChromeMajorVersion(): Promise<string | undefined> {
-  if (process.platform !== "win32") {
+function parseBrowserVersionString(raw: string): { version: string; major: string } | undefined {
+  const match = raw.match(/(\d+\.\d+(?:\.\d+)*(?:\.\d+)?)/);
+  if (!match) {
     return undefined;
   }
-  const candidates = [
-    path.join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Google", "Chrome", "Application", "chrome.exe"),
-    path.join(
-      process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
-      "Google",
-      "Chrome",
-      "Application",
-      "chrome.exe"
-    )
-  ];
-  for (const chromePath of candidates) {
-    if (!(await fileExists(chromePath))) {
+  const version = match[1];
+  return { version, major: version.split(".")[0] };
+}
+
+async function runCommandCapture(command: string, args: string[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: process.platform === "win32"
+    });
+    let out = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      out += chunk.toString("utf8");
+    });
+    child.on("exit", (code) => resolve(code === 0 ? out.trim() : undefined));
+    child.on("error", () => resolve(undefined));
+  });
+}
+
+async function detectChromeFromExecutable(exePath: string): Promise<LocalBrowserInfo | undefined> {
+  if (!(await fileExists(exePath))) {
+    return undefined;
+  }
+  if (process.platform === "win32") {
+    const version = await readWindowsFileVersion(exePath);
+    if (!version) {
+      return undefined;
+    }
+    const parsed = parseBrowserVersionString(version);
+    if (!parsed) {
+      return undefined;
+    }
+    return { path: exePath, version: parsed.version, major: parsed.major };
+  }
+  const out = await runCommandCapture(exePath, ["--version"]);
+  if (!out) {
+    return undefined;
+  }
+  const parsed = parseBrowserVersionString(out);
+  if (!parsed) {
+    return undefined;
+  }
+  return { path: exePath, version: parsed.version, major: parsed.major };
+}
+
+async function detectFirefoxFromExecutable(exePath: string): Promise<LocalBrowserInfo | undefined> {
+  if (!(await fileExists(exePath))) {
+    return undefined;
+  }
+  if (process.platform === "win32") {
+    const version = await readWindowsFileVersion(exePath);
+    if (!version) {
+      return undefined;
+    }
+    const parsed = parseBrowserVersionString(version);
+    if (!parsed) {
+      return undefined;
+    }
+    return { path: exePath, version: parsed.version, major: parsed.major };
+  }
+  const out = await runCommandCapture(exePath, ["--version"]);
+  if (!out) {
+    return undefined;
+  }
+  const parsed = parseBrowserVersionString(out);
+  if (!parsed) {
+    return undefined;
+  }
+  return { path: exePath, version: parsed.version, major: parsed.major };
+}
+
+/** ???????? Chrome/Chromium ? Firefox??????????????? */
+export async function detectLocalBrowsers(): Promise<LocalBrowserDetection> {
+  const result: LocalBrowserDetection = {};
+
+  if (process.platform === "win32") {
+    const chromeCandidates = [
+      path.join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Google", "Chrome", "Application", "chrome.exe"),
+      path.join(
+        process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+        "Google",
+        "Chrome",
+        "Application",
+        "chrome.exe"
+      ),
+      path.join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Chromium", "Application", "chrome.exe")
+    ];
+    for (const p of chromeCandidates) {
+      const hit = await detectChromeFromExecutable(p);
+      if (hit) {
+        result.chrome = hit;
+        break;
+      }
+    }
+    const firefoxCandidates = [
+      path.join(process.env["ProgramFiles"] ?? "C:\\Program Files", "Mozilla Firefox", "firefox.exe"),
+      path.join(
+        process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+        "Mozilla Firefox",
+        "firefox.exe"
+      )
+    ];
+    for (const p of firefoxCandidates) {
+      const hit = await detectFirefoxFromExecutable(p);
+      if (hit) {
+        result.firefox = hit;
+        break;
+      }
+    }
+    return result;
+  }
+
+  if (process.platform === "darwin") {
+    const chromePaths = [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium"
+    ];
+    for (const p of chromePaths) {
+      const hit = await detectChromeFromExecutable(p);
+      if (hit) {
+        result.chrome = hit;
+        break;
+      }
+    }
+    const firefoxPath = "/Applications/Firefox.app/Contents/MacOS/firefox";
+    const ff = await detectFirefoxFromExecutable(firefoxPath);
+    if (ff) {
+      result.firefox = ff;
+    }
+    return result;
+  }
+
+  const chromeCommands = ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium"];
+  for (const cmd of chromeCommands) {
+    if (!(await commandOnPath(cmd))) {
       continue;
     }
-    const version = await readWindowsFileVersion(chromePath);
-    if (version) {
-      return version.split(".")[0];
+    const out = await runCommandCapture(cmd, ["--version"]);
+    const parsed = out ? parseBrowserVersionString(out) : undefined;
+    if (parsed) {
+      result.chrome = { path: cmd, version: parsed.version, major: parsed.major };
+      break;
     }
   }
-  return undefined;
+
+  if (await commandOnPath("firefox")) {
+    const out = await runCommandCapture("firefox", ["--version"]);
+    const parsed = out ? parseBrowserVersionString(out) : undefined;
+    if (parsed) {
+      result.firefox = { path: "firefox", version: parsed.version, major: parsed.major };
+    }
+  }
+
+  return result;
+}
+
+export function logSeleniumDriverGuidance(onLogLine?: (line: string) => void): void {
+  onLogLine?.(
+    "[selenium] \u5c06\u68c0\u6d4b\u672c\u673a Chrome/Firefox \u5e76\u5c1d\u8bd5\u4e0b\u8f7d\u9a71\u52a8\u81f3\u76ee\u5f55\uff1b\u5931\u8d25\u53ef\u624b\u52a8\u653e\u5165 geckodriver/chromedriver\uff08\u89c1\u63a5\u5165\u624b\u518c Selenium \u8282\uff09"
+  );
+}
+
+async function detectInstalledChromeMajorVersion(): Promise<string | undefined> {
+  const browsers = await detectLocalBrowsers();
+  return browsers.chrome?.major;
 }
 
 async function readWindowsFileVersion(exePath: string): Promise<string | undefined> {
@@ -480,7 +677,7 @@ export async function downloadGeckodriver(
   await fs.mkdir(driversDir, { recursive: true });
   const zipPath = path.join(driversDir, `_download_geckodriver_${version}.zip`);
   const extractDir = path.join(driversDir, `_extract_geckodriver_${version}`);
-  onLogLine?.(`[selenium] 下载 geckodriver ${tag} �?${driversDir}`);
+  onLogLine?.(`[selenium] \u4e0b\u8f7d geckodriver ${tag} \u2192 ${driversDir}`);
   onLogLine?.(`[selenium] URL: ${url}`);
   await downloadToFile(url, zipPath);
   await fs.rm(extractDir, { recursive: true, force: true });
@@ -493,7 +690,7 @@ export async function downloadGeckodriver(
   await copyExecutable(found, dest);
   await fs.rm(zipPath, { force: true });
   await fs.rm(extractDir, { recursive: true, force: true });
-  onLogLine?.(`[selenium] geckodriver 已写�? ${dest}`);
+  onLogLine?.(`[selenium] geckodriver \u5df2\u5199\u5165: ${dest}`);
   return { path: dest, version: tag };
 }
 
@@ -523,7 +720,7 @@ export async function downloadChromedriver(
   await fs.mkdir(driversDir, { recursive: true });
   const zipPath = path.join(driversDir, `_download_chromedriver_${major}.zip`);
   const extractDir = path.join(driversDir, `_extract_chromedriver_${major}`);
-  onLogLine?.(`[selenium] 下载 chromedriver ${fullVersion} (主版�?${major}) �?${driversDir}`);
+  onLogLine?.(`[selenium] \u4e0b\u8f7d chromedriver ${fullVersion} (\u4e3b\u7248\u672c ${major}) \u2192 ${driversDir}`);
   onLogLine?.(`[selenium] URL: ${url}`);
   await downloadToFile(url, zipPath);
   await fs.rm(extractDir, { recursive: true, force: true });
@@ -540,7 +737,7 @@ export async function downloadChromedriver(
   }
   await fs.rm(zipPath, { force: true });
   await fs.rm(extractDir, { recursive: true, force: true });
-  onLogLine?.(`[selenium] chromedriver 已写�? ${destVersioned}`);
+  onLogLine?.(`[selenium] chromedriver \u5df2\u5199\u5165: ${destVersioned}`);
   return { path: destVersioned, version: fullVersion, major };
 }
 
@@ -563,34 +760,95 @@ export async function loadNativeDriverManifest(workspaceRoot?: string): Promise<
   }
 }
 
+function resolveDefaultChromedriverVersion(
+  requested: string | undefined,
+  browsers: LocalBrowserDetection
+): string | undefined {
+  if (requested && requested !== "latest") {
+    return requested;
+  }
+  if (browsers.chrome?.major) {
+    return "match-chrome";
+  }
+  return requested ?? "latest";
+}
+
+function formatDownloadError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function ensureNativeWebDrivers(options: DownloadNativeDriversOptions = {}): Promise<ResolvedNativeDrivers> {
   const root = options.workspaceRoot ?? (await resolveWorkspaceRoot());
   const driversDir = options.driversDir ?? (await resolveNativeDriversDir(root));
   await fs.mkdir(driversDir, { recursive: true });
   const log = options.onLogLine;
-  log?.(`[selenium] 原生驱动目录: ${driversDir}`);
+
+  logSeleniumDriverGuidance(log);
+  log?.(`[selenium] \u539f\u751f\u9a71\u52a8\u76ee\u5f55: ${driversDir}`);
+
+  const browsers = await detectLocalBrowsers();
+  if (browsers.chrome) {
+    log?.(
+      `[selenium] \u68c0\u6d4b\u5230\u672c\u673a Chrome/Chromium: ${browsers.chrome.version} (\u4e3b\u7248\u672c ${browsers.chrome.major}) \u2014 ${browsers.chrome.path}`
+    );
+  } else {
+    log?.("[selenium] \u672a\u68c0\u6d4b\u5230\u672c\u673a Chrome/Chromium\uff08chromedriver \u5c06\u4f7f\u7528 latest \u6216\u663e\u5f0f\u6307\u5b9a\u7248\u672c\uff09");
+  }
+  if (browsers.firefox) {
+    log?.(
+      `[selenium] \u68c0\u6d4b\u5230\u672c\u673a Firefox: ${browsers.firefox.version} (\u4e3b\u7248\u672c ${browsers.firefox.major}) \u2014 ${browsers.firefox.path}`
+    );
+  } else {
+    log?.("[selenium] \u672a\u68c0\u6d4b\u5230\u672c\u673a Firefox\uff08geckodriver \u5c06\u4f7f\u7528 latest \u6216\u663e\u5f0f\u6307\u5b9a\u7248\u672c\uff09");
+  }
 
   const localChromeVersions = await listLocalChromedriverVersions(driversDir);
   if (localChromeVersions.length > 0) {
-    log?.(`[selenium] 目录内已�?chromedriver 版本: ${localChromeVersions.join(", ")}`);
+    log?.(`[selenium] \u76ee\u5f55\u5185\u5df2\u6709 chromedriver \u7248\u672c: ${localChromeVersions.join(", ")}`);
+  }
+
+  const chromedriverRequest = resolveDefaultChromedriverVersion(options.chromedriverVersion, browsers);
+  if (chromedriverRequest === "match-chrome" && browsers.chrome) {
+    log?.(
+      `[selenium] chromedriver \u5c06\u5c1d\u8bd5\u5339\u914d\u672c\u673a Chrome \u4e3b\u7248\u672c ${browsers.chrome.major}\uff08chrome-for-testing \u76ee\u5f55\uff09`
+    );
   }
 
   const localGecko = await findGeckodriverInDir(driversDir, options.geckodriverVersion);
   const hasLocalGecko = Boolean(localGecko && (await fileExists(localGecko)));
   let geckoVersion = options.geckodriverVersion;
   if (options.geckodriverVersion !== "skip" && (options.force || !hasLocalGecko)) {
-    const downloaded = await downloadGeckodriver(driversDir, options.geckodriverVersion ?? "latest", log);
-    geckoVersion = downloaded.version;
+    try {
+      const downloaded = await downloadGeckodriver(driversDir, options.geckodriverVersion ?? "latest", log);
+      geckoVersion = downloaded.version;
+    } catch (error) {
+      log?.(`[selenium][warn] geckodriver \u81ea\u52a8\u4e0b\u8f7d\u5931\u8d25\uff0c\u5df2\u8df3\u8fc7: ${formatDownloadError(error)}`);
+      log?.(
+        "[selenium][warn] \u8bf7\u5c06 geckodriver \u653e\u5165\u4e0a\u8ff0\u76ee\u5f55\u6216\u914d\u7f6e PATH / ADA_GECKODRIVER_PATH\uff1b\u53ef\u53c2\u8003 Mozilla \u53d1\u5e03\u9875\u624b\u52a8\u4e0b\u8f7d\u3002"
+      );
+    }
   } else if (hasLocalGecko) {
-    log?.(`[selenium] 复用已有 geckodriver: ${localGecko}`);
+    log?.(`[selenium] \u590d\u7528\u5df2\u6709 geckodriver: ${localGecko}`);
   }
 
-  const localChrome = await findChromedriverInDir(driversDir, options.chromedriverVersion);
+  const localChrome = await findChromedriverInDir(driversDir, chromedriverRequest);
   const hasLocalChrome = Boolean(localChrome && (await fileExists(localChrome.path)));
-  if (options.chromedriverVersion !== "skip" && (options.force || !hasLocalChrome)) {
-    await downloadChromedriver(driversDir, options.chromedriverVersion ?? "latest", log);
+  if (chromedriverRequest !== "skip" && (options.force || !hasLocalChrome)) {
+    try {
+      await downloadChromedriver(driversDir, chromedriverRequest ?? "latest", log);
+    } catch (error) {
+      log?.(`[selenium][warn] chromedriver \u81ea\u52a8\u4e0b\u8f7d\u5931\u8d25\uff0c\u5df2\u8df3\u8fc7: ${formatDownloadError(error)}`);
+      if (browsers.chrome) {
+        log?.(
+          `[selenium][warn] \u672c\u673a Chrome \u4e3b\u7248\u672c\u4e3a ${browsers.chrome.major}\uff0c\u8bf7\u4e0b\u8f7d\u5339\u914d\u7248\u672c\u7684 chromedriver \u653e\u5165\u76ee\u5f55\u6216\u914d\u7f6e ADA_CHROMEDRIVER_PATH\u3002`
+        );
+      }
+      log?.(
+        "[selenium][warn] \u53ef\u53c2\u8003 chrome-for-testing / chromedriver.storage \u624b\u52a8\u4e0b\u8f7d\uff1b\u5df2\u653e\u5165 dirver/ \u7684\u9a71\u52a8\u4f1a\u5728\u4e0b\u6b21\u542f\u52a8\u65f6\u81ea\u52a8\u590d\u7528\u3002"
+      );
+    }
   } else if (hasLocalChrome) {
-    log?.(`[selenium] 复用已有 chromedriver: ${localChrome!.path} (主版�?${localChrome!.version})`);
+    log?.(`[selenium] \u590d\u7528\u5df2\u6709 chromedriver: ${localChrome!.path} (\u4e3b\u7248\u672c ${localChrome!.version})`);
   }
 
   const resolved = await resolveNativeDrivers({
@@ -598,7 +856,7 @@ export async function ensureNativeWebDrivers(options: DownloadNativeDriversOptio
     workspaceRoot: root,
     selection: {
       geckodriverVersion: geckoVersion,
-      chromedriverVersion: options.chromedriverVersion ?? localChrome?.version
+      chromedriverVersion: chromedriverRequest ?? localChrome?.version
     }
   });
 
@@ -618,11 +876,19 @@ export async function ensureNativeWebDrivers(options: DownloadNativeDriversOptio
 
   if (resolved.geckodriverPath) {
     process.env.ADA_GECKODRIVER_PATH = resolved.geckodriverPath;
-    log?.(`[selenium] 使用 geckodriver: ${resolved.geckodriverPath}`);
+    log?.(`[selenium] \u4f7f\u7528 geckodriver: ${resolved.geckodriverPath}`);
+  } else if (options.geckodriverVersion !== "skip") {
+    log?.("[selenium][warn] \u672a\u627e\u5230\u53ef\u7528 geckodriver\uff08\u81ea\u52a8\u4e0b\u8f7d\u5df2\u8df3\u8fc7\u6216\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u5b89\u88c5\uff09");
   }
   if (resolved.chromedriverPath) {
     process.env.ADA_CHROMEDRIVER_PATH = resolved.chromedriverPath;
-    log?.(`[selenium] 使用 chromedriver: ${resolved.chromedriverPath}`);
+    log?.(`[selenium] \u4f7f\u7528 chromedriver: ${resolved.chromedriverPath}`);
+  } else if (chromedriverRequest !== "skip") {
+    log?.("[selenium][warn] \u672a\u627e\u5230\u53ef\u7528 chromedriver\uff08\u81ea\u52a8\u4e0b\u8f7d\u5df2\u8df3\u8fc7\u6216\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u5b89\u88c5\uff09");
+  }
+
+  if (!resolved.geckodriverOk && !resolved.chromedriverOk) {
+    log?.("[selenium][warn] \u5f53\u524d\u65e0\u53ef\u7528\u539f\u751f WebDriver\uff1bSelenium \u4efb\u52a1\u53ef\u80fd\u5931\u8d25\uff0c\u8bf7\u6309\u4e0a\u6587\u53c2\u8003\u5730\u5740\u81ea\u884c\u4e0b\u8f7d\u3002");
   }
 
   return resolved;

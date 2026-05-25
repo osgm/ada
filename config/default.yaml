@@ -54,16 +54,19 @@ queue:
 dependencies:
   autoInstallOnStart: true
   playwrightBrowser: "chromium" # chromium | firefox | webkit | all
-  playwrightInstallTargets: ["chrome"] # chromium | chrome | msedge | firefox | webkit | all
-  playwrightDownloadHost: "https://npmmirror.com/mirrors/playwright"
+  playwrightInstallTargets: ["chromium"] # chromium | chrome | msedge | firefox | webkit | all
+  playwrightDownloadHost: "https://cdn.playwright.dev"
+  # 国内 npm 镜像（按优先级；install-deps 启动时测速选最快，无需用户配置）
   npmRegistryCandidates:
-    - "https://registry.npmmirror.com"
-    - "https://mirrors.cloud.tencent.com/npm"
-    - "https://repo.huaweicloud.com/repository/npm"
-    - "https://registry.npmjs.org"
+    - "https://registry.npmmirror.com" # 阿里云 / npmmirror（推荐）
+    - "https://mirrors.cloud.tencent.com/npm" # 腾讯云
+    - "https://repo.huaweicloud.com/repository/npm" # 华为云
+    - "https://registry.npmjs.org" # 官方兜底
   playwrightHostCandidates:
-    - "https://npmmirror.com/mirrors/playwright"
+    - "https://cdn.playwright.dev"
     - "https://playwright.azureedge.net"
+    - "https://npmmirror.com/mirrors/playwright"
+    - "https://cdn.npmmirror.com/binaries/playwright"
   # 原生 WebDriver（geckodriver / chromedriver）统一放在项目 dirver 目录
   nativeDriversDir: "dirver"
   geckodriverVersion: "latest" # 如 0.36.0；install-deps --only=selenium 时下载到此目录

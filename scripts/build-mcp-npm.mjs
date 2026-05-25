@@ -11,14 +11,24 @@ const mcpDir = path.join(root, "apps", "ada-mcp-server");
 const distDir = path.join(mcpDir, "dist");
 const pluginsDir = path.join(mcpDir, "plugins");
 
-const EXTERNALS = [
-  "playwright",
-  "selenium-webdriver",
-  "appium",
-  "@modelcontextprotocol/sdk",
-  "express",
-  "jimp"
-];
+/** SDK + zod 打入 cli，避免 pnpm dlx 解析到无 zod/v3 的旧版 zod */
+const EXTERNALS = ["playwright", "selenium-webdriver", "appium", "express", "jimp"];
+
+const AGENT_SRC = path.join(root, "apps", "ada-agent", "src");
+
+/** Bundle @ada/agent from source so npm publish is not blocked on stale/missing dist/. */
+function adaAgentSrcPlugin() {
+  return {
+    name: "ada-agent-src",
+    setup(buildApi) {
+      buildApi.onResolve({ filter: /^@ada\/agent(\/.*)?$/ }, (args) => {
+        const sub = args.path === "@ada/agent" ? "main" : args.path.slice("@ada/agent/".length);
+        const tsPath = path.join(AGENT_SRC, `${sub}.ts`);
+        return { path: tsPath };
+      });
+    }
+  };
+}
 
 async function bundlePlugins() {
   await fs.mkdir(pluginsDir, { recursive: true });
@@ -52,6 +62,7 @@ async function bundleCli() {
     format: "cjs",
     target: "node18",
     external: EXTERNALS,
+    plugins: [adaAgentSrcPlugin()],
     sourcemap: false,
     banner: {
       js: "#!/usr/bin/env node"

@@ -40,7 +40,7 @@ export function normalizePlaywrightTargets(raw: string[] | undefined): {
     return { playwrightBrowser: "all", playwrightInstallTargets: ["all"] };
   }
   if (list.length === 0) {
-    return { playwrightBrowser: "chromium", playwrightInstallTargets: ["chrome"] };
+    return { playwrightBrowser: "chromium", playwrightInstallTargets: ["chromium"] };
   }
   const ordered = ["chromium", "chrome", "firefox", "webkit", "msedge"].filter((x) => list.includes(x));
   const primary =

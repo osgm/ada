@@ -1,0 +1,22 @@
+{
+  "name": "@ada-mcp/launcher",
+  "version": "0.1.19",
+  "description": "Probe fastest npm registry then pnpm dlx @ada-mcp/mcp-server (zero deps)",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "ada-mcp": "./launcher.mjs"
+  },
+  "files": [
+    "launcher.mjs",
+    "registry-probe.mjs",
+    "playwright-probe.mjs",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

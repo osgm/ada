@@ -157,10 +157,13 @@ function resolveAndroidSdkRoot(): string | null {
     .find(Boolean);
   const adbSdkRoot = adbPath ? path.dirname(path.dirname(adbPath)) : null;
 
+  const workspaceRoot = process.cwd();
+  const projectAndroidHome = path.join(workspaceRoot, "ANDROID_HOME");
   const candidates = [
     process.env.ANDROID_SDK_ROOT,
     process.env.ANDROID_HOME,
     persisted.androidHome,
+    existsSync(projectAndroidHome) ? projectAndroidHome : null,
     adbSdkRoot,
     process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Android", "Sdk") : null,
     process.env.USERPROFILE ? path.join(process.env.USERPROFILE, "AppData", "Local", "Android", "Sdk") : null
@@ -198,10 +201,11 @@ function hasAppiumDriver(homeDir: string, driverName: string): boolean {
 
 function resolveAppiumHome(platform: "android" | "ios" | "harmony"): string | null {
   const persisted = loadPersistedHomes();
+  const projectAppiumHome = path.join(process.cwd(), "APPIUM_HOME");
   const candidates = [
     process.env.APPIUM_HOME,
     persisted.appiumHome,
-    process.cwd(),
+    existsSync(projectAppiumHome) ? projectAppiumHome : null,
     process.env.USERPROFILE,
     process.env.USERPROFILE ? path.join(process.env.USERPROFILE, ".appium") : null
   ]
@@ -618,7 +622,7 @@ function parseInstallScope(v: unknown): InstallScope {
   ) {
     return v;
   }
-  return "all";
+  return "playwright";
 }
 
 function parseMonitorOptions(args: Record<string, unknown>): MonitorOptions {
@@ -1131,7 +1135,7 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
           only: {
             type: "string",
             enum: ["all", "playwright", "selenium", "mobile", "android", "ios", "harmony", "appium", "drivers"],
-            description: "Install scope"
+            description: "Install scope (default playwright when omitted)"
           },
           force: { type: "boolean", description: "Force reinstall selected scope" },
           nativeDriversDir: {
@@ -1792,14 +1796,22 @@ export async function startMcpServer(): Promise<void> {
   const configHint = {
     mcpServers: {
       "ada-mcp": {
+        command: "pnpm",
+        args: ["dlx", "@ada-mcp/launcher@0.1.7"]
+      }
+    }
+  };
+  const binaryHint = {
+    mcpServers: {
+      "ada-mcp": {
         command: binaryCommand,
         args: [],
         cwd,
         env: {
           ADA_PLAYWRIGHT_HEADLESS: "true",
-          ADA_NPM_PROXY_REGISTRY: "https://registry.npmmirror.com",
-          ADA_PNPM_PROXY_REGISTRY: "https://registry.npmmirror.com",
-          ADA_INSTALL_STRATEGY_TIMEOUT_MS: "30000"
+          ADA_MCP_INSTALL_DEPS: "playwright",
+          ADA_INSTALL_STRATEGY_TIMEOUT_MS: "120000",
+          ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS: "900000"
         }
       }
     }
@@ -1812,8 +1824,10 @@ export async function startMcpServer(): Promise<void> {
       }
     }
   };
-  console.error("[ADA-MCP] config hint (binary):");
+  console.error("[ADA-MCP] config hint (npm standard):");
   console.error(JSON.stringify(configHint, null, 2));
+  console.error("[ADA-MCP] config hint (local binary):");
+  console.error(JSON.stringify(binaryHint, null, 2));
   console.error("[ADA-MCP] note: MCP tool names use ada_snake_case (e.g. ada_install_deps, ada_invoke, ada_web_action)");
   console.error("[ADA-MCP] config hint (npm dev):");
   console.error(JSON.stringify(npmDevHint, null, 2));

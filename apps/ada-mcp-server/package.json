@@ -1,19 +1,24 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.19",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "private": false,
   "type": "commonjs",
   "main": "./dist/cli.cjs",
   "bin": {
+    "mcp-server": "./dist/cli.cjs",
     "ada-mcp": "./dist/cli.cjs"
   },
   "files": [
     "dist/cli.cjs",
     "plugins",
+    "scripts/preinstall-probes.mjs",
+    "scripts/registry-probe.mjs",
+    "scripts/playwright-probe.mjs",
     "README.md"
   ],
   "scripts": {
+    "preinstall": "node scripts/preinstall-probes.mjs",
     "dev": "tsx src/cli.ts",
     "prebuild": "node ../../scripts/generate-bundled-config.mjs",
     "build": "tsc -p tsconfig.json",
@@ -26,15 +31,13 @@
     "access": "public"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "3.25.76",
     "express": "^5.2.1",
     "jimp": "^1.6.0",
     "js-yaml": "^4.1.0",
-    "playwright": "^1.59.1",
+    "playwright": "1.59.1",
     "selenium-webdriver": "^4.34.0"
-  },
-  "optionalDependencies": {
-    "appium": "^3.3.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
@@ -50,5 +53,14 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "zod": "3.25.76"
+  },
+  "pnpm": {
+    "overrides": {
+      "zod": "3.25.76",
+      "@modelcontextprotocol/sdk>zod": "3.25.76"
+    }
   }
 }
