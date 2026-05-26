@@ -26,6 +26,7 @@ import asyncio
 import configparser
 import json
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -38,6 +39,8 @@ from mcp.client.stdio import stdio_client
 JD_WEB_URL = "https://www.jd.com"
 WEB_SESSION = "jd-mcp-verify-firefox"
 TIMEOUT_SEC = 360.0
+_WIN_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+PROFILE_LOCK_NAMES = ("parent.lock", ".parentlock", "lock")
 
 
 @dataclass
@@ -159,8 +162,68 @@ def detect_firefox_default_profile() -> Path | None:
     return None
 
 
+def _subprocess_kwargs() -> dict[str, Any]:
+    kw: dict[str, Any] = {}
+    if sys.platform == "win32" and _WIN_CREATE_NO_WINDOW:
+        kw["creationflags"] = _WIN_CREATE_NO_WINDOW
+    return kw
+
+
+def is_firefox_process_running() -> bool:
+    try:
+        if sys.platform == "win32":
+            proc = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq firefox.exe", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+                **_subprocess_kwargs(),
+            )
+            return "firefox.exe" in (proc.stdout or "").lower()
+        for name in ("firefox", "firefox-bin"):
+            proc = subprocess.run(
+                ["pgrep", "-x", name],
+                capture_output=True,
+                timeout=10,
+                check=False,
+                **_subprocess_kwargs(),
+            )
+            if proc.returncode == 0:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def list_profile_lock_files(profile_dir: Path) -> list[Path]:
+    return [profile_dir / name for name in PROFILE_LOCK_NAMES if (profile_dir / name).exists()]
+
+
 def is_firefox_profile_locked(profile_dir: Path) -> bool:
-    return (profile_dir / "parent.lock").exists() or (profile_dir / ".parentlock").exists()
+    """仅当 Firefox 进程仍在运行时才视为 Profile 被占用。"""
+    del profile_dir  # 保留参数以兼容调用方
+    return is_firefox_process_running()
+
+
+def warn_or_clean_stale_profile_locks(profile_dir: Path, *, clean: bool = False, tag: str = "firefox") -> None:
+    locks = list_profile_lock_files(profile_dir)
+    if not locks or is_firefox_process_running():
+        return
+    names = ", ".join(p.name for p in locks)
+    if clean:
+        for path in locks:
+            try:
+                path.unlink()
+            except OSError as exc:
+                print(f"  [{tag}] 无法删除残留锁 {path.name}: {exc}", file=sys.stderr)
+        print(f"  [{tag}] 已清理残留锁: {names}")
+        return
+    print(
+        f"  [{tag}] 提示: Profile 有残留锁文件 ({names})，但 Firefox 未在运行；"
+        "将尝试继续（失败时可加 --clean-stale-lock）",
+        file=sys.stderr,
+    )
 
 
 def apply_firefox_env(env: dict[str, str], firefox: Path, profile_dir: Path) -> None:
@@ -284,9 +347,11 @@ async def run_verify(args: argparse.Namespace) -> list[StepResult]:
 
     if not args.fresh_profile and is_firefox_profile_locked(profile_dir):
         raise RuntimeError(
-            f"Firefox Profile 已被占用（可能 Firefox 正在运行）: {profile_dir}\n"
+            f"Firefox 正在运行，Profile 被占用: {profile_dir}\n"
             "请先完全关闭 Firefox 后再运行本脚本。"
         )
+    if not args.fresh_profile:
+        warn_or_clean_stale_profile_locks(profile_dir, clean=args.clean_stale_lock)
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     shot_path = out_dir / f"jd-mcp-firefox-{ts}.png"
@@ -382,6 +447,11 @@ def main() -> int:
         action="store_true",
         help="使用隔离 profile（artifacts/firefox-jd-profile），不含历史缓存",
     )
+    parser.add_argument(
+        "--clean-stale-lock",
+        action="store_true",
+        help="Firefox 未运行时删除 Profile 残留 parent.lock 等锁文件",
+    )
     parser.add_argument("--output-dir", default="artifacts")
     parser.add_argument("--web-wait-ms", type=int, default=5000)
     parser.add_argument(
@@ -392,7 +462,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--launcher-version",
-        default=os.environ.get("ADA_MCP_LAUNCHER_VERSION", "0.1.27"),
+        default=os.environ.get("ADA_MCP_LAUNCHER_VERSION", "0.1.28"),
     )
     args = parser.parse_args()
 

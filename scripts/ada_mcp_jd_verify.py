@@ -7,6 +7,10 @@ App 真机验证请用（与 Node 版等价）：
   python scripts/mcp_jd_app_verify.py --server local
   node scripts/mcp-jd-app-verify.mjs --server local
 
+Firefox + 系统 Profile：
+  Selenium（推荐，真实 -profile）：python scripts/mcp_jd_firefox_selenium_verify.py --server local
+  Playwright 对照：python scripts/mcp_jd_firefox_verify.py --server local
+
 依赖：
   pip install -r scripts/requirements-mcp-verify.txt
 
@@ -241,7 +245,7 @@ def main() -> int:
     parser.add_argument("--user-data-dir", default="artifacts/chrome-jd-profile")
     parser.add_argument("--output-dir", default="artifacts")
     parser.add_argument("--web-wait-ms", type=int, default=5000)
-    parser.add_argument("--launcher-version", default=os.environ.get("ADA_MCP_LAUNCHER_VERSION", "0.1.27"))
+    parser.add_argument("--launcher-version", default=os.environ.get("ADA_MCP_LAUNCHER_VERSION", "0.1.28"))
     parser.add_argument("--server", choices=("npm", "dev", "local"), default="npm")
     parser.add_argument("--timeout-sec", type=float, default=360.0)
     args = parser.parse_args()

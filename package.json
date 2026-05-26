@@ -56,6 +56,7 @@
     "test:mcp:jd": "npm run test:mcp:browser && npm run test:mcp:app",
     "test:mcp:browser": "python scripts/ada_mcp_jd_verify.py --server dev",
     "test:mcp:firefox": "python scripts/mcp_jd_firefox_verify.py --server local",
+    "test:mcp:firefox:selenium": "python scripts/mcp_jd_firefox_selenium_verify.py --server local",
     "test:mcp:app": "node scripts/mcp-jd-app-verify.mjs --server local",
     "test:mcp:app:py": "python scripts/mcp_jd_app_verify.py --server local",
     "test:mcp:app:probe": "node scripts/mcp-jd-app-verify.mjs --probe --server local",

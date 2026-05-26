@@ -297,7 +297,7 @@ Windows:
 当前版本采用统一核心能力层 `agent-core`，其余程序均为入口适配层：
 
 - `ada-agent`：CLI 入口（命令行运维与任务执行）
-- `ada-mcp`：MCP 入口（给 Cursor/IDE 通过 stdio 调用）
+- `ada-mcp`：MCP 入口（经 stdio 供 MCP Host / 大模型客户端调用）
 - `ada-gui`：桌面 GUI 入口（原生窗口）
 - `ada-web`：WEB 控制台入口（浏览器页面）
 
@@ -441,16 +441,16 @@ MCP 服务（供大模型调用）开发启动：
 npm run mcp:dev
 ```
 
-#### Cursor MCP 配置（研发环境，对应 `npm run mcp:dev`）
+#### MCP Host 配置（研发环境，对应 `npm run mcp:dev`）
 
-在 Cursor 中配置本地 stdio MCP：写入用户级 `~/.cursor/mcp.json`，或项目级 `.cursor/mcp.json`（项目根目录下）。
+在支持 MCP 的客户端中配置本地 stdio：将下列 JSON 写入该 Host 要求的 MCP 配置文件（路径因产品而异，常见为项目级或用户级 `mcp.json`）。
 
 **说明：**
 
 - 使用 `command` + `args` 启动，为 **stdio 模式**，**不需要** API Key 或 OAuth。
 - `cwd` 必须为 ADA **仓库根目录**（含 `package.json` 且定义了 `mcp:dev` 脚本）；勿填用户主目录，否则会出现 `Missing script: "mcp:dev"` 或找不到 `cli.ts`。
 - 将配置中的 `D:\\WORKSPACE\\PLAN\\ada` 替换为本机实际仓库路径（注意大小写，如 `ada` / `ADA`）。
-- 保存后请在 Cursor 中禁用再启用该 MCP 服务器，或重启 Cursor。
+- 保存后请在 MCP Host 中重新加载该服务器配置（或重启客户端）。
 
 ```json
 {

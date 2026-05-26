@@ -11,7 +11,7 @@
 - `ADA-开发手册.md`  
   关注“开发流程、代码规范、测试门禁与本地联调”。
 - `Playwright-ADA-兼容映射.md`  
-  关注“Playwright 测试步骤如何映射到 ADA MCP 调用”。
+  Playwright 步骤与 ADA MCP 调用的映射关系。
 
 ## 使用建议
 
@@ -25,3 +25,4 @@
 - 部署文档不展开底层设计推导。
 - MCP 文档不重复通用部署说明。
 - 开发文档不重复线上运维操作。
+- **npm 发布 `@ada-mcp/*`**：以 [`scripts/README.md`](../scripts/README.md) 为准，不在此重复维护发布步骤。

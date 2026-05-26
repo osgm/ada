@@ -35,6 +35,8 @@ npm run test:entrypoints
 - 架构与边界：`docs/ADA-架构设计方案.md`
 - 部署与运维：`docs/ADA-部署手册.md`
 - MCP 接入：`docs/ADA-MCP-接入手册.md`
+- npm 发布（scripts）：[`scripts/README.md`](scripts/README.md)
+- 脚本清单：[`scripts/脚本清单.md`](scripts/脚本清单.md)
 - 开发规范：`docs/ADA-开发手册.md`
 - 文档索引：`docs/README.md`
 
@@ -43,6 +45,7 @@ npm run test:entrypoints
 - 类型检查：`npm run typecheck`
 - 构建可执行程序：`npm run build:exe`
 - MCP 开发启动：`npm run mcp:dev`
+- npm 发布前冒烟：`npm run test:mcp:bundled`（见 `scripts/README.md`）
 
 ## 产物说明
 

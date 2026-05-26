@@ -440,7 +440,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default="artifacts")
     parser.add_argument(
         "--launcher-version",
-        default=os.environ.get("ADA_MCP_LAUNCHER_VERSION", "0.1.27"),
+        default=os.environ.get("ADA_MCP_LAUNCHER_VERSION", "0.1.28"),
     )
     args = parser.parse_args()
 

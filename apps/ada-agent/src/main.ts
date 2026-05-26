@@ -128,7 +128,7 @@ function printHelp(): void {
       "  install-deps [--only=selenium] [--geckodriver-version=0.36.0|latest] [--chromedriver-version=137|match-chrome|latest]",
       "              [--drivers-dir=dirver] [--playwright-targets=...] [--appium-drivers=...] [--force]",
       "  reset                     Clear local credentials",
-      "  mcp                       Run MCP (stdio) for Cursor/IDE — same binary as packaged exe",
+      "mcp                       Run MCP (stdio) for MCP Host / IDE — same binary as packaged exe",
       "  core --action=...         Unified core bridge for GUI/Web/MCP adapters (health|doctor|setup|install-deps|patch-remote|start)",
       "  gui                       Alias of web mode (backward compatibility)",
       "  web                       Run local web console UI (single-file web mode)"

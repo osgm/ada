@@ -6,29 +6,29 @@ ADA MCP server package that supports:
 - Remote HTTP mode (`server`) with API key authentication
 - MCP **Streamable HTTP** on `POST|GET|DELETE /mcp` (same port as legacy REST), with optional SSE per MCP spec (`@modelcontextprotocol/sdk` transport)
 
-## 标准安装（Cursor / MCP）
+## 标准安装（MCP）
 
-请使用 **`@ada-mcp/launcher@0.1.27`** 拉起本包（见 [launcher README](../ada-mcp-launcher/README.md)）：
+请使用 **`@ada-mcp/launcher@0.1.28`** 拉起本包（见 [launcher README](../ada-mcp-launcher/README.md)）：
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "pnpm",
-      "args": ["dlx", "@ada-mcp/launcher@0.1.27"]
+      "args": ["dlx", "@ada-mcp/launcher@0.1.28"]
     }
   }
 }
 ```
 
-本包版本：**`@ada-mcp/mcp-server@0.1.27`**（由 launcher 默认拉取；依赖锁定 `playwright@1.59.1`）。
+本包版本：**`@ada-mcp/mcp-server@0.1.28`**（由 launcher 默认拉取；依赖锁定 `playwright@1.59.1`）。
 
 直接调试本包（无 launcher 拉包前测速）：
 
 ```bash
-pnpm dlx @ada-mcp/mcp-server@0.1.27
+pnpm dlx @ada-mcp/mcp-server@0.1.28
 # npx 等价：
-npx -y @ada-mcp/mcp-server@0.1.27
+npx -y @ada-mcp/mcp-server@0.1.28
 ```
 
 ## 启动时自动安装依赖（默认仅 Playwright）
@@ -54,15 +54,15 @@ npx -y @ada-mcp/mcp-server@0.1.27
 - `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`：浏览器下载超时（默认 30 分钟 / 1800000ms）
 - `ADA_INSTALL_STRATEGY_TIMEOUT_MS`：npm 装包超时（默认 2 分钟）
 
-## 代理与镜像（`0.1.10+` 推荐）
+## 代理与镜像
 
-| 阶段 | 自动探测最快镜像 |
-|------|------------------|
-| `pnpm dlx @ada-mcp/launcher` | **是** — 拉包前测速（推荐） |
-| `pnpm dlx @ada-mcp/mcp-server` | tarball 仍走本机源；**同次安装的依赖**由 `preinstall` 测速（仅写入官方 Playwright CDN，`0.1.9+`） |
-| 启动后 `install-deps` | 是 — 内置国内镜像测速（**无需配置**） |
+| 阶段 | 说明 |
+|------|------|
+| `pnpm dlx @ada-mcp/launcher` | 拉包前 registry 测速（推荐） |
+| `pnpm dlx @ada-mcp/mcp-server` | 依赖安装由 preinstall / `install-deps` 测速 |
+| 启动后 `install-deps` | npm 与 Playwright CDN 候选测速 |
 
-默认 npm 探测候选（按优先级，延迟相同取靠前）：阿里云 npmmirror → 腾讯云 → 华为云 → npm 官方。
+默认 npm 候选：npmmirror → 腾讯云 → 华为云 → npm 官方。
 
 | 变量 | 说明 |
 |------|------|
@@ -83,27 +83,27 @@ npx -y @ada-mcp/mcp-server@0.1.27
 在标准 `args` 后追加，例如安装全部依赖：
 
 ```json
-"args": ["dlx", "@ada-mcp/launcher@0.1.27", "--install-deps=all"]
+"args": ["dlx", "@ada-mcp/launcher@0.1.28", "--install-deps=all"]
 ```
 
-## Cursor MCP 配置
+## MCP Host 配置示例
 
-**pnpm（推荐）**：`pnpm` + `dlx @ada-mcp/launcher@0.1.27`
+**pnpm（推荐）**：`pnpm` + `dlx @ada-mcp/launcher@0.1.28`
 
-**npx 等价**（`launcher@0.1.7+`）：`npx` + `-y @ada-mcp/launcher@0.1.27`（内层同样 `npx -y` mcp-server，测速逻辑与 pnpm 一致）
+**npx 等价**：`npx` + `-y @ada-mcp/launcher@0.1.28`（内层同样 `npx -y` mcp-server，测速逻辑与 pnpm 一致）
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "npx",
-      "args": ["-y", "@ada-mcp/launcher@0.1.27"]
+      "args": ["-y", "@ada-mcp/launcher@0.1.28"]
     }
   }
 }
 ```
 
-Windows 若找不到 `pnpm`，可将 `command` 改为 `pnpm.cmd` 绝对路径；无 pnpm 时只能直接 `npx -y @ada-mcp/mcp-server@0.1.27`（无 launcher 拉包测速）。
+Windows 若找不到 `pnpm`，可将 `command` 改为 `pnpm.cmd` 绝对路径；无 pnpm 时只能直接 `npx -y @ada-mcp/mcp-server@0.1.28`（无 launcher 拉包测速）。
 
 ## Remote mode
 

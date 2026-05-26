@@ -40,8 +40,8 @@
 为避免开发阶段目标发散，当前版本统一采用以下约束：
 
 - 第一阶段以本地四入口交付为主（`ada-agent/ada-mcp/ada-gui/ada-web`），`ada-control` 延后到第二阶段。
-- 驱动基线：**`driver-playwright`（Web 默认）+ `driver-appium`（Android/iOS/Harmony）**；**`driver-selenium` 为 Web 可选引擎**（`payload.engine=selenium`），不替代 Playwright、不与 Appium 并列默认。
-- Web 双引擎路由与完整分层见 **`docs/ADA-整体架构设计-确认稿.md`**（确认后再开发 Selenium 插件）。
+- 驱动基线：**`driver-playwright`（Web 默认）+ `driver-appium`（Android/iOS/Harmony）**；**`driver-selenium` 为 Web 可选引擎**（`payload.engine=selenium`），不替代 Playwright。
+- Web 按 `payload.engine` 路由：`playwright`（默认）或 `selenium`；详见 `ADA-MCP-接入手册.md` §2、§3.0。
 - 图形交互层仅做接口与安全护栏预留，默认关闭，不进入首期关键路径。
 - 执行主通道采用双工长连接；保留最小 HTTP 管理能力（注册/健康检查/配置）。
 - 第一阶段成功标准：可执行程序在 Win/macOS/Linux 启动并完成 Web + Mobile 基础任务集。
@@ -558,7 +558,7 @@ ada/
 ## 15. 文档与实现衔接
 
 - 本文档描述**逻辑架构与边界**；接口级 IDL（TypeScript / JSON Schema）建议在仓库 `packages/contracts` 中单独立项并版本发布。
-- 若使用 Cursor，可在项目 `canvases/` 目录维护可视化架构蓝图（`.canvas.tsx`），与本文档同步迭代。
+- 可在项目 `canvases/` 目录维护可视化架构蓝图（`.canvas.tsx`），与本文档同步迭代。
 
 ---
 

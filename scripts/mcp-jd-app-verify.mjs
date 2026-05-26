@@ -38,7 +38,7 @@ function parseArgs(argv) {
     appiumUrl: APPIUM_URL,
     appWaitMs: 4000,
     outputDir: "artifacts",
-    launcherVersion: process.env.ADA_MCP_LAUNCHER_VERSION ?? "0.1.27"
+    launcherVersion: process.env.ADA_MCP_LAUNCHER_VERSION ?? "0.1.28"
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -51,7 +51,7 @@ function parseArgs(argv) {
     else if (a === "--app-activity") args.appActivity = argv[++i] ?? JD_APP_ACTIVITY;
     else if (a === "--appium-url") args.appiumUrl = argv[++i] ?? APPIUM_URL;
     else if (a === "--output-dir") args.outputDir = argv[++i] ?? "artifacts";
-    else if (a === "--launcher-version") args.launcherVersion = argv[++i] ?? "0.1.27";
+    else if (a === "--launcher-version") args.launcherVersion = argv[++i] ?? "0.1.28";
     else if (a === "--help" || a === "-h") {
       console.log(`用法: node scripts/mcp-jd-app-verify.mjs [选项]
   --probe                 仅 Appium 探活

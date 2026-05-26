@@ -66,7 +66,7 @@ export function createAdaMcpTransport(opts = {}) {
     });
   }
 
-  const version = opts.launcherVersion ?? process.env.ADA_MCP_LAUNCHER_VERSION ?? "0.1.27";
+  const version = opts.launcherVersion ?? process.env.ADA_MCP_LAUNCHER_VERSION ?? "0.1.28";
   const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   return new StdioClientTransport({
     command: pnpm,
