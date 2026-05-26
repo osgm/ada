@@ -155,17 +155,69 @@ function isPluginModule(mod: unknown): mod is DriverPlugin {
   return !!m && typeof m.id === "string" && Array.isArray(m.platforms);
 }
 
+function entryScriptDir(): string | undefined {
+  const argv1 = process.argv[1]?.trim();
+  if (!argv1) {
+    return undefined;
+  }
+  try {
+    return path.dirname(path.resolve(argv1));
+  } catch {
+    return undefined;
+  }
+}
+
+/** 插件目录探测顺序：显式/环境变量 → npm 包内 plugins → MCP 工作区（INIT_CWD/cwd） */
 function resolvePluginDirs(explicitPluginDir?: string): string[] {
-  const fromEnv = process.env.ADA_PLUGIN_DIR?.trim();
-  const execDir = path.dirname(process.execPath);
+  const ordered: string[] = [];
+  const push = (dir?: string) => {
+    const trimmed = dir?.trim();
+    if (!trimmed) {
+      return;
+    }
+    ordered.push(path.resolve(trimmed));
+  };
+
+  push(explicitPluginDir);
+  push(process.env.ADA_PLUGIN_DIR);
+
+  const entryDir = entryScriptDir();
+  if (entryDir) {
+    push(path.join(entryDir, "plugins"));
+    push(path.join(entryDir, "..", "plugins"));
+  }
+  if (typeof __filename === "string") {
+    const fromModule = path.dirname(__filename);
+    push(path.join(fromModule, "plugins"));
+    push(path.join(fromModule, "..", "plugins"));
+  }
+
+  const initCwd = process.env.INIT_CWD?.trim();
+  if (initCwd) {
+    push(path.join(initCwd, "plugins"));
+    push(path.join(initCwd, "release", "plugins"));
+  }
   const cwd = process.cwd();
-  return Array.from(
-    new Set(
-      [fromEnv, explicitPluginDir, path.join(execDir, "plugins"), path.join(cwd, "plugins"), path.join(cwd, "release", "plugins")]
-        .filter((x): x is string => Boolean(x && x.trim()))
-        .map((x) => path.resolve(x))
-    )
-  );
+  push(path.join(cwd, "plugins"));
+  push(path.join(cwd, "release", "plugins"));
+
+  const seen = new Set<string>();
+  return ordered.filter((dir) => {
+    if (seen.has(dir)) {
+      return false;
+    }
+    seen.add(dir);
+    return true;
+  });
+}
+
+function pluginDirHasModules(pluginDir: string): boolean {
+  if (!fs.existsSync(pluginDir)) {
+    return false;
+  }
+  return fs
+    .readdirSync(pluginDir, { withFileTypes: true })
+    .some((ent) => ent.isFile() && (ent.name.endsWith(".cjs") || ent.name.endsWith(".js")));
 }
 
 function loadPluginFromModule(requireFn: NodeRequire, moduleId: string): DriverPlugin | null {
@@ -198,6 +250,9 @@ function registerPluginsFromDirectory(host: PluginHost, pluginDir: string): Driv
     if (!plugin) {
       continue;
     }
+    if (host.listManifests().some((m) => m.id === plugin.manifest.id)) {
+      continue;
+    }
     host.register(plugin);
     loaded.push(plugin.manifest);
   }
@@ -224,13 +279,17 @@ export interface RegisterRuntimePluginsOptions {
 }
 
 export function registerRuntimePlugins(host: PluginHost, options?: RegisterRuntimePluginsOptions): DriverPlugin["manifest"][] {
-  const manifests: DriverPlugin["manifest"][] = [];
   for (const pluginDir of resolvePluginDirs(options?.pluginDir)) {
-    manifests.push(...registerPluginsFromDirectory(host, pluginDir));
-  }
-  if (manifests.length > 0) {
-    return manifests;
+    if (!pluginDirHasModules(pluginDir)) {
+      continue;
+    }
+    const loaded = registerPluginsFromDirectory(host, pluginDir);
+    if (loaded.length > 0) {
+      return loaded;
+    }
   }
   const fallbackModuleIds = options?.moduleIds?.length ? options.moduleIds : DEFAULT_PLUGIN_MODULE_IDS;
   return registerPluginsFromModuleIds(host, fallbackModuleIds);
 }
+
+export { resolvePackagePluginDir } from "./resolve-plugin-dir.js";

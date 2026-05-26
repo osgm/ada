@@ -1,4 +1,13 @@
+import { fileURLToPath } from "node:url";
 import { runBootstrapInstallDeps } from "./bootstrap-deps.js";
+
+if (!process.env.ADA_MCP_SERVER_ENTRY?.trim()) {
+  try {
+    process.env.ADA_MCP_SERVER_ENTRY = fileURLToPath(import.meta.url);
+  } catch {
+    // 打包 cli.cjs 由 build banner 写入 __filename
+  }
+}
 
 function argValue(name: string, fallback = ""): string {
   const argv = process.argv.slice(2);

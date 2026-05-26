@@ -1,55 +1,40 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { TaskExecutor } from "@ada/core-kernel";
 import type { CommandEnvelope, CommandResult, PluginManifest, WebEngine } from "@ada/contracts";
-import { PluginHost, registerRuntimePlugins } from "@ada/plugin-host";
+import { PluginHost, registerRuntimePlugins, resolvePackagePluginDir } from "@ada/plugin-host";
 
-function ensureBundledPluginDir(): void {
-  if (process.env.ADA_PLUGIN_DIR?.trim()) {
-    return;
-  }
-  const candidates: string[] = [];
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    candidates.push(path.join(here, "..", "plugins"));
-  } catch {
-    // bundled cjs
-  }
-  const dirname = (globalThis as { __dirname?: string }).__dirname;
-  if (typeof dirname === "string") {
-    candidates.push(path.join(dirname, "..", "plugins"));
-  }
-  for (const dir of candidates) {
-    if (existsSync(dir)) {
-      process.env.ADA_PLUGIN_DIR = dir;
-      return;
-    }
-  }
-}
+let sharedHost: PluginHost | null = null;
+let sharedExecutor: TaskExecutor | null = null;
 
-function buildPluginHost(): PluginHost {
-  ensureBundledPluginDir();
+function getPluginHost(): PluginHost {
+  if (sharedHost) {
+    return sharedHost;
+  }
+  const bundledDir = resolvePackagePluginDir();
   const host = new PluginHost();
-  registerRuntimePlugins(host);
+  registerRuntimePlugins(host, bundledDir ? { pluginDir: bundledDir } : undefined);
+  sharedHost = host;
   return host;
 }
 
-const manifests: PluginManifest[] = registerRuntimePlugins(new PluginHost());
-const sharedExecutor = new TaskExecutor(buildPluginHost());
+function getExecutor(): TaskExecutor {
+  if (!sharedExecutor) {
+    sharedExecutor = new TaskExecutor(getPluginHost());
+  }
+  return sharedExecutor;
+}
 
 export function listBuiltInPluginManifests(): PluginManifest[] {
-  return manifests;
+  return getPluginHost().listManifests();
 }
 
 export async function runCommand(command: CommandEnvelope): Promise<CommandResult> {
-  return sharedExecutor.execute(command);
+  return getExecutor().execute(command);
 }
 
 export async function runTaskset(commands: CommandEnvelope[]): Promise<CommandResult[]> {
   const results: CommandResult[] = [];
   for (const command of commands) {
-    results.push(await sharedExecutor.execute(command));
+    results.push(await runCommand(command));
   }
   return results;
 }
@@ -60,7 +45,7 @@ export function listActiveSessions(): Array<{
   engine?: WebEngine;
   driverSessionId: string;
 }> {
-  return sharedExecutor.listSessions();
+  return getExecutor().listSessions();
 }
 
 export async function closeSession(
@@ -68,9 +53,9 @@ export async function closeSession(
   sessionId: string,
   options?: { engine?: WebEngine; payload?: Record<string, unknown> }
 ): Promise<boolean> {
-  return sharedExecutor.closeSession(platform, sessionId, options);
+  return getExecutor().closeSession(platform, sessionId, options);
 }
 
 export async function closeAllSessions(): Promise<number> {
-  return sharedExecutor.closeAllSessions();
+  return getExecutor().closeAllSessions();
 }

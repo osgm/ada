@@ -1,0 +1,54 @@
+[
+  {
+    "requestId": "erp-chrome-nav-001",
+    "sessionId": "erp-chrome-session",
+    "platform": "web",
+    "command": "navigate",
+    "payload": {
+      "url": "http://erp.jd.com/",
+      "headless": false,
+      "channel": "chrome",
+      "userDataDir": "artifacts/chrome-erp-profile",
+      "keepSession": true
+    }
+  },
+  {
+    "requestId": "erp-chrome-wait-001",
+    "sessionId": "erp-chrome-session",
+    "platform": "web",
+    "command": "wait",
+    "payload": {
+      "headless": false,
+      "channel": "chrome",
+      "userDataDir": "artifacts/chrome-erp-profile",
+      "keepSession": true,
+      "timeoutMs": 5000
+    }
+  },
+  {
+    "requestId": "erp-chrome-esc-001",
+    "sessionId": "erp-chrome-session",
+    "platform": "web",
+    "command": "press",
+    "payload": {
+      "key": "Escape",
+      "headless": false,
+      "channel": "chrome",
+      "userDataDir": "artifacts/chrome-erp-profile",
+      "keepSession": true
+    }
+  },
+  {
+    "requestId": "erp-chrome-shot-001",
+    "sessionId": "erp-chrome-session",
+    "platform": "web",
+    "command": "screenshot",
+    "payload": {
+      "headless": false,
+      "channel": "chrome",
+      "userDataDir": "artifacts/chrome-erp-profile",
+      "keepSession": true,
+      "fullPage": false
+    }
+  }
+]

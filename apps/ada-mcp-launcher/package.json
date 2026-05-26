@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/launcher",
-  "version": "0.1.24",
+  "version": "0.1.27",
   "description": "Probe fastest npm registry then pnpm dlx @ada-mcp/mcp-server (zero deps)",
   "private": false,
   "type": "module",

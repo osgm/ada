@@ -12,6 +12,7 @@ dirver/
 APPIUM_HOME/
 ANDROID_HOME/
 release/
+artifacts/
 
 # Build outputs
 build/

@@ -1,0 +1,3 @@
+# ada-mcp Python 验证（scripts/ada_mcp_jd_verify.py Web / scripts/mcp_jd_app_verify.py App）
+# App 真机: python scripts/mcp_jd_app_verify.py --server local
+mcp>=1.2.0

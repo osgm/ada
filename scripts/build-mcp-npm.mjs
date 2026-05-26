@@ -65,7 +65,7 @@ async function bundleCli() {
     plugins: [adaAgentSrcPlugin()],
     sourcemap: false,
     banner: {
-      js: "#!/usr/bin/env node"
+      js: "#!/usr/bin/env node\nif (!process.env.ADA_MCP_SERVER_ENTRY) process.env.ADA_MCP_SERVER_ENTRY = __filename;"
     }
   });
   console.log("[build-mcp-npm] dist/cli.cjs");
