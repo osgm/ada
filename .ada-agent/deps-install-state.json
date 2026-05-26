@@ -5,5 +5,5 @@
   "geckodriverOk": true,
   "chromedriverOk": true,
   "androidHome": "D:\\WORK\\build\\Android\\android-sdk",
-  "appiumHome": "D:\\WORKSPACE\\PLAN\\ada\\appium"
+  "appiumHome": "D:\\WORKSPACE\\PLAN\\ada\\APPIUM_HOME"
 }

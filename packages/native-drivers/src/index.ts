@@ -2,13 +2,18 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-/** ?????????????????????????????????????????`dirver` ???????????? */
+/** ???? WebDriver ????????? `dirver`?? nativeDriversDir ??? */
 export const DEFAULT_NATIVE_DRIVERS_DIR = "dirver";
 
 const CHROME_FOR_TESTING_JSON =
   "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json";
 
-/** ????????????????????????????? */
+/** ?? geckodriver ????????????? v0.36.0/<???>? */
+export const DEFAULT_GECKODRIVER_MIRROR = "https://mirrors.huaweicloud.com/geckodriver";
+
+const GITHUB_GECKODRIVER_RELEASES = "https://github.com/mozilla/geckodriver/releases";
+
+/** ???? WebDriver ????????????????? */
 export const SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
   {
     browser: "Chrome/Chromium",
@@ -20,7 +25,7 @@ export const SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
     browser: "Firefox",
     platforms: "Windows/Linux/macOS",
     vendor: "Mozilla",
-    url: "https://github.com/mozilla/geckodriver/releases"
+    url: `${DEFAULT_GECKODRIVER_MIRROR}/v0.36.0/????????? ${GITHUB_GECKODRIVER_RELEASES}`
   },
   {
     browser: "Edge",
@@ -130,7 +135,7 @@ export async function resolveWorkspaceRoot(cwd = process.cwd()): Promise<string>
   return path.resolve(cwd);
 }
 
-/** ?????????? WebDriver ?????????????????ADA_DRIVERS_DIR???????dirver/driver/drivers??*/
+/** ???? WebDriver ??????? ADA_DRIVERS_DIR???? dirver/driver/drivers */
 export async function resolveNativeDriversDir(workspaceRoot?: string): Promise<string> {
   const root = workspaceRoot ? path.resolve(workspaceRoot) : await resolveWorkspaceRoot();
   const fromEnv = process.env.ADA_DRIVERS_DIR?.trim();
@@ -146,14 +151,62 @@ export async function resolveNativeDriversDir(workspaceRoot?: string): Promise<s
   return path.join(root, DEFAULT_NATIVE_DRIVERS_DIR);
 }
 
-function platformArchiveSuffix(): string {
+function geckodriverMirrorBase(): string {
+  const fromEnv = process.env.ADA_GECKODRIVER_MIRROR?.trim();
+  return (fromEnv || DEFAULT_GECKODRIVER_MIRROR).replace(/\/$/, "");
+}
+
+/** ????? / GitHub ???Windows ? zip?Linux/macOS ? tar.gz */
+export function geckodriverPlatformAsset(tag: string): { fileName: string; archiveKind: "zip" | "tar.gz" } {
+  const t = tag.startsWith("v") ? tag : `v${tag}`;
   if (process.platform === "win32") {
-    return "win64.zip";
+    const winSuffix =
+      process.arch === "arm64" ? "win-aarch64" : process.arch === "ia32" ? "win32" : "win64";
+    return { fileName: `geckodriver-${t}-${winSuffix}.zip`, archiveKind: "zip" };
   }
   if (process.platform === "darwin") {
-    return process.arch === "arm64" ? "macos-aarch64.zip" : "macos.zip";
+    const macSuffix = process.arch === "arm64" ? "macos-aarch64" : "macos";
+    return { fileName: `geckodriver-${t}-${macSuffix}.tar.gz`, archiveKind: "tar.gz" };
   }
-  return "linux64.zip";
+  const linuxSuffix =
+    process.arch === "arm64" ? "linux-aarch64" : process.arch === "ia32" ? "linux32" : "linux64";
+  return { fileName: `geckodriver-${t}-${linuxSuffix}.tar.gz`, archiveKind: "tar.gz" };
+}
+
+function parseSemverTuple(version: string): [number, number, number] | null {
+  const m = version.replace(/^v/i, "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) {
+    return null;
+  }
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+function compareSemverDesc(a: string, b: string): number {
+  const pa = parseSemverTuple(a);
+  const pb = parseSemverTuple(b);
+  if (!pa || !pb) {
+    return 0;
+  }
+  for (let i = 0; i < 3; i += 1) {
+    if (pa[i] !== pb[i]) {
+      return pb[i] - pa[i];
+    }
+  }
+  return 0;
+}
+
+async function fetchGeckodriverLatestFromMirror(mirrorBase: string): Promise<string | null> {
+  const res = await fetch(`${mirrorBase}/`);
+  if (!res.ok) {
+    return null;
+  }
+  const html = await res.text();
+  const tags = new Set<string>();
+  for (const m of html.matchAll(/href="v(\d+\.\d+\.\d+)\//gi)) {
+    tags.add(`v${m[1]}`);
+  }
+  const sorted = Array.from(tags).sort(compareSemverDesc);
+  return sorted[0] ?? null;
 }
 
 function platformChromeLabel(): string {
@@ -193,7 +246,7 @@ async function listExecutablesInDir(driversDir: string): Promise<string[]> {
   return files;
 }
 
-/** ???? dirver ???????????????chromedriver ???????????? chromedriver137.exe ???137??*/
+/** ?? dirver ????? chromedriver ???? chromedriver137.exe ?? 137? */
 export async function listLocalChromedriverVersions(driversDir: string): Promise<string[]> {
   const files = await listExecutablesInDir(driversDir);
   const versions = new Set<string>();
@@ -366,6 +419,23 @@ async function extractZip(zipPath: string, destDir: string): Promise<void> {
   await runCommand("unzip", ["-o", zipPath, "-d", destDir]);
 }
 
+async function extractTarGz(archivePath: string, destDir: string): Promise<void> {
+  await fs.mkdir(destDir, { recursive: true });
+  if (process.platform === "win32") {
+    await runCommand("tar", ["-xzf", archivePath, "-C", destDir]);
+    return;
+  }
+  await runCommand("tar", ["-xzf", archivePath, "-C", destDir]);
+}
+
+async function extractDriverArchive(archivePath: string, destDir: string, kind: "zip" | "tar.gz"): Promise<void> {
+  if (kind === "zip") {
+    await extractZip(archivePath, destDir);
+    return;
+  }
+  await extractTarGz(archivePath, destDir);
+}
+
 async function findFileRecursive(dir: string, fileName: string): Promise<string | undefined> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const ent of entries) {
@@ -395,13 +465,28 @@ export async function fetchGeckodriverReleaseVersion(requested?: string): Promis
   if (requested && requested !== "latest") {
     return requested.startsWith("v") ? requested : `v${requested}`;
   }
-  const res = await fetch("https://api.github.com/repos/mozilla/geckodriver/releases/latest");
-  if (!res.ok) {
-    throw new Error(`Failed to fetch geckodriver latest release: HTTP ${res.status}`);
+  const mirrorLatest = await fetchGeckodriverLatestFromMirror(geckodriverMirrorBase());
+  if (mirrorLatest) {
+    return mirrorLatest;
   }
-  const json = (await res.json()) as { tag_name?: string };
-  const tag = json.tag_name ?? "v0.36.0";
-  return tag.startsWith("v") ? tag : `v${tag}`;
+  try {
+    const res = await fetch("https://api.github.com/repos/mozilla/geckodriver/releases/latest");
+    if (res.ok) {
+      const json = (await res.json()) as { tag_name?: string };
+      const tag = json.tag_name ?? "v0.36.0";
+      return tag.startsWith("v") ? tag : `v${tag}`;
+    }
+  } catch {
+    // fall through
+  }
+  return "v0.36.0";
+}
+
+export function buildGeckodriverDownloadUrls(tag: string): { mirror: string; github: string; fileName: string; archiveKind: "zip" | "tar.gz" } {
+  const { fileName, archiveKind } = geckodriverPlatformAsset(tag);
+  const mirror = `${geckodriverMirrorBase()}/${tag}/${fileName}`;
+  const github = `${GITHUB_GECKODRIVER_RELEASES}/download/${tag}/${fileName}`;
+  return { mirror, github, fileName, archiveKind };
 }
 
 export async function listChromedriverCfTVersions(): Promise<Array<{ version: string; major: string }>> {
@@ -534,7 +619,7 @@ async function detectFirefoxFromExecutable(exePath: string): Promise<LocalBrowse
   return { path: exePath, version: parsed.version, major: parsed.major };
 }
 
-/** ???????? Chrome/Chromium ? Firefox??????????????? */
+/** ???????? Chrome/Chromium ? Firefox?????????? */
 export async function detectLocalBrowsers(): Promise<LocalBrowserDetection> {
   const result: LocalBrowserDetection = {};
 
@@ -671,26 +756,39 @@ export async function downloadGeckodriver(
 ): Promise<{ path: string; version: string }> {
   const tag = await fetchGeckodriverReleaseVersion(versionInput);
   const version = tag.replace(/^v/, "");
-  const suffix = platformArchiveSuffix();
-  const assetName = `geckodriver-${tag}-${suffix}`.replace("vv", "v");
-  const url = `https://github.com/mozilla/geckodriver/releases/download/${tag}/geckodriver-${tag}-${suffix}`;
+  const { mirror, github, fileName, archiveKind } = buildGeckodriverDownloadUrls(tag);
   await fs.mkdir(driversDir, { recursive: true });
-  const zipPath = path.join(driversDir, `_download_geckodriver_${version}.zip`);
+  const archiveExt = archiveKind === "zip" ? "zip" : "tar.gz";
+  const archivePath = path.join(driversDir, `_download_geckodriver_${version}.${archiveExt}`);
   const extractDir = path.join(driversDir, `_extract_geckodriver_${version}`);
-  onLogLine?.(`[selenium] \u4e0b\u8f7d geckodriver ${tag} \u2192 ${driversDir}`);
-  onLogLine?.(`[selenium] URL: ${url}`);
-  await downloadToFile(url, zipPath);
+  onLogLine?.(`[selenium] ?? geckodriver ${tag}?${fileName}?? ${driversDir}`);
+  onLogLine?.(`[selenium] ??: ${mirror}`);
+  let downloaded = false;
+  try {
+    await downloadToFile(mirror, archivePath);
+    downloaded = true;
+  } catch (mirrorError) {
+    onLogLine?.(
+      `[selenium][warn] ??????: ${mirrorError instanceof Error ? mirrorError.message : String(mirrorError)}`
+    );
+    onLogLine?.(`[selenium] ?? GitHub: ${github}`);
+    await downloadToFile(github, archivePath);
+    downloaded = true;
+  }
+  if (!downloaded) {
+    throw new Error(`geckodriver download failed for ${tag}`);
+  }
   await fs.rm(extractDir, { recursive: true, force: true });
-  await extractZip(zipPath, extractDir);
+  await extractDriverArchive(archivePath, extractDir, archiveKind);
   const found = await findFileRecursive(extractDir, geckodriverExeName());
   if (!found) {
-    throw new Error(`geckodriver binary not found after extracting ${assetName}`);
+    throw new Error(`geckodriver binary not found after extracting ${fileName}`);
   }
   const dest = path.join(driversDir, geckodriverExeName());
   await copyExecutable(found, dest);
-  await fs.rm(zipPath, { force: true });
+  await fs.rm(archivePath, { force: true });
   await fs.rm(extractDir, { recursive: true, force: true });
-  onLogLine?.(`[selenium] geckodriver \u5df2\u5199\u5165: ${dest}`);
+  onLogLine?.(`[selenium] geckodriver ???: ${dest}`);
   return { path: dest, version: tag };
 }
 

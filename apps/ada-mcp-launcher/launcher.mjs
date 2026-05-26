@@ -20,7 +20,7 @@ const LAUNCHER_PKG_NAME = "@ada-mcp/launcher";
 
 const MCP_SERVER_PKG = process.env.ADA_MCP_SERVER_PACKAGE?.trim() || "@ada-mcp/mcp-server";
 /** 低于此版本的 mcp-server 易出现 zod/v3、Playwright 404 等问题（registry latest 更低时抬高） */
-const MIN_MCP_SERVER_VERSION = "0.1.17";
+const MIN_MCP_SERVER_VERSION = "0.1.24";
 
 function parseSemverParts(version) {
   const m = String(version)

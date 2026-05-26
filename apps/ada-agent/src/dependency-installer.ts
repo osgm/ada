@@ -209,6 +209,30 @@ function briefErrorMessage(error: unknown): string {
   return String(error).split(/\r?\n/)[0]?.trim() || String(error);
 }
 
+function stripAnsiCodes(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+/** 去掉 CLI 行的 Error: × / Error: x 等前缀，供 [deps][warn] 人类可读输出 */
+function stripCliErrorPrefix(message: string): string {
+  let t = stripAnsiCodes(message).trim();
+  t = t.replace(/^Error:\s*/i, "");
+  while (/^[×x✖✗❌\u00d7\u2716\u2717]\s*/iu.test(t)) {
+    t = t.replace(/^[×x✖✗❌\u00d7\u2716\u2717]\s*/iu, "");
+  }
+  return t.trim();
+}
+
+function isAppiumDriverAlreadyInstalledMessage(message: string): boolean {
+  const raw = stripAnsiCodes(message).trim();
+  return /already installed/i.test(raw) && /driver named/i.test(raw);
+}
+
+function formatDepsWarnLine(message: string): string {
+  const body = stripCliErrorPrefix(message);
+  return body ? `[deps][warn] ${body}` : "";
+}
+
 /** MCP 启动时用人可读行替代 JSON progress，减少 stderr 噪音 */
 let depsHumanLog: ((line: string) => void) | undefined;
 
@@ -492,6 +516,29 @@ function requiredAppiumDrivers(config: AgentConfig): string[] {
   return Array.from(new Set(config.appium.requiredDrivers ?? []));
 }
 
+function isMacOsPlatform(): boolean {
+  return process.platform === "darwin";
+}
+
+/** XCUITest 仅能在 macOS 上安装；Windows/Linux 跳过并提示 */
+function filterAppiumDriversForPlatform(
+  drivers: string[],
+  onLogLine?: (line: string) => void
+): string[] {
+  const out: string[] = [];
+  for (const driver of drivers) {
+    const name = driver.toLowerCase().trim();
+    if (name === "xcuitest" && !isMacOsPlatform()) {
+      onLogLine?.(
+        `[appium] 跳过 xcuitest：当前系统为 ${process.platform}，XCUITest 驱动仅支持 macOS（请在 Mac 上安装 iOS 自动化依赖）`
+      );
+      continue;
+    }
+    out.push(name);
+  }
+  return Array.from(new Set(out));
+}
+
 /** 国内 npm 镜像默认优先级（测速相同时优先靠前；无需用户配置 ADA_REGISTRY_CANDIDATES） */
 const DEFAULT_NPM_REGISTRY_CANDIDATES = [
   "https://registry.npmmirror.com",
@@ -590,6 +637,60 @@ function appiumDriverPackageName(driver: string): string | null {
     return "appium-harmonyos-driver";
   }
   return null;
+}
+
+/** Appium 3 内置扩展名（`appium driver install <name>`），非 npm 包名 */
+const APPIUM3_BUILTIN_DRIVER_NAMES = new Set([
+  "uiautomator2",
+  "xcuitest",
+  "espresso",
+  "mac2",
+  "windows",
+  "safari",
+  "gecko",
+  "chromium"
+]);
+
+function resolveAppiumDriverInstallTargets(
+  driver: string,
+  appiumMajor: number | null,
+  compatibleSpecs: string[]
+): string[] {
+  const pkg = appiumDriverPackageName(driver);
+  if (appiumMajor !== null && appiumMajor >= 3) {
+    if (!APPIUM3_BUILTIN_DRIVER_NAMES.has(driver)) {
+      const envHarmony = process.env.ADA_APPIUM_DRIVER_SPEC_HARMONYOS?.trim();
+      if (driver === "harmonyos" && (envHarmony || pkg)) {
+        return [envHarmony || pkg!];
+      }
+      return pkg ? [pkg] : [driver];
+    }
+    const envOverride =
+      driver === "uiautomator2"
+        ? process.env.ADA_APPIUM_DRIVER_SPEC_UIAUTOMATOR2?.trim()
+        : driver === "xcuitest"
+          ? process.env.ADA_APPIUM_DRIVER_SPEC_XCUITEST?.trim()
+          : "";
+    if (envOverride) {
+      return [envOverride, driver];
+    }
+    return [driver];
+  }
+  const baseTarget = pkg ?? driver;
+  return compatibleSpecs.length > 0 ? compatibleSpecs : [baseTarget];
+}
+
+function buildAppiumDriverInstallArgs(target: string, appiumMajor: number | null): string[] {
+  const useNpmPackageSpec =
+    appiumMajor === null ||
+    appiumMajor < 3 ||
+    target.includes("@") ||
+    target.startsWith("appium-") ||
+    target.includes("/");
+  if (useNpmPackageSpec) {
+    return ["exec", "appium", "driver", "install", "--source=npm", target];
+  }
+  return ["exec", "appium", "driver", "install", target];
 }
 
 
@@ -727,7 +828,18 @@ function structuredLogToHuman(
     return `[deps] 包安装成功: ${d.strategy}`;
   }
   if (event === "deps.install.strategy.fail") {
-    return `[deps][warn] 安装策略失败 (${d.strategy}): ${d.message}`;
+    const msg = stripCliErrorPrefix(String(d.message ?? ""));
+    if (isAppiumDriverAlreadyInstalledMessage(msg)) {
+      return null;
+    }
+    return `[deps][warn] 安装策略失败 (${d.strategy}): ${msg}`;
+  }
+  if (event === "appium.driver.install.strategy.fail") {
+    const msg = stripCliErrorPrefix(String(d.message ?? ""));
+    if (isAppiumDriverAlreadyInstalledMessage(msg)) {
+      return null;
+    }
+    return `[deps][warn] Appium 驱动安装失败 (${d.strategy}): ${msg}`;
   }
   if (event === "deps.registry.auto-selected") {
     return `[deps] 选用 npm 镜像: ${d.selected}`;
@@ -736,8 +848,12 @@ function structuredLogToHuman(
     return `[playwright] CDN 测速排序: ${Array.isArray(d.ranked) ? (d.ranked as string[]).join(" -> ") : d.selected}`;
   }
   if (level === "warn" || level === "error") {
-    const msg = d.message ?? d.detail;
-    return `[deps][${level}] ${event}${msg ? `: ${msg}` : ""}`;
+    const raw = String(d.message ?? d.detail ?? "");
+    if (isAppiumDriverAlreadyInstalledMessage(raw)) {
+      return null;
+    }
+    const warn = formatDepsWarnLine(raw);
+    return warn || null;
   }
   if (depsVerboseEnabled()) {
     return `[deps] ${event}${Object.keys(d).length > 0 ? ` ${JSON.stringify(d)}` : ""}`;
@@ -1156,19 +1272,46 @@ async function runAppiumDriverInstallWithPriority(
   onLogLine?.(`[appium] 安装驱动: ${driver}`);
   const compatibleSpecs = await resolveCompatibleDriverSpecs(driver);
   const appiumMajor = await getAppiumMajorVersion();
-  const directPackage = appiumDriverPackageName(driver);
-  /** 仅使用 npm 包规范名，避免把裸驱动名当作 npm 包安装导致 invalid package。 */
-  const baseTarget = directPackage ?? driver;
-  const targets =
-    appiumMajor !== null && appiumMajor < 3
-      ? compatibleSpecs.length > 0
-        ? compatibleSpecs
-        : [baseTarget]
-      : [baseTarget, ...compatibleSpecs];
-  const uniqueTargets = Array.from(new Set(targets.filter(Boolean)));
+  if (appiumMajor !== null && appiumMajor >= 3) {
+    onLogLine?.(`[appium] 检测到 Appium ${appiumMajor}.x，使用官方驱动名安装（如 uiautomator2）`);
+  }
+  const uniqueTargets = resolveAppiumDriverInstallTargets(driver, appiumMajor, compatibleSpecs);
   let lastError: unknown = undefined;
   for (const target of uniqueTargets) {
-    const installArgs = ["exec", "appium", "driver", "install", "--source=npm", target];
+    const installArgs = buildAppiumDriverInstallArgs(target, appiumMajor);
+    onLogLine?.(`[appium] 执行: npm ${installArgs.join(" ")}`);
+
+    // Appium 有时会在“已安装”场景下输出 Error 并以非 0 退出码结束。
+    // 这里提前把这类输出改写成 warn，并在退出后将其视为成功。
+    let alreadyInstalledSeen = false;
+    let alreadyInstalledWarnLogged = false;
+    const onAppiumDriverLogLine = (line: string) => {
+      const t = stripAnsiCodes(line).trimEnd();
+      if (!t) {
+        return;
+      }
+      // 已安装：只打一条 warn，绝不透传原始 "Error: × ..." 行
+      if (isAppiumDriverAlreadyInstalledMessage(t)) {
+        alreadyInstalledSeen = true;
+        if (!alreadyInstalledWarnLogged) {
+          alreadyInstalledWarnLogged = true;
+          const normalized = stripCliErrorPrefix(t);
+          onLogLine?.(`[deps][warn] ${normalized}。检测到安装后无需再次安装${driver}。`);
+        }
+        return;
+      }
+      if (/^Error:\s*/i.test(t)) {
+        const warn = formatDepsWarnLine(t);
+        if (warn) {
+          onLogLine?.(warn);
+        }
+        return;
+      }
+      if (/^dbug\s+Appium/i.test(t)) {
+        return;
+      }
+      onLogLine?.(t);
+    };
 
     const strategies: Array<{
       name: "npm" | "npm-proxy";
@@ -1179,7 +1322,7 @@ async function runAppiumDriverInstallWithPriority(
         run: () =>
           runCommand("npm", installArgs, {
             timeoutMs: installStrategyTimeoutMs(),
-            onLogLine
+            onLogLine: onAppiumDriverLogLine
           })
       },
       {
@@ -1188,7 +1331,7 @@ async function runAppiumDriverInstallWithPriority(
           runCommand("npm", installArgs, {
             env: { npm_config_registry: npmProxy },
             timeoutMs: installStrategyTimeoutMs(),
-            onLogLine
+            onLogLine: onAppiumDriverLogLine
           })
       }
     ];
@@ -1207,6 +1350,11 @@ async function runAppiumDriverInstallWithPriority(
         progress("appium.driver.install.done", { driver, strategy: strategy.name, target });
         return;
       } catch (error) {
+        // 这类场景 Appium 会输出 already installed，但 exit code 非 0；我们将其视为成功。
+        if (alreadyInstalledSeen) {
+          progress("appium.driver.install.done", { driver, strategy: strategy.name, target });
+          return;
+        }
         lastError = error;
         depsStructuredLog("warn", {
           event: "appium.driver.install.strategy.fail",
@@ -1220,9 +1368,43 @@ async function runAppiumDriverInstallWithPriority(
       }
     }
   }
+
+  // Fallback: if Appium driver install failed, try python pip for uiautomator2 (non-blocking).
+  if (driver === "uiautomator2") {
+    await tryPipInstallUiautomator2(onLogLine);
+  }
+
   throw new Error(
     `Appium driver install failed after all strategies (${driver}): ${lastError instanceof Error ? lastError.message : String(lastError)}`
   );
+}
+
+async function tryPipInstallUiautomator2(onLogLine?: (line: string) => void): Promise<void> {
+  onLogLine?.("[appium][warn] uiautomator2 驱动安装失败，尝试使用 pip 安装 python-uiautomator2（不保证可替代 Appium 驱动）…");
+  const pythonVersion = await runCommandCapture("python", ["--version"]);
+  if (pythonVersion.code !== 0) {
+    const py3Version = await runCommandCapture("python3", ["--version"]);
+    if (py3Version.code !== 0) {
+      onLogLine?.("[appium][warn] 未检测到 python/python3，跳过 pip 安装 uiautomator2。");
+      return;
+    }
+    await tryPipInstallWithPython("python3", onLogLine);
+    return;
+  }
+  await tryPipInstallWithPython("python", onLogLine);
+}
+
+async function tryPipInstallWithPython(pythonCmd: string, onLogLine?: (line: string) => void): Promise<void> {
+  try {
+    onLogLine?.(`[pip] 检测到 ${pythonCmd}，开始安装: ${pythonCmd} -m pip install -U uiautomator2`);
+    await runCommand(pythonCmd, ["-m", "pip", "install", "-U", "uiautomator2"], {
+      timeoutMs: 15 * 60_000,
+      onLogLine
+    });
+    onLogLine?.("[pip] uiautomator2 安装完成。");
+  } catch (error) {
+    onLogLine?.(`[pip][warn] uiautomator2 安装失败（已忽略）: ${briefErrorMessage(error)}`);
+  }
 }
 
 async function verifyPlaywrightSelfTest(onLogLine?: (line: string) => void): Promise<boolean> {
@@ -1376,7 +1558,7 @@ async function ensureAppiumDrivers(
   config: AgentConfig,
   onLogLine?: (line: string) => void
 ): Promise<string[]> {
-  const required = requiredAppiumDrivers(config);
+  const required = filterAppiumDriversForPlatform(requiredAppiumDrivers(config), onLogLine);
   if (required.length === 0) {
     return [];
   }
@@ -1747,10 +1929,12 @@ async function ensureDriverDependenciesImpl(
   onLogLine?.("[deps] 开始检测 / 安装依赖…");
   await ensureNodeEnvironmentForInstall(onLogLine);
   const missing: string[] = [];
-  const requestedDrivers =
+  const requestedDrivers = filterAppiumDriversForPlatform(
     options?.appiumRequiredDriversOverride !== undefined
       ? normalizeAppiumDriverTokens(options.appiumRequiredDriversOverride)
-      : resolveRequestedDrivers(config, only);
+      : resolveRequestedDrivers(config, only),
+    onLogLine
+  );
   const needDrivers = requestedDrivers.length > 0;
   const installedPackages: string[] = [];
   const installedDrivers: string[] = [];
@@ -1958,10 +2142,11 @@ export async function getDependencyHealth(config?: Pick<AgentConfig, "appium">):
     }
     if (appiumCliOk) {
       const installed = (await getInstalledAppiumDrivers()).map((x) => x.toLowerCase());
-      const required =
+      const required = filterAppiumDriversForPlatform(
         config?.appium?.requiredDrivers && config.appium.requiredDrivers.length > 0
           ? config.appium.requiredDrivers.map((x) => x.toLowerCase())
-          : ["uiautomator2", "xcuitest", "harmonyos"];
+          : ["uiautomator2", "xcuitest", "harmonyos"]
+      );
       missingAppiumDrivers = required.filter((x) => !installed.includes(x));
       appiumDriversOk = missingAppiumDrivers.length === 0;
     }

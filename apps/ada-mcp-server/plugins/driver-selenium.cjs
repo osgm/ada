@@ -232,6 +232,46 @@ var import_node_child_process = require("node:child_process");
 var import_promises = __toESM(require("node:fs/promises"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
 var DEFAULT_NATIVE_DRIVERS_DIR = "dirver";
+var DEFAULT_GECKODRIVER_MIRROR = "https://mirrors.huaweicloud.com/geckodriver";
+var GITHUB_GECKODRIVER_RELEASES = "https://github.com/mozilla/geckodriver/releases";
+var SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
+  {
+    browser: "Chrome/Chromium",
+    platforms: "Windows/Linux/macOS",
+    vendor: "\u8C37\u6B4C",
+    url: "https://chromedriver.storage.googleapis.com/index.html"
+  },
+  {
+    browser: "Firefox",
+    platforms: "Windows/Linux/macOS",
+    vendor: "Mozilla",
+    url: `${DEFAULT_GECKODRIVER_MIRROR}/v0.36.0/????????? ${GITHUB_GECKODRIVER_RELEASES}`
+  },
+  {
+    browser: "Edge",
+    platforms: "win10",
+    vendor: "\u5FAE\u8F6F",
+    url: "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
+  },
+  {
+    browser: "Internet Explorer",
+    platforms: "Windows",
+    vendor: "Selenium \u9879\u76EE\u7EC4",
+    url: "https://selenium-release.storage.googleapis.com/index.html"
+  },
+  {
+    browser: "Safari",
+    platforms: "macOS El Capitan \u53CA\u66F4\u9AD8\u7248\u672C",
+    vendor: "\u82F9\u679C",
+    url: "\uFF08\u7CFB\u7EDF\u5185\u7F6E\uFF0C\u65E0\u9700\u5355\u72EC\u4E0B\u8F7D\uFF09"
+  },
+  {
+    browser: "Opera",
+    platforms: "Windows/macOS/Linux",
+    vendor: "Opera",
+    url: "https://github.com/operasoftware/operachromiumdriver/releases"
+  }
+];
 async function fileExists(filePath) {
   try {
     await import_promises.default.access(filePath);

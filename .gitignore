@@ -42,6 +42,9 @@ pnpm-debug.log*
 # MCP dlx preinstall probe artifacts (local)
 .ada-mcp-playwright-host
 
+# Playwright / e2e local output
+test-results/
+
 # Environment & secrets (npm token → user ~/.npmrc or npm login)
 .env
 .env.*

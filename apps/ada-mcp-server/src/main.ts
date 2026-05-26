@@ -1793,11 +1793,30 @@ export async function startMcpServer(): Promise<void> {
   if (passedArgs.includes("mcp")) {
     console.error('[ADA-MCP] warning: standalone ada-mcp binary does not require "mcp" arg; it is safe to remove.');
   }
+  function tryReadPackageVersion(name: string): string | null {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const raw = require(`${name}/package.json`) as { version?: unknown };
+      const v = String(raw?.version ?? "").trim();
+      return v.length > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const launcherVersion = tryReadPackageVersion("@ada-mcp/launcher");
+  const selfVersion = tryReadPackageVersion("@ada-mcp/mcp-server");
+  const alignedLauncherVersion = launcherVersion || selfVersion;
+
+  const launcherSpec = alignedLauncherVersion
+    ? `@ada-mcp/launcher@${alignedLauncherVersion}`
+    : "@ada-mcp/launcher";
+
   const configHint = {
     mcpServers: {
       "ada-mcp": {
         command: "pnpm",
-        args: ["dlx", "@ada-mcp/launcher@0.1.7"]
+        args: ["dlx", launcherSpec]
       }
     }
   };
@@ -1811,7 +1830,7 @@ export async function startMcpServer(): Promise<void> {
           ADA_PLAYWRIGHT_HEADLESS: "true",
           ADA_MCP_INSTALL_DEPS: "playwright",
           ADA_INSTALL_STRATEGY_TIMEOUT_MS: "120000",
-          ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS: "900000"
+          ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS: "1800000"
         }
       }
     }
@@ -1826,6 +1845,14 @@ export async function startMcpServer(): Promise<void> {
   };
   console.error("[ADA-MCP] config hint (npm standard):");
   console.error(JSON.stringify(configHint, null, 2));
+  if (selfVersion) {
+    console.error(`[ADA-MCP] package version: @ada-mcp/mcp-server@${selfVersion}`);
+  }
+  if (launcherVersion) {
+    console.error(`[ADA-MCP] launcher version detected: @ada-mcp/launcher@${launcherVersion}`);
+  } else {
+    console.error("[ADA-MCP] launcher version not detected (using tag without version).");
+  }
   console.error("[ADA-MCP] config hint (local binary):");
   console.error(JSON.stringify(binaryHint, null, 2));
   console.error("[ADA-MCP] note: MCP tool names use ada_snake_case (e.g. ada_install_deps, ada_invoke, ada_web_action)");

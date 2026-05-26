@@ -8,27 +8,27 @@ ADA MCP server package that supports:
 
 ## 标准安装（Cursor / MCP）
 
-请使用 **`@ada-mcp/launcher@0.1.19`** 拉起本包（见 [launcher README](../ada-mcp-launcher/README.md)）：
+请使用 **`@ada-mcp/launcher@0.1.24`** 拉起本包（见 [launcher README](../ada-mcp-launcher/README.md)）：
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "pnpm",
-      "args": ["dlx", "@ada-mcp/launcher@0.1.19"]
+      "args": ["dlx", "@ada-mcp/launcher@0.1.24"]
     }
   }
 }
 ```
 
-本包版本：**`@ada-mcp/mcp-server@0.1.19`**（由 launcher 默认拉取；依赖锁定 `playwright@1.59.1`）。
+本包版本：**`@ada-mcp/mcp-server@0.1.24`**（由 launcher 默认拉取；依赖锁定 `playwright@1.59.1`）。
 
 直接调试本包（无 launcher 拉包前测速）：
 
 ```bash
-pnpm dlx @ada-mcp/mcp-server@0.1.19
+pnpm dlx @ada-mcp/mcp-server@0.1.24
 # npx 等价：
-npx -y @ada-mcp/mcp-server@0.1.19
+npx -y @ada-mcp/mcp-server@0.1.24
 ```
 
 ## 启动时自动安装依赖（默认仅 Playwright）
@@ -51,7 +51,7 @@ npx -y @ada-mcp/mcp-server@0.1.19
 - `ADA_MCP_SKIP_INSTALL_DEPS=1`：跳过自动安装
 - `ADA_MCP_INSTALL_DEPS_FORCE=1`：强制重装
 - `ADA_MCP_GECKODRIVER_VERSION` / `ADA_MCP_CHROMEDRIVER_VERSION`：Selenium 驱动版本
-- `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`：浏览器下载超时（默认 15 分钟）
+- `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`：浏览器下载超时（默认 30 分钟 / 1800000ms）
 - `ADA_INSTALL_STRATEGY_TIMEOUT_MS`：npm 装包超时（默认 2 分钟）
 
 ## 代理与镜像（`0.1.10+` 推荐）
@@ -83,27 +83,27 @@ npx -y @ada-mcp/mcp-server@0.1.19
 在标准 `args` 后追加，例如安装全部依赖：
 
 ```json
-"args": ["dlx", "@ada-mcp/launcher@0.1.19", "--install-deps=all"]
+"args": ["dlx", "@ada-mcp/launcher@0.1.24", "--install-deps=all"]
 ```
 
 ## Cursor MCP 配置
 
-**pnpm（推荐）**：`pnpm` + `dlx @ada-mcp/launcher@0.1.19`
+**pnpm（推荐）**：`pnpm` + `dlx @ada-mcp/launcher@0.1.24`
 
-**npx 等价**（`launcher@0.1.7+`）：`npx` + `-y @ada-mcp/launcher@0.1.19`（内层同样 `npx -y` mcp-server，测速逻辑与 pnpm 一致）
+**npx 等价**（`launcher@0.1.7+`）：`npx` + `-y @ada-mcp/launcher@0.1.24`（内层同样 `npx -y` mcp-server，测速逻辑与 pnpm 一致）
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "npx",
-      "args": ["-y", "@ada-mcp/launcher@0.1.19"]
+      "args": ["-y", "@ada-mcp/launcher@0.1.24"]
     }
   }
 }
 ```
 
-Windows 若找不到 `pnpm`，可将 `command` 改为 `pnpm.cmd` 绝对路径；无 pnpm 时只能直接 `npx -y @ada-mcp/mcp-server@0.1.19`（无 launcher 拉包测速）。
+Windows 若找不到 `pnpm`，可将 `command` 改为 `pnpm.cmd` 绝对路径；无 pnpm 时只能直接 `npx -y @ada-mcp/mcp-server@0.1.24`（无 launcher 拉包测速）。
 
 ## Remote mode
 
