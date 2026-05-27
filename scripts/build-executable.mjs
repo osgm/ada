@@ -12,6 +12,19 @@ const webBundleFile = path.join(buildDir, "ada-web.cjs");
 const mcpBundleFile = path.join(buildDir, "ada-mcp.cjs");
 const pluginBuildDir = path.join(buildDir, "plugins");
 const windowsIconFile = path.join(root, "apps", "ada-gui", "src-tauri", "icons", "icon.ico");
+const AGENT_SRC = path.join(root, "apps", "ada-agent", "src");
+
+function adaAgentSrcPlugin() {
+  return {
+    name: "ada-agent-src",
+    setup(buildApi) {
+      buildApi.onResolve({ filter: /^@ada\/agent(\/.*)?$/ }, (args) => {
+        const sub = args.path === "@ada/agent" ? "main" : args.path.slice("@ada/agent/".length);
+        return { path: path.join(AGENT_SRC, `${sub}.ts`) };
+      });
+    }
+  };
+}
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -96,7 +109,8 @@ async function bundleMcpStandalone() {
     platform: "node",
     format: "cjs",
     target: "node18",
-    sourcemap: false
+    sourcemap: false,
+    plugins: [adaAgentSrcPlugin()]
     // 勿再加 banner shebang：cli.ts 首行已有 #!，重复会导致 pkg 解析失败与运行时 MODULE_NOT_FOUND
   });
 }
@@ -130,6 +144,16 @@ async function bundleRuntimePlugins() {
     format: "cjs",
     target: "node18",
     external: ["selenium-webdriver"],
+    sourcemap: false
+  });
+  await build({
+    entryPoints: [path.join(root, "plugins", "driver-harmony", "src", "index.ts")],
+    outfile: path.join(pluginBuildDir, "driver-harmony.cjs"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node18",
+    external: ["hypium-driver"],
     sourcemap: false
   });
 }
@@ -184,6 +208,16 @@ async function copyRuntimeAssets() {
     const dst = path.join(releaseDir, to);
     await fs.mkdir(path.dirname(dst), { recursive: true });
     await fs.cp(src, dst, { recursive: true });
+  }
+  const toolsSrc = path.join(root, "tools");
+  const toolsDst = path.join(releaseDir, "tools");
+  try {
+    await fs.access(path.join(toolsSrc, process.platform === "win32" ? "hdc.exe" : "hdc"));
+    await fs.mkdir(toolsDst, { recursive: true });
+    await fs.cp(toolsSrc, toolsDst, { recursive: true });
+    console.log("[build-executable] copied tools/ (HarmonyOS hdc)");
+  } catch {
+    console.warn("[build-executable] skip tools/: hdc not found under repo tools/");
   }
 }
 

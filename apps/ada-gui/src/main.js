@@ -576,29 +576,10 @@ btnStopInstall.addEventListener("click", async () => {
   }
 });
 
-async function autoStartAgent() {
-  try {
-    await eventBridgeReady;
-    await invoke("start_services", {
-      agentPath: null,
-      runAgent: true,
-      runMcp: true
-    });
-    addLog("GUI 启动后已自动启动 Agent 与 MCP。");
-  } catch (error) {
-    const msg = String(error ?? "");
-    if (msg.includes("Agent 已在运行")) {
-      addLog("Agent 已在运行，尝试补启动 MCP 以接入日志流。");
-      try {
-        await invoke("start_mcp_server", { agentPath: null });
-        addLog("MCP 已启动，日志将显示在当前面板。");
-      } catch (mcpErr) {
-        addLog(`MCP 启动失败: ${String(mcpErr)}`);
-      }
-      return;
-    }
-    addLog(`自动启动 Agent 失败: ${msg}`);
-  }
+/** 依赖安装与 Agent/MCP 服务均由用户手动触发，避免 GUI 一打开就下载 Playwright 等。 */
+async function logGuiStartupHint() {
+  await eventBridgeReady;
+  addLog("提示：请先在「安装依赖」中勾选组件并点击「开始安装」；完成引导配置后再启动 Agent/MCP（勿在未完成 setup 时自动拉起服务）。");
 }
 
 function normalizeInstallDepsPayload(raw) {
@@ -629,4 +610,4 @@ if (document.querySelector("#appiumHome").value.trim()) {
     appiumHome: document.querySelector("#appiumHome").value.trim()
   }).catch((error) => addLog(`应用已保存 APPIUM_HOME 失败: ${String(error)}`));
 }
-void autoStartAgent();
+void logGuiStartupHint();

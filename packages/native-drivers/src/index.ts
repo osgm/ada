@@ -1,19 +1,29 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pickFastestProbeUrl } from "@ada/download-probe";
 
-/** ???? WebDriver ????????? `dirver`?? nativeDriversDir ??? */
+/** 本地 WebDriver 二进制目录默认名 `dirver`（历史拼写）；可由 nativeDriversDir 覆盖 */
 export const DEFAULT_NATIVE_DRIVERS_DIR = "dirver";
 
 const CHROME_FOR_TESTING_JSON =
   "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json";
 
-/** ?? geckodriver ????????????? v0.36.0/<???>? */
+/** geckodriver 默认镜像（测速后可能改用更快源） */
 export const DEFAULT_GECKODRIVER_MIRROR = "https://mirrors.huaweicloud.com/geckodriver";
+
+/** geckodriver 候选镜像（安装前 Range 测速） */
+export const DEFAULT_GECKODRIVER_MIRROR_CANDIDATES = [
+  "https://cdn.npmmirror.com/binaries/geckodriver",
+  "https://npmmirror.com/mirrors/geckodriver",
+  "https://mirrors.huaweicloud.com/geckodriver"
+] as const;
 
 const GITHUB_GECKODRIVER_RELEASES = "https://github.com/mozilla/geckodriver/releases";
 
-/** ???? WebDriver ????????????????? */
+let detectedGeckodriverMirrorBase: string | null = null;
+
+/** 各浏览器 WebDriver 官方/镜像手动下载参考（文档与提示用） */
 export const SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
   {
     browser: "Chrome/Chromium",
@@ -25,7 +35,7 @@ export const SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
     browser: "Firefox",
     platforms: "Windows/Linux/macOS",
     vendor: "Mozilla",
-    url: `${DEFAULT_GECKODRIVER_MIRROR}/v0.36.0/????????? ${GITHUB_GECKODRIVER_RELEASES}`
+    url: `华为云 ${DEFAULT_GECKODRIVER_MIRROR}/v0.36.0/，或 GitHub ${GITHUB_GECKODRIVER_RELEASES}`
   },
   {
     browser: "Edge",
@@ -135,7 +145,7 @@ export async function resolveWorkspaceRoot(cwd = process.cwd()): Promise<string>
   return path.resolve(cwd);
 }
 
-/** ???? WebDriver ??????? ADA_DRIVERS_DIR???? dirver/driver/drivers */
+/** 解析 WebDriver 安装目录；可用 ADA_DRIVERS_DIR，否则尝试 dirver/driver/drivers */
 export async function resolveNativeDriversDir(workspaceRoot?: string): Promise<string> {
   const root = workspaceRoot ? path.resolve(workspaceRoot) : await resolveWorkspaceRoot();
   const fromEnv = process.env.ADA_DRIVERS_DIR?.trim();
@@ -151,12 +161,53 @@ export async function resolveNativeDriversDir(workspaceRoot?: string): Promise<s
   return path.join(root, DEFAULT_NATIVE_DRIVERS_DIR);
 }
 
-function geckodriverMirrorBase(): string {
-  const fromEnv = process.env.ADA_GECKODRIVER_MIRROR?.trim();
-  return (fromEnv || DEFAULT_GECKODRIVER_MIRROR).replace(/\/$/, "");
+function geckodriverMirrorCandidates(): string[] {
+  const extra = process.env.ADA_GECKODRIVER_MIRROR_CANDIDATES?.trim()
+    ? process.env.ADA_GECKODRIVER_MIRROR_CANDIDATES.split(",").map((x) => x.trim()).filter(Boolean)
+    : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of [...DEFAULT_GECKODRIVER_MIRROR_CANDIDATES, ...extra]) {
+    const n = url.replace(/\/$/, "");
+    if (!seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  return out;
 }
 
-/** ????? / GitHub ???Windows ? zip?Linux/macOS ? tar.gz */
+function geckodriverMirrorBase(): string {
+  const fromEnv = process.env.ADA_GECKODRIVER_MIRROR?.trim();
+  return (fromEnv || detectedGeckodriverMirrorBase || DEFAULT_GECKODRIVER_MIRROR).replace(/\/$/, "");
+}
+
+async function detectBestGeckodriverMirrorBase(
+  tag: string,
+  onLogLine?: (line: string) => void
+): Promise<string> {
+  const fromEnv = process.env.ADA_GECKODRIVER_MIRROR?.trim();
+  if (fromEnv) {
+    return fromEnv.replace(/\/$/, "");
+  }
+  if (detectedGeckodriverMirrorBase) {
+    return detectedGeckodriverMirrorBase;
+  }
+  const { fileName } = geckodriverPlatformAsset(tag);
+  const probeUrls = geckodriverMirrorCandidates().map((base) => `${base}/${tag}/${fileName}`);
+  onLogLine?.("[selenium] 探测 geckodriver 镜像下载速度…");
+  const best = await pickFastestProbeUrl(probeUrls, onLogLine);
+  const base =
+    best?.url.slice(0, best.url.length - `/${tag}/${fileName}`.length) ??
+    DEFAULT_GECKODRIVER_MIRROR;
+  detectedGeckodriverMirrorBase = base;
+  if (best) {
+    onLogLine?.(`[selenium] geckodriver 选用镜像: ${base}（${best.probe.speedKBps.toFixed(0)} KB/s）`);
+  }
+  return base;
+}
+
+/** 国内镜像 / GitHub 发布包：Windows 为 zip，Linux/macOS 为 tar.gz */
 export function geckodriverPlatformAsset(tag: string): { fileName: string; archiveKind: "zip" | "tar.gz" } {
   const t = tag.startsWith("v") ? tag : `v${tag}`;
   if (process.platform === "win32") {
@@ -246,7 +297,7 @@ async function listExecutablesInDir(driversDir: string): Promise<string[]> {
   return files;
 }
 
-/** ?? dirver ????? chromedriver ???? chromedriver137.exe ?? 137? */
+/** 扫描 dirver 目录下 chromedriver 可执行文件，如 chromedriver137.exe 对应主版本 137 */
 export async function listLocalChromedriverVersions(driversDir: string): Promise<string[]> {
   const files = await listExecutablesInDir(driversDir);
   const versions = new Set<string>();
@@ -482,9 +533,13 @@ export async function fetchGeckodriverReleaseVersion(requested?: string): Promis
   return "v0.36.0";
 }
 
-export function buildGeckodriverDownloadUrls(tag: string): { mirror: string; github: string; fileName: string; archiveKind: "zip" | "tar.gz" } {
+export function buildGeckodriverDownloadUrls(
+  tag: string,
+  mirrorBase?: string
+): { mirror: string; github: string; fileName: string; archiveKind: "zip" | "tar.gz" } {
   const { fileName, archiveKind } = geckodriverPlatformAsset(tag);
-  const mirror = `${geckodriverMirrorBase()}/${tag}/${fileName}`;
+  const base = (mirrorBase ?? geckodriverMirrorBase()).replace(/\/$/, "");
+  const mirror = `${base}/${tag}/${fileName}`;
   const github = `${GITHUB_GECKODRIVER_RELEASES}/download/${tag}/${fileName}`;
   return { mirror, github, fileName, archiveKind };
 }
@@ -619,7 +674,7 @@ async function detectFirefoxFromExecutable(exePath: string): Promise<LocalBrowse
   return { path: exePath, version: parsed.version, major: parsed.major };
 }
 
-/** ???????? Chrome/Chromium ? Firefox?????????? */
+/** 检测本机已安装的 Chrome/Chromium 与 Firefox（多平台常见路径） */
 export async function detectLocalBrowsers(): Promise<LocalBrowserDetection> {
   const result: LocalBrowserDetection = {};
 
@@ -752,26 +807,47 @@ async function downloadToFile(url: string, destPath: string): Promise<void> {
 export async function downloadGeckodriver(
   driversDir: string,
   versionInput?: string,
-  onLogLine?: (line: string) => void
+  onLogLine?: (line: string) => void,
+  options?: { force?: boolean }
 ): Promise<{ path: string; version: string }> {
   const tag = await fetchGeckodriverReleaseVersion(versionInput);
   const version = tag.replace(/^v/, "");
-  const { mirror, github, fileName, archiveKind } = buildGeckodriverDownloadUrls(tag);
+  const dest = path.join(driversDir, geckodriverExeName());
+  if (!options?.force && (await fileExists(dest))) {
+    onLogLine?.(`[selenium] 已存在 ${geckodriverExeName()}，跳过下载`);
+    return { path: dest, version: tag };
+  }
+  const mirrorBase = await detectBestGeckodriverMirrorBase(tag, onLogLine);
+  const { mirror, github, fileName, archiveKind } = buildGeckodriverDownloadUrls(tag, mirrorBase);
+  const manualArchive = path.join(driversDir, fileName);
+  if (!options?.force && (await fileExists(manualArchive))) {
+    onLogLine?.(`[selenium] 已存在归档 ${fileName}，跳过重复下载`);
+    const extractDir = path.join(driversDir, `_extract_geckodriver_${version}`);
+    await fs.rm(extractDir, { recursive: true, force: true });
+    await extractDriverArchive(manualArchive, extractDir, archiveKind);
+    const found = await findFileRecursive(extractDir, geckodriverExeName());
+    if (found) {
+      await copyExecutable(found, dest);
+      await fs.rm(extractDir, { recursive: true, force: true });
+      onLogLine?.(`[selenium] geckodriver 已从本地归档解压: ${dest}`);
+      return { path: dest, version: tag };
+    }
+  }
   await fs.mkdir(driversDir, { recursive: true });
   const archiveExt = archiveKind === "zip" ? "zip" : "tar.gz";
   const archivePath = path.join(driversDir, `_download_geckodriver_${version}.${archiveExt}`);
   const extractDir = path.join(driversDir, `_extract_geckodriver_${version}`);
-  onLogLine?.(`[selenium] ?? geckodriver ${tag}?${fileName}?? ${driversDir}`);
-  onLogLine?.(`[selenium] ??: ${mirror}`);
+  onLogLine?.(`[selenium] 下载 geckodriver ${tag}（${fileName}）→ ${driversDir}`);
+  onLogLine?.(`[selenium] 镜像: ${mirror}`);
   let downloaded = false;
   try {
     await downloadToFile(mirror, archivePath);
     downloaded = true;
   } catch (mirrorError) {
     onLogLine?.(
-      `[selenium][warn] ??????: ${mirrorError instanceof Error ? mirrorError.message : String(mirrorError)}`
+      `[selenium][warn] 镜像下载失败: ${mirrorError instanceof Error ? mirrorError.message : String(mirrorError)}`
     );
-    onLogLine?.(`[selenium] ?? GitHub: ${github}`);
+    onLogLine?.(`[selenium] 回退 GitHub: ${github}`);
     await downloadToFile(github, archivePath);
     downloaded = true;
   }
@@ -784,21 +860,27 @@ export async function downloadGeckodriver(
   if (!found) {
     throw new Error(`geckodriver binary not found after extracting ${fileName}`);
   }
-  const dest = path.join(driversDir, geckodriverExeName());
-  await copyExecutable(found, dest);
+  const destPath = path.join(driversDir, geckodriverExeName());
+  await copyExecutable(found, destPath);
   await fs.rm(archivePath, { force: true });
   await fs.rm(extractDir, { recursive: true, force: true });
-  onLogLine?.(`[selenium] geckodriver ???: ${dest}`);
-  return { path: dest, version: tag };
+  onLogLine?.(`[selenium] geckodriver 已写入: ${destPath}`);
+  return { path: destPath, version: tag };
 }
 
 export async function downloadChromedriver(
   driversDir: string,
   versionInput?: string,
-  onLogLine?: (line: string) => void
+  onLogLine?: (line: string) => void,
+  options?: { force?: boolean }
 ): Promise<{ path: string; version: string; major: string }> {
   const fullVersion = await resolveChromedriverCfTVersion(versionInput);
   const major = fullVersion.split(".")[0];
+  const destVersioned = path.join(driversDir, chromedriverExeName(major));
+  if (!options?.force && (await fileExists(destVersioned))) {
+    onLogLine?.(`[selenium] 已存在 ${chromedriverExeName(major)}，跳过下载`);
+    return { path: destVersioned, version: fullVersion, major };
+  }
   const platform = platformChromeLabel();
   const res = await fetch(CHROME_FOR_TESTING_JSON);
   if (!res.ok) {
@@ -827,7 +909,6 @@ export async function downloadChromedriver(
   if (!found) {
     throw new Error(`chromedriver binary not found after extracting ${fullVersion}`);
   }
-  const destVersioned = path.join(driversDir, chromedriverExeName(major));
   await copyExecutable(found, destVersioned);
   if (versionInput === "latest" || !versionInput) {
     const destGeneric = path.join(driversDir, chromedriverExeName());
@@ -912,12 +993,19 @@ export async function ensureNativeWebDrivers(options: DownloadNativeDriversOptio
     );
   }
 
-  const localGecko = await findGeckodriverInDir(driversDir, options.geckodriverVersion);
+  const expectedGeckoPath = path.join(driversDir, geckodriverExeName());
+  const hasExpectedGecko = await fileExists(expectedGeckoPath);
+  const localGecko = hasExpectedGecko ? expectedGeckoPath : await findGeckodriverInDir(driversDir, options.geckodriverVersion);
   const hasLocalGecko = Boolean(localGecko && (await fileExists(localGecko)));
   let geckoVersion = options.geckodriverVersion;
-  if (options.geckodriverVersion !== "skip" && (options.force || !hasLocalGecko)) {
+  if (options.geckodriverVersion !== "skip" && (options.force || !hasExpectedGecko)) {
     try {
-      const downloaded = await downloadGeckodriver(driversDir, options.geckodriverVersion ?? "latest", log);
+      const downloaded = await downloadGeckodriver(
+        driversDir,
+        options.geckodriverVersion ?? "latest",
+        log,
+        { force: options.force }
+      );
       geckoVersion = downloaded.version;
     } catch (error) {
       log?.(`[selenium][warn] geckodriver \u81ea\u52a8\u4e0b\u8f7d\u5931\u8d25\uff0c\u5df2\u8df3\u8fc7: ${formatDownloadError(error)}`);
@@ -930,10 +1018,22 @@ export async function ensureNativeWebDrivers(options: DownloadNativeDriversOptio
   }
 
   const localChrome = await findChromedriverInDir(driversDir, chromedriverRequest);
-  const hasLocalChrome = Boolean(localChrome && (await fileExists(localChrome.path)));
-  if (chromedriverRequest !== "skip" && (options.force || !hasLocalChrome)) {
+  const chromeMajor =
+    chromedriverRequest === "match-chrome" && browsers.chrome
+      ? browsers.chrome.major
+      : chromedriverRequest && chromedriverRequest !== "latest"
+        ? chromedriverRequest.replace(/^v/i, "").split(".")[0]
+        : localChrome?.version !== "generic"
+          ? localChrome?.version
+          : undefined;
+  const expectedChromePath = chromeMajor
+    ? path.join(driversDir, chromedriverExeName(chromeMajor))
+    : path.join(driversDir, chromedriverExeName());
+  const hasExpectedChrome = await fileExists(expectedChromePath);
+  const hasLocalChrome = hasExpectedChrome || Boolean(localChrome && (await fileExists(localChrome.path)));
+  if (chromedriverRequest !== "skip" && (options.force || !hasExpectedChrome)) {
     try {
-      await downloadChromedriver(driversDir, chromedriverRequest ?? "latest", log);
+      await downloadChromedriver(driversDir, chromedriverRequest ?? "latest", log, { force: options.force });
     } catch (error) {
       log?.(`[selenium][warn] chromedriver \u81ea\u52a8\u4e0b\u8f7d\u5931\u8d25\uff0c\u5df2\u8df3\u8fc7: ${formatDownloadError(error)}`);
       if (browsers.chrome) {

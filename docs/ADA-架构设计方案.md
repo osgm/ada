@@ -41,7 +41,7 @@
 
 - 第一阶段以本地四入口交付为主（`ada-agent/ada-mcp/ada-gui/ada-web`），`ada-control` 延后到第二阶段。
 - 驱动基线：**`driver-playwright`（Web 默认）+ `driver-appium`（Android/iOS/Harmony）**；**`driver-selenium` 为 Web 可选引擎**（`payload.engine=selenium`），不替代 Playwright。
-- Web 按 `payload.engine` 路由：`playwright`（默认）或 `selenium`；详见 `ADA-MCP-接入手册.md` §2、§3.0。
+- Web 按 `payload.engine` 路由：`playwright`（默认）或 `selenium`；详见 `ADA-MCP-接入手册.md` §2、§3.3。
 - 图形交互层仅做接口与安全护栏预留，默认关闭，不进入首期关键路径。
 - 执行主通道采用双工长连接；保留最小 HTTP 管理能力（注册/健康检查/配置）。
 - 第一阶段成功标准：可执行程序在 Win/macOS/Linux 启动并完成 Web + Mobile 基础任务集。

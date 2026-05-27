@@ -12,7 +12,7 @@ const distDir = path.join(mcpDir, "dist");
 const pluginsDir = path.join(mcpDir, "plugins");
 
 /** SDK + zod 打入 cli，避免 pnpm dlx 解析到无 zod/v3 的旧版 zod */
-const EXTERNALS = ["playwright", "selenium-webdriver", "appium", "express", "jimp"];
+const EXTERNALS = ["playwright", "selenium-webdriver", "appium", "hypium-driver", "express", "jimp"];
 
 const AGENT_SRC = path.join(root, "apps", "ada-agent", "src");
 
@@ -35,7 +35,8 @@ async function bundlePlugins() {
   const specs = [
     { name: "driver-playwright", entry: "plugins/driver-playwright/src/index.ts", external: ["playwright"] },
     { name: "driver-appium", entry: "plugins/driver-appium/src/index.ts", external: [] },
-    { name: "driver-selenium", entry: "plugins/driver-selenium/src/index.ts", external: ["selenium-webdriver"] }
+    { name: "driver-selenium", entry: "plugins/driver-selenium/src/index.ts", external: ["selenium-webdriver"] },
+    { name: "driver-harmony", entry: "plugins/driver-harmony/src/index.ts", external: ["hypium-driver"] }
   ];
   for (const spec of specs) {
     await build({

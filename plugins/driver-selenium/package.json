@@ -14,5 +14,8 @@
     "@ada/native-drivers": "0.1.0",
     "@ada/plugin-sdk": "0.1.0",
     "selenium-webdriver": "^4.34.0"
+  },
+  "devDependencies": {
+    "@types/selenium-webdriver": "^4.35.5"
   }
 }

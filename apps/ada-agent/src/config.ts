@@ -71,24 +71,28 @@ export const defaultConfig: AgentConfig = {
     playwrightInstallTargets: ["chromium"],
     playwrightDownloadHost: "https://cdn.playwright.dev",
     npmRegistryCandidates: [
+      "https://registry.npmjs.org",
       "https://registry.npmmirror.com",
       "https://mirrors.cloud.tencent.com/npm",
-      "https://repo.huaweicloud.com/repository/npm",
-      "https://registry.npmjs.org"
+      "https://mirrors.sjtug.sjtu.edu.cn/npm-registry",
+      "https://npmreg.proxy.ustclug.org",
+      "https://repo.huaweicloud.com/repository/npm"
     ],
     playwrightHostCandidates: [
       "https://cdn.playwright.dev",
       "https://playwright.azureedge.net",
-      "https://npmmirror.com/mirrors/playwright",
-      "https://cdn.npmmirror.com/binaries/playwright"
+      "https://cdn.npmmirror.com/binaries/playwright",
+      "https://npmmirror.com/mirrors/playwright"
     ],
     nativeDriversDir: "dirver",
     geckodriverVersion: "latest",
-    chromedriverVersion: "match-chrome"
+    chromedriverVersion: "match-chrome",
+    toolsDir: "tools",
+    harmonyHdcDownloadUrls: []
   },
   appium: {
     serverUrl: "http://127.0.0.1:4723",
-    requiredDrivers: ["uiautomator2", "xcuitest", "harmonyos"]
+    requiredDrivers: ["uiautomator2", "xcuitest"]
   }
 };
 

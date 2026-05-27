@@ -21,6 +21,7 @@ artifacts/
 # Build outputs
 build/
 dist/
+*.tgz
 out/
 target/
 coverage/

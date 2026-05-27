@@ -37,6 +37,25 @@ export async function runDoctor(config: AgentConfig): Promise<Record<string, unk
   };
 
   const deps = await getDependencyHealth(config);
+  const harmonyDriverEnabled = (config.monitoring?.platforms ?? [])
+    .map((item) => item.toLowerCase())
+    .includes("harmony");
+  const harmonyHdc = {
+    enabled: harmonyDriverEnabled,
+    toolsDir: deps.harmonyToolsDir,
+    hdcReachable: deps.hdcReachable,
+    targetsSummary: deps.hdcTargetsSummary,
+    ok:
+      !harmonyDriverEnabled ||
+      (deps.hypiumDriverInstalled && Boolean(deps.harmonyToolsDir) && deps.hdcReachable),
+    detail: !harmonyDriverEnabled
+      ? "harmony platform not in monitoring.platforms"
+      : !deps.harmonyToolsDir
+        ? "tools/hdc not found (set ADA_TOOLS_DIR or place hdc in project tools/)"
+        : deps.hdcReachable
+          ? `hdc ok: ${deps.hdcTargetsSummary}`
+          : `hdc probe failed: ${deps.hdcTargetsSummary}`
+  };
   const portFree = await isPortAvailable(config.bootstrapUI.host, config.bootstrapUI.port);
   const appiumConnectivity = await checkAppiumServer(config.appium.serverUrl);
   const javaRuntime = await checkJavaRuntime();
@@ -50,6 +69,7 @@ export async function runDoctor(config: AgentConfig): Promise<Record<string, unk
 
   const checks = {
     dependencies: deps,
+    harmonyHdc,
     setupPortAvailable: portFree,
     appiumServer: appiumConnectivity,
     javaRuntime,
@@ -66,6 +86,7 @@ export async function runDoctor(config: AgentConfig): Promise<Record<string, unk
     deps.appiumDriversOk &&
     appiumConnectivity.reachable &&
     (!androidDriverEnabled || javaRuntime.ok) &&
+    harmonyHdc.ok &&
     queueDirs.inbox &&
     queueDirs.processed &&
     queueDirs.failed &&

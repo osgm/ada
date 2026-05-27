@@ -6,7 +6,7 @@
 |------|------|------|
 | **本文** | 维护者 | npm **发布流程**（必读） |
 | [`脚本清单.md`](脚本清单.md) | 维护者 | 每个脚本的用途、npm 引用、删除影响 |
-| [`docs/ADA-MCP-接入手册.md`](../docs/ADA-MCP-接入手册.md) §3.9 | 终端用户 | 安装、MCP Host 配置、镜像与排障 |
+| [`docs/ADA-MCP-接入手册.md`](../docs/ADA-MCP-接入手册.md) §1、§5 | 终端用户 | 安装、MCP Host 配置、镜像与排障 |
 | [`apps/ada-mcp-launcher/README.md`](../apps/ada-mcp-launcher/README.md) | 终端用户 | `launcher` 的 Host JSON 示例 |
 
 ---
@@ -29,7 +29,9 @@
 
 **推荐用户入口**：`pnpm dlx @ada-mcp/launcher@<version>` 或 `npx -y @ada-mcp/launcher@<version>`（不写版本则安装 npm **latest**）。
 
-**发布顺序**：先 **mcp-server**，再 **launcher**。launcher 通过 `MIN_MCP_SERVER_VERSION` 拉取已发布的 server；若 server 未上线就发 launcher，用户可能拉到旧 server 或解析失败。
+**版本号必须一致**：`@ada-mcp/mcp-server` 与 `@ada-mcp/launcher` 的 `package.json` → `version` **必须相同**（如均为 `0.1.31`）。发布前执行 `npm run mcp:check:versions` 校验。launcher 内层最低 mcp-server 版本取自 launcher 自身版本（`launcher.mjs` 中 `MIN_MCP_SERVER_VERSION = LAUNCHER_VERSION`），无需单独维护常量。
+
+**发布顺序**：先 **mcp-server**，再 **launcher**。若 server 未上线就发 launcher，用户可能拉到旧 server 或解析失败。
 
 ### 本目录涉及的发布脚本
 
@@ -37,22 +39,26 @@
 |------|----------|------|
 | [`generate-bundled-config.mjs`](generate-bundled-config.mjs) | mcp-server `prebuild` / `build:npm` 前 | 从 `config/default.yaml` 生成内嵌配置 |
 | [`build-mcp-npm.mjs`](build-mcp-npm.mjs) | 发布前 | esbuild 打包 `dist/cli.cjs` 与 `plugins/driver-{playwright,appium,selenium}.cjs` |
-| [`mcp-bundled-smoke.mjs`](mcp-bundled-smoke.mjs) | 构建后、发布前 | stdio 连接 `dist/cli.cjs`：`ada_health` 为 ok、**3 个插件**已注册 |
-| [`restore-workspace-src-main.mjs`](restore-workspace-src-main.mjs) | 发布后（可选） | 将 workspace 包 `main` 指回 `src`，便于本地开发 |
+| [`mcp-bundled-smoke.mjs`](mcp-bundled-smoke.mjs) | 构建后、发布前 | stdio 连接 `dist/cli.cjs`：`ada_health` 为 ok、**4 个插件**已注册 |
+| [`check-mcp-publish-versions.mjs`](check-mcp-publish-versions.mjs) | 发布前 | 校验两包 `version` 相同 |
+| [`sync-download-probe-vendor.mjs`](sync-download-probe-vendor.mjs) | 改 `download-probe` 后（手工） | 同步内联脚本到 launcher / mcp-server |
 
 `apps/ada-mcp-server` 的 **`prepublishOnly`** 会自动再跑一遍 `npm run build:npm`（调用 `build-mcp-npm.mjs`）。
 
 ### 版本号要改哪里
 
-发布前在仓库内**统一 bump**，并保持一致（当前示例版本 **0.1.28**）：
+**一次发布只用一个版本号**（如 `0.1.32`），两包必须相同：
 
 | 位置 | 说明 |
 |------|------|
-| `apps/ada-mcp-server/package.json` → `version` | mcp-server 包版本 |
-| `apps/ada-mcp-launcher/package.json` → `version` | launcher 包版本（通常与 mcp-server 同号） |
-| `apps/ada-mcp-launcher/launcher.mjs` → `MIN_MCP_SERVER_VERSION` | 内层拉取的 mcp-server **最低版本**（应与本次 server 版本一致） |
-| `apps/ada-mcp-launcher/README.md`、接入手册中的 `@x.y.z` 示例 | 文档与 Host 配置示例 |
-| `scripts/mcp-transport.mjs` 等里的默认版本（若有） | 本地联调默认值 |
+| `apps/ada-mcp-server/package.json` → `version` | mcp-server |
+| `apps/ada-mcp-launcher/package.json` → `version` | launcher（**与 mcp-server 同号**） |
+| `apps/ada-mcp-launcher/launcher.mjs` | 无需改：`MIN_MCP_SERVER_VERSION` 已等于 launcher 包版本 |
+| README、接入手册等示例中的 `@x.y.z` | 文档与联调默认值（建议与本次发布同号） |
+
+```bash
+npm run mcp:check:versions   # 两包 version 不一致则退出码 1
+```
 
 npm **不允许**重复发布同一 `version`；若 `403` / `You cannot publish over the previously published version`，必须先改版本再 `publish`。
 
@@ -69,20 +75,11 @@ npm **不允许**重复发布同一 `version`；若 `403` / `You cannot publish 
 
 | 命令 | 说明 |
 |------|------|
+| `npm run mcp:check:versions` | 校验 mcp-server / launcher 版本号一致 |
 | `npm run mcp:pack:dry-run` | 在 mcp-server 包内 `build:npm` + `npm pack --dry-run` |
 | `npm run build:npm -w @ada-mcp/mcp-server` | 仅构建发布产物（不发布） |
 | `npm run test:mcp:bundled` | 发布包冒烟（见上表 `mcp-bundled-smoke.mjs`） |
 | `npm run mcp:dev` | 开发态启动 mcp-server（`tsx src/cli.ts`，非 tarball） |
-
-联调类（**不阻塞发布**，可选）：
-
-| 命令 | 说明 |
-|------|------|
-| `npm run test:mcp:browser` | Web Chrome / 工作区 dev |
-| `npm run test:mcp:firefox` | 本机 Firefox + Profile（Playwright） |
-| `npm run test:mcp:firefox:selenium` | 同上（Selenium） |
-| `npm run test:mcp:app` | App 真机（Node，local `cli.cjs`） |
-| `npm run test:mcp:jd` | browser + app 组合 |
 
 ### 推荐发布命令（仓库根目录）
 
@@ -116,13 +113,6 @@ npm run build:npm
 npm publish --access public --registry https://registry.npmjs.org/
 ```
 
-### 发布后（可选）
-
-```powershell
-# 恢复 monorepo 各包 main 指向 src（本地继续开发）
-node scripts/restore-workspace-src-main.mjs
-```
-
 ### 发布物说明
 
 **`@ada-mcp/mcp-server`**（由 `apps/ada-mcp-server/package.json` 的 `files` 决定）：
@@ -136,13 +126,13 @@ node scripts/restore-workspace-src-main.mjs
 
 **`@ada-mcp/launcher`**：`launcher.mjs`、`registry-probe.mjs`、`playwright-probe.mjs`、`README.md`。
 
-**不包含** 本目录下的 Python/京东验证脚本；那些仅用于 monorepo 内联调（见 [`脚本清单.md`](脚本清单.md)）。
+**不包含** monorepo 内 E2E / 可执行文件构建脚本（见 [`脚本清单.md`](脚本清单.md)）。
 
 ### 终端用户 vs 维护者
 
 | 角色 | 做法 |
 |------|------|
-| 终端用户 | `pnpm dlx @ada-mcp/launcher@x.y.z`；Host 配置见接入手册 §3.9 |
+| 终端用户 | `pnpm dlx @ada-mcp/launcher@x.y.z`；Host 配置见接入手册 §1.1 |
 | 维护者 | bump `version` → 官方 registry `npm publish` → 更新文档示例版本 |
 
 ### 常见问题
@@ -155,22 +145,17 @@ node scripts/restore-workspace-src-main.mjs
 | launcher 拉到旧 server | 确认 `MIN_MCP_SERVER_VERSION` 与已发布的 server 版本；先发布 server |
 | 需要 2FA | `npm publish` 时输入 OTP，或在 CI 使用 automation token |
 
-更完整的 Host 配置、国内镜像与排障见 [`docs/ADA-MCP-接入手册.md`](../docs/ADA-MCP-接入手册.md) §3.9。
+更完整的 Host 配置、国内镜像与排障见 [`docs/ADA-MCP-接入手册.md`](../docs/ADA-MCP-接入手册.md) §1 与 §5。
 
 ---
 
-## 发布前本地验证（可选）
-
-除 `test:mcp:bundled` 外，可在仓库根目录跑 MCP 联调（需 Python 时先安装依赖）：
+## 发布前本地验证
 
 ```powershell
-pip install -r scripts/requirements-mcp-verify.txt
-npm run test:mcp:bundled          # 发布包 smoke（推荐，发布前必跑）
-npm run test:mcp:browser          # Web Chrome（工作区 dev）
-npm run test:mcp:app              # App 真机 Node（local cli.cjs）
+npm run test:mcp:bundled   # 发布包 smoke（发布前必跑）
 ```
 
-脚本说明与「哪些可删」见 [`脚本清单.md`](脚本清单.md)。
+脚本说明见 [`脚本清单.md`](脚本清单.md)。
 
 ---
 
@@ -181,5 +166,6 @@ npm run test:mcp:app              # App 真机 Node（local cli.cjs）
 | 可执行文件 | `build-executable.mjs` | `build:exe` |
 | Agent E2E | `e2e-smoke.mjs` | `test:e2e:smoke*` |
 | exe 验收 | `verify-entrypoints.mjs` | `test:entrypoints` |
+| 探测逻辑同步 | `sync-download-probe-vendor.mjs` | 无（改 `packages/download-probe` 后手工执行） |
 
 与 **npm 发布 `@ada-mcp/*` 无直接关系**；详见 [`脚本清单.md`](脚本清单.md)。

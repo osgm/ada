@@ -1,4 +1,4 @@
-# @ada-mcp/mcp-server
+﻿# @ada-mcp/mcp-server
 
 ADA MCP server package that supports:
 
@@ -8,39 +8,40 @@ ADA MCP server package that supports:
 
 ## 标准安装（MCP）
 
-请使用 **`@ada-mcp/launcher@0.1.28`** 拉起本包（见 [launcher README](../ada-mcp-launcher/README.md)）：
+请使用 **`@ada-mcp/launcher@0.1.50`** 拉起本包（见 [launcher README](../ada-mcp-launcher/README.md)）：
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "pnpm",
-      "args": ["dlx", "@ada-mcp/launcher@0.1.28"]
+      "args": ["dlx", "@ada-mcp/launcher@0.1.50"]
     }
   }
 }
 ```
 
-本包版本：**`@ada-mcp/mcp-server@0.1.28`**（由 launcher 默认拉取；依赖锁定 `playwright@1.59.1`）。
+本包版本：**`@ada-mcp/mcp-server@0.1.50`**（由 launcher 默认拉取；依赖锁定 `playwright@1.59.1`）。
 
 直接调试本包（无 launcher 拉包前测速）：
 
 ```bash
-pnpm dlx @ada-mcp/mcp-server@0.1.28
-# npx 等价：
-npx -y @ada-mcp/mcp-server@0.1.28
+pnpm dlx @ada-mcp/mcp-server@0.1.50
+# npx 等价
+npx -y @ada-mcp/mcp-server@0.1.50
 ```
 
-## 启动时自动安装依赖（默认仅 Playwright）
+## 启动时自动安装依赖（默认 Playwright）
 
 进程启动前会按配置自动执行 `install-deps`（日志在 stderr）：
 
 | 配置 | 含义 |
 |------|------|
 | （未配置） | 仅安装 **Playwright + 浏览器** |
-| `playwright` | 仅 Playwright（显式写法，与默认相同） |
-| `selenium` | **仅** Selenium 原生驱动（GeckoDriver/ChromeDriver） |
-| `appium` | **仅** Appium 包 + 移动端驱动 |
+| `playwright` | 装 Playwright（显式写法，与默认相同） |
+| `selenium` | 装 Selenium 原生驱动（GeckoDriver/ChromeDriver） |
+| `appium` | 装 Appium 包 + 移动端驱动 |
+| `harmony` | 装 hypium-driver + hdc 工具 |
 | `playwright,selenium` | 组合（逗号连接多类） |
 | `all` | 上述全部 |
 | `none` / `skip` | 不自动安装 |
@@ -51,29 +52,31 @@ npx -y @ada-mcp/mcp-server@0.1.28
 - `ADA_MCP_SKIP_INSTALL_DEPS=1`：跳过自动安装
 - `ADA_MCP_INSTALL_DEPS_FORCE=1`：强制重装
 - `ADA_MCP_GECKODRIVER_VERSION` / `ADA_MCP_CHROMEDRIVER_VERSION`：Selenium 驱动版本
-- `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`：浏览器下载超时（默认 30 分钟 / 1800000ms）
+- `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`：每个 CDN 镜像的 `playwright install` 超时（默认 60 分钟）
 - `ADA_INSTALL_STRATEGY_TIMEOUT_MS`：npm 装包超时（默认 2 分钟）
+
+**依赖解析**：系统全局 npm → 工作区/环境 → `~/.ada/deps`；全局已装的不迁入共享目录。
 
 ## 代理与镜像
 
 | 阶段 | 说明 |
 |------|------|
 | `pnpm dlx @ada-mcp/launcher` | 拉包前 registry 测速（推荐） |
-| `pnpm dlx @ada-mcp/mcp-server` | 依赖安装由 preinstall / `install-deps` 测速 |
+| `pnpm dlx @ada-mcp/mcp-server` | 依赖安装、preinstall / `install-deps` 测速 |
 | 启动后 `install-deps` | npm 与 Playwright CDN 候选测速 |
 
-默认 npm 候选：npmmirror → 腾讯云 → 华为云 → npm 官方。
+默认 npm 候选（相同时靠前）：**npmmirror（阿里）** → npmjs → 腾讯 → 上海交大 → 中科大 → 华为云。
 
 | 变量 | 说明 |
 |------|------|
-| `npm_config_registry` | 可选；仅加速 **dlx** 拉包（推荐 `https://registry.npmmirror.com`） |
-| `ADA_REGISTRY_CANDIDATES` | 可选；在默认五镜像**之外**追加候选 |
-| `ADA_NPM_PROXY_REGISTRY` / `ADA_PNPM_PROXY_REGISTRY` | 可选；覆盖探测主候选（默认 npmmirror） |
+| `npm_config_registry` | 可选；影响 **dlx** 拉包 |
+| `ADA_REGISTRY_CANDIDATES` | 可选；在默认候选之外追加 |
+| `ADA_NPM_PROXY_REGISTRY` / `ADA_PNPM_PROXY_REGISTRY` | 可选；探测时置顶 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | 可选；Playwright 浏览器 CDN |
 
-详见 [ADA-MCP-接入手册 §3.9.2](../../docs/ADA-MCP-接入手册.md#392-代理与镜像配置)。
+详见 [ADA-MCP-接入手册 §5](../../docs/ADA-MCP-接入手册.md#5-镜像与环境变量)。
 
-**CLI 参数**（写在 MCP `args` 末尾）
+**CLI 参数**（写在 MCP `args` 末尾）：
 
 - `--install-deps=playwright,selenium`
 - `--skip-install-deps`
@@ -83,27 +86,27 @@ npx -y @ada-mcp/mcp-server@0.1.28
 在标准 `args` 后追加，例如安装全部依赖：
 
 ```json
-"args": ["dlx", "@ada-mcp/launcher@0.1.28", "--install-deps=all"]
+"args": ["dlx", "@ada-mcp/launcher@0.1.50", "--install-deps=all"]
 ```
 
 ## MCP Host 配置示例
 
-**pnpm（推荐）**：`pnpm` + `dlx @ada-mcp/launcher@0.1.28`
+**pnpm（推荐）**：`pnpm` + `dlx @ada-mcp/launcher@0.1.50`
 
-**npx 等价**：`npx` + `-y @ada-mcp/launcher@0.1.28`（内层同样 `npx -y` mcp-server，测速逻辑与 pnpm 一致）
+**npx 等价**：`npx` + `-y @ada-mcp/launcher@0.1.50`（内层同样 `npx -y` mcp-server，测速逻辑与 pnpm 一致）
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "npx",
-      "args": ["-y", "@ada-mcp/launcher@0.1.28"]
+      "args": ["-y", "@ada-mcp/launcher@0.1.50"]
     }
   }
 }
 ```
 
-Windows 若找不到 `pnpm`，可将 `command` 改为 `pnpm.cmd` 绝对路径；无 pnpm 时只能直接 `npx -y @ada-mcp/mcp-server@0.1.28`（无 launcher 拉包测速）。
+Windows 若找不到 `pnpm`，可将 `command` 改为 `pnpm.cmd` 绝对路径；无 pnpm 时只能直接 `npx -y @ada-mcp/mcp-server@0.1.50`（无 launcher 拉包测速）。
 
 ## Remote mode
 

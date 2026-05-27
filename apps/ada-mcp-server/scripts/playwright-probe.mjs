@@ -1,24 +1,89 @@
 /**
- * Playwright 浏览器 CDN 测速（零依赖，与 dependency-installer 逻辑对齐）
+ * Playwright 浏览器 CDN 下载测速（零依赖）
  */
-export const DEFAULT_PLAYWRIGHT_HOST_CANDIDATES = [
-  "https://cdn.playwright.dev",
-  "https://playwright.azureedge.net",
-  "https://npmmirror.com/mirrors/playwright",
-  "https://cdn.npmmirror.com/binaries/playwright"
-];
+import { pickBestDownloadProbe, probeDownloadSample } from "./download-probe.mjs";
+import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "./mirror-candidates.mjs";
+
+export { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES };
+
+const PINNED_PLAYWRIGHT_VERSION = process.env.ADA_PLAYWRIGHT_VERSION?.trim() || "1.59.1";
+
+/** 测速用 Chromium 构建号（zip 路径），非 npm 包版本 */
+export async function resolveChromiumBrowserVersionForProbe() {
+  const fromEnv = process.env.ADA_PLAYWRIGHT_BROWSER_VERSION?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  try {
+    const { createRequire } = await import("node:module");
+    const { readFileSync } = await import("node:fs");
+    const require = createRequire(import.meta.url);
+    const browsersPath = require.resolve("playwright-core/browsers.json");
+    const parsed = JSON.parse(readFileSync(browsersPath, "utf8"));
+    const chromium = parsed.browsers?.find((b) => b.name === "chromium");
+    const v = String(chromium?.browserVersion ?? "").trim();
+    if (v) {
+      return v;
+    }
+  } catch {
+    // playwright 尚未安装
+  }
+  const pwVersion = PINNED_PLAYWRIGHT_VERSION;
+  const sources = [
+    `https://unpkg.com/playwright-core@${pwVersion}/browsers.json`,
+    `https://cdn.jsdelivr.net/npm/playwright-core@${pwVersion}/browsers.json`
+  ];
+  for (const url of sources) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12_000);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!response.ok) {
+        continue;
+      }
+      const parsed = await response.json();
+      const chromium = parsed.browsers?.find((b) => b.name === "chromium");
+      const v = String(chromium?.browserVersion ?? "").trim();
+      if (v) {
+        return v;
+      }
+    } catch {
+      // try next mirror
+    }
+  }
+  return "";
+}
 
 function normalizeHostUrl(url) {
   return String(url).replace(/\/$/, "");
 }
 
-/** 每个候选可尝试多个探测 URL（npmmirror 根路径常探测失败） */
 export function playwrightProbeUrls(host) {
   const h = normalizeHostUrl(host);
   if (h.includes("npmmirror.com/mirrors/playwright")) {
     return [h, "https://cdn.npmmirror.com/binaries/playwright"];
   }
   return [h];
+}
+
+function playwrightChromiumZipUrl(host, browserVersion) {
+  const h = normalizeHostUrl(host);
+  const base =
+    h.includes("cdn.npmmirror.com/binaries/playwright") || h.endsWith("/binaries/playwright")
+      ? "https://cdn.npmmirror.com/binaries/playwright"
+      : h.includes("npmmirror.com") && !h.includes("/mirrors/playwright")
+        ? "https://npmmirror.com/mirrors/playwright"
+        : h;
+  const plat =
+    process.platform === "darwin" ? "mac-arm64" : process.platform === "linux" ? "linux64" : "win64";
+  const zip =
+    plat === "mac-arm64"
+      ? "chrome-mac-arm64.zip"
+      : plat === "linux64"
+        ? "chrome-linux64.zip"
+        : "chrome-win64.zip";
+  return `${base}/builds/cft/${browserVersion}/${plat}/${zip}`;
 }
 
 export function playwrightHostCandidateList() {
@@ -41,58 +106,39 @@ export function playwrightHostCandidateList() {
   return out;
 }
 
-async function probeUrlLatency(url) {
-  const started = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      redirect: "manual",
-      signal: controller.signal
-    });
-    if (response.status >= 200 && response.status < 500) {
-      return Date.now() - started;
-    }
+async function probePlaywrightHostDownload(host, browserVersion) {
+  if (!browserVersion) {
     return null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
-}
-
-async function probePlaywrightHostLatency(host) {
-  const urls = playwrightProbeUrls(host);
   let best = null;
-  for (const url of urls) {
-    const latency = await probeUrlLatency(url);
-    if (latency !== null && (best === null || latency < best)) {
-      best = latency;
+  for (const base of playwrightProbeUrls(host)) {
+    const url = playwrightChromiumZipUrl(base, browserVersion);
+    const probe = await probeDownloadSample(url);
+    if (probe && (!best || probe.speedKBps > best.speedKBps)) {
+      best = probe;
     }
   }
   return best;
 }
 
 export async function detectBestPlaywrightHost(candidates = playwrightHostCandidateList()) {
-  const probeResults = await Promise.all(
-    candidates.map(async (candidate) => ({
-      candidate,
-      latency: await probePlaywrightHostLatency(candidate)
-    }))
-  );
-  let best = candidates[0] ?? DEFAULT_PLAYWRIGHT_HOST_CANDIDATES[0];
-  let bestLatency = Number.POSITIVE_INFINITY;
-  let bestPriority = Number.POSITIVE_INFINITY;
-  for (const { candidate, latency } of probeResults) {
-    if (latency === null) continue;
-    const priority = candidates.indexOf(candidate);
-    const prio = priority >= 0 ? priority : Number.POSITIVE_INFINITY;
-    if (latency < bestLatency || (latency === bestLatency && prio < bestPriority)) {
-      best = candidate;
-      bestLatency = latency;
-      bestPriority = prio;
-    }
+  const browserVersion = await resolveChromiumBrowserVersionForProbe();
+  const probeResults = [];
+  for (const candidate of candidates) {
+    const probe = await probePlaywrightHostDownload(candidate, browserVersion);
+    probeResults.push({ candidate, probe });
   }
-  return { best: normalizeHostUrl(best), candidates, probeResults };
+  const bestRow = pickBestDownloadProbe(probeResults, (c) => candidates.indexOf(c));
+  const best = bestRow?.candidate ?? candidates[0] ?? DEFAULT_PLAYWRIGHT_HOST_CANDIDATES[0];
+  return {
+    best: normalizeHostUrl(best),
+    browserVersion: browserVersion || null,
+    candidates,
+    probeResults: probeResults.map(({ candidate, probe }) => ({
+      candidate,
+      latency: probe?.durationMs ?? null,
+      speedKBps: probe?.speedKBps ?? null,
+      bytesRead: probe?.bytesRead ?? null
+    }))
+  };
 }

@@ -114,7 +114,7 @@ Appium driver 兼容性优化（默认开启）：
   - `ADA_APPIUM_DRIVER_SPEC_UIAUTOMATOR2`（默认 `appium-uiautomator2-driver@2`）
   - `ADA_APPIUM_DRIVER_SPEC_XCUITEST`（默认 `appium-xcuitest-driver@7`）
 
-可通过环境变量覆盖代理地址（`install-deps` / 启动时自动安装阶段会**测速选最快**；`pnpm dlx` 拉包本身不探测，见 `docs/ADA-MCP-接入手册.md` §3.9.2）：
+可通过环境变量覆盖代理地址（`install-deps` / 启动时自动安装阶段会**测速选最快**；`pnpm dlx` 拉包本身不探测，见 `docs/ADA-MCP-接入手册.md` §5）：
 
 | 变量 | 说明 |
 |------|------|
@@ -355,46 +355,7 @@ Appium 连通性探活任务：
 ./ada-agent run --file=tasks/appium-probe.tasks.json
 ```
 
-Harmony Appium 连通性探活任务：
-
-```bash
-./ada-agent run --file=tasks/appium-harmony-probe.tasks.json
-```
-
-Appium 真实动作任务（需本机已启动 Appium Server 与设备）：
-
-```bash
-./ada-agent run --file=tasks/appium-real.tasks.json
-```
-
-Harmony 真实动作任务（需本机已启动 Appium Server 与 Harmony 设备）：
-
-```bash
-./ada-agent run --file=tasks/appium-harmony-real.tasks.json
-```
-
-Appium 断言失败预期样例（用于验证错误码与故障路径）：
-
-```bash
-./ada-agent run --file=tasks/appium-real-assert-fail.tasks.json
-```
-
-Appium 元素未找到预期样例（用于验证 `*_ELEMENT_NOT_FOUND`）：
-
-```bash
-./ada-agent run --file=tasks/appium-real-not-found.tasks.json
-```
-
-说明：
-
-- `type` 与 `assertVisible` 支持目标指定方式：
-  - `payload.elementId`
-  - `payload.locator`（`id` / `accessibilityId` / `xpath` / `uiautomator`）
-- `screenshot` 会输出到 `artifacts/*-appium.png`
-- 元素查找失败会区分返回：
-  - `*_MISSING_ELEMENT`
-  - `*_ELEMENT_NOT_FOUND`
-  - `*_LOOKUP_FAILED`
+仓库内任务样例仅保留 `demo.tasks.json`、`web-real.tasks.json`、`appium-probe.tasks.json`；其它场景请自建 `.tasks.json` 或通过 MCP `ada_run_task_file` 调用。
 
 队列目录默认值：
 
@@ -613,7 +574,7 @@ monitoring:
 
 1. Appium Server 是否可达（默认 `http://127.0.0.1:4723`）
 2. 设备是否已连接并可被对应驱动识别
-3. `tasks/appium-real.tasks.json` 中 capabilities 是否匹配目标设备
+3. 任务 JSON 中 capabilities 是否匹配目标设备
 4. 使用 `doctor` 检查 `appium.serverUrl` 连通性
 5. 使用 `appium-probe` 先确认基础可用性
 6. Android 场景额外检查 Java：
@@ -636,8 +597,7 @@ Harmony 真实执行前，请确认：
 
 ```bash
 ./ada-agent install-deps --only=harmony
-./ada-agent run --file=tasks/appium-harmony-probe.tasks.json
-./ada-agent run --file=tasks/appium-harmony-real.tasks.json
+# 鸿蒙真实动作见 plugins/driver-harmony 的 smoke:real，或自建 tasks/*.tasks.json
 ```
 
 常见问题：

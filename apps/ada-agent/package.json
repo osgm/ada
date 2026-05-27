@@ -12,6 +12,10 @@
     "./config": "./dist/config.js",
     "./secrets": "./dist/secrets.js",
     "./dependency-installer": "./dist/dependency-installer.js",
+    "./bootstrap-deps": "./dist/bootstrap-deps.js",
+    "./deps-install-paths": "./dist/deps-install-paths.js",
+    "./deps-resolution": "./dist/deps-resolution.js",
+    "./tools-paths": "./dist/tools-paths.js",
     "./doctor": "./dist/doctor.js",
     "./plugin-registry": "./dist/plugin-registry.js",
     "./setup-cli": "./dist/setup-cli.js",
@@ -35,6 +39,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ada/download-probe": "0.1.0",
     "@ada/contracts": "0.1.0",
     "@ada/core-kernel": "0.1.0",
     "@ada/core-runtime": "0.1.0",
@@ -43,6 +48,7 @@
     "@ada/transport-stream": "0.1.0",
     "@ada/driver-playwright": "0.1.0",
     "@ada/driver-appium": "0.1.0",
+    "@ada/driver-harmony": "0.1.0",
     "@ada/driver-selenium": "0.1.0",
     "@ada/native-drivers": "0.1.0",
     "js-yaml": "^4.1.0",

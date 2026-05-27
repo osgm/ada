@@ -4,7 +4,7 @@ import { URLSearchParams } from "node:url";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AgentConfig, BootstrapInput } from "./types.js";
 import { persistAgentSetup } from "./setup-state.js";
-import { ensureDriverDependencies } from "./dependency-installer.js";
+import { runBootstrapInstallDeps } from "./bootstrap-deps.js";
 
 interface SetupUiResult {
   payload: BootstrapInput;
@@ -462,9 +462,9 @@ export async function runSetupUi(config: AgentConfig): Promise<SetupUiResult> {
               writeSseData(res, { event: "saved" });
               if (payload.dependencies?.runDependencyInstallNow) {
                 const only = parseDependencyInstallScope(payload.dependencies?.dependencyInstallScope);
-                await ensureDriverDependencies(saved, {
-                  only,
-                  force: false,
+                await runBootstrapInstallDeps([], {
+                  config: saved,
+                  installDepsSpec: only,
                   onLogLine: (line: string) => writeSseData(res, { event: "log", line })
                 });
               }
@@ -532,6 +532,22 @@ export async function runSetupUi(config: AgentConfig): Promise<SetupUiResult> {
 
       res.writeHead(404);
       res.end("not found");
+    });
+
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timeout);
+      if (err.code === "EADDRINUSE") {
+        const { host, port } = config.bootstrapUI;
+        reject(
+          new Error(
+            `引导端口 ${host}:${port} 已被占用（EADDRINUSE）。可能已有 ADA Agent/引导页在运行。` +
+              `请结束占用进程后重试，或浏览器打开 http://${host}:${port} 完成配置。` +
+              ` Windows 排查: netstat -ano | findstr ${port}`
+          )
+        );
+        return;
+      }
+      reject(err instanceof Error ? err : new Error(String(err)));
     });
 
     server.listen(config.bootstrapUI.port, config.bootstrapUI.host, () => {

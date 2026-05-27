@@ -1,5 +1,6 @@
 import { loadConfig, maskToken } from "@ada/agent/config";
 import { loadSecret } from "@ada/agent/secrets";
+import { runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 import {
   ensureDriverDependencies,
   getDependencyHealth,
@@ -53,6 +54,12 @@ export function getBuiltInPlugins() {
     engine: m.engine
   }));
 }
+
+export {
+  parseInstallDepsSpec,
+  resolveBootstrapInstallDeps,
+  runBootstrapInstallDeps
+} from "@ada/agent/bootstrap-deps";
 
 export type InstallDependencyExtras = {
   playwrightInstallTargetsOverride?: string[];
@@ -145,21 +152,28 @@ function classifyRequireRealFailures(
   const hasWebTask = hasPlatformTask(tasks, "web");
   const hasSeleniumTask = hasSeleniumWebTask(tasks);
   const hasPlaywrightTask = hasPlaywrightWebTask(tasks);
-  const hasMobileTask = hasPlatformTask(tasks, "android") || hasPlatformTask(tasks, "ios") || hasPlatformTask(tasks, "harmony");
+  const hasAppiumTask = hasPlatformTask(tasks, "android") || hasPlatformTask(tasks, "ios");
+  const hasHarmonyTask = hasPlatformTask(tasks, "harmony");
   const dependencyMissing: string[] = [];
   if (hasPlaywrightTask && !deps.playwrightInstalled) dependencyMissing.push("playwright");
   if (hasSeleniumTask && !deps.seleniumWebdriverInstalled) dependencyMissing.push("selenium-webdriver");
-  if (hasMobileTask && !deps.appiumInstalled) dependencyMissing.push("appium");
+  if (hasAppiumTask && !deps.appiumInstalled) dependencyMissing.push("appium");
   const browserNotLaunchable = hasPlaywrightTask && deps.playwrightInstalled && !deps.playwrightLaunchOk;
   const seleniumDriverMissing =
     hasSeleniumTask && !deps.geckodriverOk && !deps.chromedriverOk;
   if (seleniumDriverMissing) dependencyMissing.push("geckodriver-or-chromedriver");
-  const appiumCliNotReady = hasMobileTask && deps.appiumInstalled && !deps.appiumCliOk;
+  const appiumCliNotReady = hasAppiumTask && deps.appiumInstalled && !deps.appiumCliOk;
   const appiumServerReachable = Boolean(
     (doctor.checks as Record<string, unknown> | undefined)?.appiumServer &&
       ((doctor.checks as Record<string, unknown>).appiumServer as Record<string, unknown>).reachable
   );
-  const appiumServerUnreachable = hasMobileTask && !appiumServerReachable;
+  const appiumServerUnreachable = hasAppiumTask && !appiumServerReachable;
+  const harmonyHdcOk = Boolean(
+    (doctor.checks as Record<string, unknown> | undefined)?.harmonyHdc &&
+      ((doctor.checks as Record<string, unknown>).harmonyHdc as Record<string, unknown>).ok
+  );
+  const harmonyHdcUnready = hasHarmonyTask && !harmonyHdcOk;
+  if (harmonyHdcUnready) dependencyMissing.push("hdc-or-tools");
   const mockFallbacks = results
     .map((result, index) => ({ result, index }))
     .filter(({ result }) => (result.data as Record<string, unknown> | undefined)?.mode === "mock")
@@ -180,6 +194,7 @@ function classifyRequireRealFailures(
     browserNotLaunchable,
     appiumCliNotReady,
     appiumServerUnreachable,
+    harmonyHdcUnready,
     mockFallbackCount: mockFallbacks.length,
     executionFailureCount: executionFailures.length,
     executionFailureTypes,
@@ -240,6 +255,7 @@ export async function runSetupFlow(modeArg?: SetupMode): Promise<void> {
 export async function runStartFlow(options?: {
   localDev?: boolean;
   skipDeps?: boolean;
+  skipSetup?: boolean;
   runOnce?: boolean;
   runWatch?: boolean;
 }): Promise<void> {
@@ -268,7 +284,7 @@ export async function runStartFlow(options?: {
     }
   });
   if (config.dependencies.autoInstallOnStart && !skipDeps) {
-    await ensureDriverDependencies(config);
+    await runBootstrapInstallDeps(process.argv.slice(2), { config });
     const postDeps = await getDependencyHealth(config);
     const postDoctor = await runDoctor(config);
     log("info", {
@@ -281,12 +297,20 @@ export async function runStartFlow(options?: {
       }
     });
   }
+  const skipSetup = options?.skipSetup === true;
   const secret = await loadSecret(config.bootstrapUI.secretsProvider);
-  if (!secret && config.agent.setupOnFirstRun && !localDev) {
+  if (!secret && config.agent.setupOnFirstRun && !localDev && !skipSetup) {
     await runSetupFlow();
   }
   const effectiveSecret = await loadSecret(config.bootstrapUI.secretsProvider);
-  if (!effectiveSecret && !localDev) throw new Error("No credentials found. Run `npm run setup`.");
+  if (!effectiveSecret && !localDev) {
+    if (skipSetup) {
+      throw new Error(
+        "尚未完成引导配置（无本地凭据）。请在 GUI 点击「引导配置」，或执行 ada-agent-win.exe core --action=setup --mode=gui"
+      );
+    }
+    throw new Error("No credentials found. Run `npm run setup`.");
+  }
   if (effectiveSecret) {
     log("info", {
       event: "agent.auth.ready",

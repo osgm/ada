@@ -72,10 +72,14 @@ export interface AgentConfig {
     geckodriverVersion?: string;
     /** chromedriver 主版本：如 `137`、`135`、`latest`、`match-chrome` */
     chromedriverVersion?: string;
+    /** HarmonyOS 工具目录（含 hdc），相对工作区，默认 `tools` */
+    toolsDir?: string;
+    /** 可选：自动下载 hdc 的候选 URL（仅 harmony/all 依赖安装时使用） */
+    harmonyHdcDownloadUrls?: string[];
   };
   appium: {
     serverUrl: string;
-    requiredDrivers: Array<"uiautomator2" | "xcuitest" | "harmonyos">;
+    requiredDrivers: Array<"uiautomator2" | "xcuitest">;
   };
 }
 

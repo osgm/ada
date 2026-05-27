@@ -245,7 +245,7 @@ var SELENIUM_DRIVER_MANUAL_DOWNLOAD_REFERENCES = [
     browser: "Firefox",
     platforms: "Windows/Linux/macOS",
     vendor: "Mozilla",
-    url: `${DEFAULT_GECKODRIVER_MIRROR}/v0.36.0/????????? ${GITHUB_GECKODRIVER_RELEASES}`
+    url: `\u534E\u4E3A\u4E91 ${DEFAULT_GECKODRIVER_MIRROR}/v0.36.0/\uFF0C\u6216 GitHub ${GITHUB_GECKODRIVER_RELEASES}`
   },
   {
     browser: "Edge",
@@ -504,13 +504,7 @@ function runMock(command, reason) {
 }
 function wantsMock(payload) {
   const merged = mergeOptionsIntoPayload(payload);
-  if (merged.mock === true) {
-    return true;
-  }
-  if (merged.real === true) {
-    return false;
-  }
-  return process.env.ADA_SELENIUM_MOCK === "true";
+  return merged.mock === true;
 }
 async function buildDriver(payload) {
   const merged = mergeOptionsIntoPayload(payload);
@@ -666,7 +660,7 @@ async function runInvoke(command, state) {
   }
   const driver = state.driver;
   if (!driver) {
-    return runMock(command, "invoke without driver");
+    return failResult(command, "DRIVER_NOT_READY", "invoke requires an active selenium driver");
   }
   const target = invoke.target ?? "driver";
   const method = invoke.method ?? "";
@@ -757,7 +751,7 @@ var seleniumPlugin = {
     }
     const driver = state.driver;
     if (!driver) {
-      return runMock(command);
+      return failResult(command, "DRIVER_NOT_READY", "selenium driver is not available");
     }
     try {
       if (cmd === "navigate") {
@@ -800,8 +794,7 @@ var seleniumPlugin = {
       } else if (cmd === "forward") {
         await driver.navigate().forward();
       } else if (cmd === "newTab") {
-        const sw = await loadSeleniumModule();
-        await driver.switchTo().newWindow(sw.WindowType.TAB);
+        await driver.switchTo().newWindow("tab");
         const url = getString(payload.url);
         if (url) {
           await driver.get(url);
@@ -825,8 +818,7 @@ var seleniumPlugin = {
         if (!el) {
           return failResult(command, "LOCATOR_NOT_FOUND", "hover requires locator");
         }
-        const sw = await loadSeleniumModule();
-        await sw.driver.actions({ bridge: true }).move({ origin: el }).perform();
+        await driver.actions({ bridge: true }).move({ origin: el }).perform();
       } else if (cmd === "press") {
         const key = getString(payload.key) ?? "Enter";
         const el = await findElement(driver, payload);
@@ -882,7 +874,7 @@ var seleniumPlugin = {
           return failResult(command, "ASSERT_FAILED", `expected text "${expected}", got "${actual}"`);
         }
       } else {
-        return runMock(command, `unsupported command: ${cmd}`);
+        return failResult(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
       }
       return {
         requestId: command.requestId,

@@ -3,7 +3,7 @@
 ADA（AllDriverAgent）是一个统一自动化执行平台，当前采用“统一核心能力层 + 多入口适配层”架构，移动端基线支持 Android / iOS / HarmonyOS NEXT：
 
 - `ada-agent`：CLI 入口
-- `ada-mcp`：MCP（stdio）入口
+- `ada-mcp`：MCP服务 入口
 - `ada-gui`：Tauri 原生 GUI 入口
 - `ada-web`：WEB 控制台入口
 
@@ -32,7 +32,7 @@ npm run test:entrypoints
 
 ## 文档导航
 
-- 架构与边界：`docs/ADA-架构设计方案.md`
+- 架构与边界：`docs/ADA-架构设计方案.md`（含第 3 节总体架构图）
 - 部署与运维：`docs/ADA-部署手册.md`
 - MCP 接入：`docs/ADA-MCP-接入手册.md`
 - npm 发布（scripts）：[`scripts/README.md`](scripts/README.md)

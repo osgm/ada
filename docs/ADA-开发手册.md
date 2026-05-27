@@ -1,6 +1,6 @@
 # ADA 开发手册（第一阶段）
 
-本手册用于指导 `ada-agent` 第一阶段研发，面向开发、测试与运维联调同学。
+本手册用于指导 ADA monorepo 本地研发，面向开发、测试与运维联调同学。核心能力统一在 `packages/agent-core`，四入口（`ada-agent` / `ada-mcp` / `ada-gui` / `ada-web`）仅做协议与交互适配。
 
 ## 文档边界说明
 
@@ -13,17 +13,16 @@
 
 ## 1. 目标与范围
 
-第一阶段目标：
+当前阶段目标：
 
-- 交付可执行的 `ada-agent`
-- 驱动基线：`driver-playwright`（Web）+ `driver-appium`（Android/iOS/HarmonyOS NEXT）
-- 支持 CLI/GUI 首启配置
-- 支持任务队列执行（`inbox -> processed/failed`）
+- 四入口可构建、可验收（`npm run build:exe`、`npm run test:entrypoints`）
+- 驱动基线：`driver-playwright`（Web 默认）+ `driver-selenium`（Web 可选）+ `driver-appium`（Android/iOS/HarmonyOS NEXT）+ `driver-harmony`（鸿蒙 hypium）
+- 支持 CLI/GUI 首启配置与任务队列（`inbox -> processed/failed`）
+- MCP 以 `@ada-mcp/launcher` + `@ada-mcp/mcp-server` 同号发布（见接入手册）
 
 非目标：
 
-- 不实现 `ada-control`
-- 不实现完整桌面内嵌 GUI（当前 GUI 为 setup 引导页）
+- 不实现 `ada-control`（延后二阶段）
 
 ---
 
@@ -32,44 +31,64 @@
 ```text
 ada/
   apps/
-    ada-agent/              # 可执行入口
-    ada-mcp-server/         # MCP服务入口（stdio）
+    ada-agent/              # CLI 入口
+    ada-mcp-server/         # MCP 服务（stdio / 远程 HTTP）
+    ada-mcp-launcher/       # npm：@ada-mcp/launcher
+    ada-gui/                # Tauri 桌面 GUI
+    ada-web/                # Web 控制台（pkg 入口）
   packages/
+    agent-core/             # 统一能力面（health/doctor/install-deps/setup/start/run）
     contracts/              # 统一协议与类型
-    core-kernel/            # 执行内核
-    core-runtime/           # 运行时通用能力（日志、配置根目录解析、通用merge）
+    core-kernel/            # 命令执行内核
+    core-runtime/           # 日志、配置根目录、deepMerge
     plugin-sdk/             # 插件接口
     plugin-host/            # 插件注册与路由
+    driver-rpc/             # 驱动 RPC 与 engine 解析
+    download-probe/         # registry / CDN 测速（monorepo；launcher 已内联）
     transport-http/         # HTTP 传输适配
     transport-stream/       # 长连接传输适配
-    vision-contracts/       # 图形交互协议（第一阶段最小骨架）
-    graphics-safety/        # 图形交互安全策略（第一阶段最小骨架）
-    graphics-kernel/        # 图形编排内核（第一阶段最小骨架）
+    native-drivers/         # 原生驱动桥接
+    vision-contracts/       # 图形交互协议（骨架）
+    graphics-safety/        # 图形交互安全策略（骨架）
+    graphics-kernel/        # 图形编排内核（骨架）
   plugins/
-    driver-playwright/      # Web 驱动插件
-    driver-appium/          # Android/iOS/HarmonyOS NEXT 驱动插件
+    driver-playwright/      # Web（Playwright）
+    driver-selenium/        # Web（Selenium，engine=selenium）
+    driver-appium/          # Android / iOS / Harmony（Appium）
+    driver-harmony/         # Harmony（hypium-driver + hdc）
+  tools/                    # 内置工具（如 hdc.exe）
   config/
-    default.yaml            # 默认配置
+    default.yaml
   tasks/
-    inbox/processed/failed  # 队列目录
-  docs/
-    ADA-架构设计方案.md
-    ADA-部署手册.md
-    ADA-MCP-接入手册.md
+    demo.tasks.json
+    web-real.tasks.json
+    appium-probe.tasks.json
+    inbox/processed/failed   # 队列运行时目录
+  docs/                     # 见 docs/README.md
 ```
 
 ---
 
 ## 3. 核心模块职责
 
+- `packages/agent-core`
+  - 对外统一能力面：`health`、`doctor`、`install-deps`、`setup`、`start`、`run` 等
+  - 被 `ada-agent`、`ada-mcp-server`、`ada-gui`、`ada-web` 复用，避免入口层重复实现
+
 - `apps/ada-agent/src/main.ts`
-  - 命令路由（`start/setup/run/health/plugins/install-deps/reset`）
+  - CLI 命令路由（`start/setup/run/health/plugins/install-deps/reset`）
   - 启动前依赖安装、鉴权检查、运行模式选择
 
-- `apps/ada-agent/src/dependency-installer.ts`
-  - 自动检测并安装 `playwright`、`appium`
-  - 安装 Playwright 浏览器
-  - 安装后执行 Playwright/Appium 基础自检（含 `uiautomator2`/`xcuitest`/`harmonyos` 驱动）
+- `apps/ada-mcp-server/src/main.ts`
+  - MCP stdio 工具注册（21 个 `ada_*` 工具）与远程 HTTP 可选模式
+
+- `apps/ada-gui` / `apps/ada-web`
+  - 图形 / Web 交互；运维动作应走 `agent-core` 能力面
+
+- `apps/ada-agent/src/dependency-installer.ts`（及 `bootstrap-deps.ts`）
+  - 自动检测并安装 Playwright、Selenium、Appium、Harmony 相关依赖
+  - 安装 Playwright 浏览器；Appium driver（`uiautomator2` / `xcuitest` / `harmonyos`）
+  - registry / CDN 测速见 `packages/download-probe`（launcher 发布包内已内联）
 
 - `apps/ada-agent/src/queue-runner.ts`
   - 队列任务消费
@@ -127,14 +146,15 @@ npm run build:exe
 
 说明：首次执行会下载 `pkg` 的 Node 基础二进制，耗时可能较长。
 
-打包完成后产物位于：
+打包完成后产物位于 `release/`（Windows 示例）：
 
-- `release/ada-agent-win-x64.exe`
-- `release/ada-agent-macos-x64`
-- `release/ada-agent-linux-x64`
-- `release/config`
-- `release/tasks`
-- `release/docs/ADA-部署手册.md`
+- `ada-agent-win.exe`、`ada-mcp-win.exe`、`ada-web-win.exe`
+- `ada-gui-win.exe`（Tauri，仅 Windows 构建时复制）
+- `config/`、`tasks/`、`plugins/`（驱动 bundle）
+- `docs/ADA-GUI-操作手册.md`（用户手册）
+- `tools/`（若仓库含 `hdc` 等，供 Harmony 使用）
+
+macOS / Linux 下 agent / mcp / web 为 pkg 输出的无后缀可执行文件（名称与入口 bundle 一致）。
 
 ## 4.3 快速验证
 
@@ -301,43 +321,24 @@ npm run test:e2e:smoke:full
 说明：
 
 - `test:e2e:smoke`：Web 真实链路 + Appium probe
-- `test:e2e:smoke:strict`：Web 开启 `--require-real`
-- `test:e2e:smoke:full`：Web + Appium 真实链路均开启 `--require-real`
+- `test:e2e:smoke:strict`：Web 开启 `--require-real` + Appium probe
+- `test:e2e:smoke:full`：同 `test:e2e:smoke:strict`（保留 npm 别名）
 
-Harmony 便捷联调命令（新增）：
-
-```bash
-npm run run:appium-harmony-probe
-npm run run:appium-harmony-real
-```
-
-说明：
-
-- `run:appium-harmony-probe`：仅验证 Appium + harmony driver 链路探活
-- `run:appium-harmony-real`：执行 Harmony 真实点击/截图/滑动样例
-
-原生引导联调辅助命令：
-
-```bash
-npm run bootstrap:native:mock
-```
-
-说明：
-
-- 该命令输出符合 `bootstrapUI.native` 协议的 JSON，可用于本地联调
-- 可通过环境变量控制输出，例如：
-  - `ADA_BOOTSTRAP_FAIL=1`：模拟原生引导失败
-  - `ADA_BOOTSTRAP_SERVER_URL` / `ADA_BOOTSTRAP_TENANT` / `ADA_BOOTSTRAP_ENV`
+任务样例：`tasks/demo.tasks.json`、`web-real.tasks.json`、`appium-probe.tasks.json`。鸿蒙专项联调见 `plugins/driver-harmony` 的 `smoke:real`。
 
 ---
 
 ## 10. 文档同步要求
 
-代码改动后必须同步文档：
+代码改动后必须同步文档（索引见 `docs/README.md`）：
 
-- 架构变更：更新 `ADA-架构设计方案.md`
-- 部署命令或流程变更：更新 `ADA-部署手册.md`
-- 开发流程/规范变更：更新 `ADA-开发手册.md`
+- 架构变更：`ADA-架构设计方案.md`
+- 部署命令或流程变更：`ADA-部署手册.md`
+- MCP 工具 / Host 配置 / 镜像变量：`ADA-MCP-接入手册.md`
+- 开发流程 / 测试门禁：`ADA-开发手册.md`（本文）
+- Windows 发布包操作：`ADA-GUI-操作手册.md`
+- Playwright 迁移映射：`Playwright-ADA-兼容映射.md`
+- npm 发布 `@ada-mcp/*`：`scripts/README.md`
 
 ---
 

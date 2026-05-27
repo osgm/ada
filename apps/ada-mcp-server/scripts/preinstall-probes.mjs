@@ -4,8 +4,9 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "./mirror-candidates.mjs";
 import { detectBestRegistry, registryCandidateList } from "./registry-probe.mjs";
-import { detectBestPlaywrightHost, playwrightHostCandidateList } from "./playwright-probe.mjs";
+import { detectBestPlaywrightHost } from "./playwright-probe.mjs";
 
 function installRoot() {
   const init = process.env.INIT_CWD?.trim();
@@ -58,27 +59,30 @@ async function main() {
     fs.writeFileSync(npmrcPath, `${npmrc}${regLine}`, "utf8");
   }
   console.error(`[ada-mcp preinstall] registry: ${reg.best}`);
-  for (const { candidate, latency } of reg.probeResults) {
-    console.error(`[ada-mcp preinstall]   registry ${candidate} -> ${latency === null ? "fail" : `${latency}ms`}`);
+  for (const { candidate, latency, speedKBps, bytesRead } of reg.probeResults) {
+    if (speedKBps != null) {
+      console.error(
+        `[ada-mcp preinstall]   registry ${candidate} -> ${speedKBps.toFixed(0)} KB/s (${bytesRead} bytes / ${latency}ms)`
+      );
+    } else {
+      console.error(`[ada-mcp preinstall]   registry ${candidate} -> fail`);
+    }
   }
 
-  const chinaRegistry = /npmmirror|tencent|huaweicloud|huawei\.com/i.test(reg.best);
-  /** preinstall 无 playwright 包时无法 HEAD 浏览器包；国内 registry 时优先写入 npmmirror CDN */
-  const pwCandidates = chinaRegistry
-    ? [
-        "https://cdn.npmmirror.com/binaries/playwright",
-        "https://npmmirror.com/mirrors/playwright",
-        "https://cdn.playwright.dev",
-        "https://playwright.azureedge.net"
-      ]
-    : ["https://cdn.playwright.dev", "https://playwright.azureedge.net"];
-  const pw = await detectBestPlaywrightHost(pwCandidates);
+  /** 浏览器 CDN：按序测速，官方优先，选吞吐最高 */
+  const pw = await detectBestPlaywrightHost([...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES]);
   const hostFile = path.join(root, ".ada-mcp-playwright-host");
   fs.writeFileSync(hostFile, `${pw.best}\n`, "utf8");
   process.env.PLAYWRIGHT_DOWNLOAD_HOST = pw.best;
   console.error(`[ada-mcp preinstall] playwright CDN: ${pw.best} (wrote ${hostFile})`);
-  for (const { candidate, latency } of pw.probeResults) {
-    console.error(`[ada-mcp preinstall]   playwright ${candidate} -> ${latency === null ? "fail" : `${latency}ms`}`);
+  for (const { candidate, latency, speedKBps, bytesRead } of pw.probeResults) {
+    if (speedKBps != null) {
+      console.error(
+        `[ada-mcp preinstall]   playwright ${candidate} -> ${speedKBps.toFixed(0)} KB/s (${bytesRead} bytes / ${latency}ms)`
+      );
+    } else {
+      console.error(`[ada-mcp preinstall]   playwright ${candidate} -> fail`);
+    }
   }
 }
 

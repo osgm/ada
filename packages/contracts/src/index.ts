@@ -112,7 +112,7 @@ export interface PluginManifest {
   version: string;
   platforms: Platform[];
   capabilities: string[];
-  engine: "playwright" | "appium" | "selenium";
+  engine: "playwright" | "appium" | "selenium" | "harmony";
   /** L1 semantic commands exposed by this driver */
   semanticCommands?: string[];
   /** L2 native RPC passthrough */

@@ -150,12 +150,46 @@ function serializeRpcResult(value, depth = 0) {
 // ../../plugins/driver-appium/src/index.ts
 var import_node_child_process = require("node:child_process");
 var import_promises = __toESM(require("node:fs/promises"), 1);
+var import_node_fs = require("node:fs");
 var import_node_path = __toESM(require("node:path"), 1);
+var commandPathCache = /* @__PURE__ */ new Map();
+function resolveCommandPath(command) {
+  if (import_node_path.default.isAbsolute(command)) {
+    return command;
+  }
+  if (commandPathCache.has(command)) {
+    return commandPathCache.get(command) ?? null;
+  }
+  const checker = process.platform === "win32" ? "where.exe" : "which";
+  const result = (0, import_node_child_process.spawnSync)(checker, [command], {
+    encoding: "utf8",
+    shell: false,
+    ...process.platform === "win32" ? { windowsHide: true } : {}
+  });
+  const text = String(result.stdout ?? "");
+  const resolved = text.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  commandPathCache.set(command, resolved ?? null);
+  return resolved ?? null;
+}
+function resolveAppiumNodeEntrypoint() {
+  const candidates = [
+    import_node_path.default.join(process.cwd(), "node_modules", "appium", "build", "lib", "main.js"),
+    import_node_path.default.join(process.cwd(), "..", "node_modules", "appium", "build", "lib", "main.js"),
+    import_node_path.default.join(process.cwd(), "..", "..", "node_modules", "appium", "build", "lib", "main.js")
+  ];
+  for (const p of candidates) {
+    if ((0, import_node_fs.existsSync)(p)) {
+      return p;
+    }
+  }
+  return null;
+}
 async function runCommandCapture(command, args) {
   return new Promise((resolve) => {
     const child = (0, import_node_child_process.spawn)(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32"
+      shell: false,
+      ...process.platform === "win32" ? { windowsHide: true } : {}
     });
     let out = "";
     let err = "";
@@ -181,10 +215,16 @@ async function runCommandCapture(command, args) {
   });
 }
 async function runAppiumVersionProbe() {
-  const candidates = [
-    { cmd: "appium", args: ["--version"] },
-    { cmd: "npm", args: ["exec", "appium", "--", "--version"] }
-  ];
+  const candidates = [];
+  const appiumPath = resolveCommandPath("appium");
+  if (appiumPath) {
+    candidates.push({ cmd: appiumPath, args: ["--version"] });
+  }
+  const nodeCmd = process.execPath;
+  const nodeEntry = resolveAppiumNodeEntrypoint();
+  if (nodeEntry) {
+    candidates.push({ cmd: nodeCmd, args: [nodeEntry, "--version"] });
+  }
   const errors = [];
   for (const candidate of candidates) {
     const result = await runCommandCapture(candidate.cmd, candidate.args);
@@ -260,13 +300,7 @@ function asNumberPoint(input) {
 async function createRemoteSession(command, payload) {
   try {
     const serverUrl = normalizeServerUrl(payload.serverUrl);
-    const capabilities = payload.capabilities ?? (command.platform === "harmony" ? {
-      platformName: "harmonyos",
-      "appium:automationName": "harmonyos"
-    } : {
-      platformName: "Android",
-      "appium:automationName": "UiAutomator2"
-    });
+    const capabilities = stableCapabilities(payload, command);
     const result = await requestJson("POST", `${serverUrl}/session`, {
       capabilities: { alwaysMatch: capabilities, firstMatch: [{}] }
     });
@@ -281,14 +315,32 @@ async function createRemoteSession(command, payload) {
 async function deleteRemoteSession(serverUrl, sessionId) {
   await requestJson("DELETE", `${serverUrl}/session/${sessionId}`);
 }
+function mergeAndroidLightweightCaps(caps, payload) {
+  if (process.platform !== "win32") {
+    return caps;
+  }
+  const lightweight = process.env.ADA_APPIUM_LIGHTWEIGHT_ANDROID === "1" || process.env.ADA_APPIUM_SKIP_DEVICE_INIT === "1" || payload.capabilities?.["appium:skipDeviceInitialization"] === true || caps["appium:skipDeviceInitialization"] === true;
+  if (!lightweight) {
+    return caps;
+  }
+  return {
+    ...caps,
+    "appium:skipDeviceInitialization": caps["appium:skipDeviceInitialization"] ?? payload.capabilities?.["appium:skipDeviceInitialization"] ?? true,
+    "appium:skipServerInstallation": caps["appium:skipServerInstallation"] ?? payload.capabilities?.["appium:skipServerInstallation"] ?? true
+  };
+}
 function stableCapabilities(payload, command) {
-  return payload.capabilities ?? (command.platform === "harmony" ? {
+  const base = payload.capabilities ?? (command.platform === "harmony" ? {
     platformName: "harmonyos",
     "appium:automationName": "harmonyos"
   } : {
     platformName: "Android",
     "appium:automationName": "UiAutomator2"
   });
+  if (command.platform === "android") {
+    return mergeAndroidLightweightCaps(base, payload);
+  }
+  return base;
 }
 function buildSessionCacheKey(command, payload, serverUrl) {
   return JSON.stringify({
@@ -868,7 +920,7 @@ var appiumPlugin = {
     id: "driver-appium",
     version: "0.1.0",
     engine: "appium",
-    platforms: ["android", "ios", "harmony"],
+    platforms: ["android", "ios"],
     capabilities: ["tap", "type", "swipe", "assertVisible", "screenshot"].concat(["click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom", "invoke"]),
     semanticCommands: ["tap", "type", "swipe", "assertVisible", "screenshot", "click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom"],
     invoke: {
@@ -904,7 +956,7 @@ var appiumPlugin = {
       };
     }
     const payload = command.payload ?? {};
-    if (payload.real === true) {
+    if (payload.mock !== true && payload.real !== false) {
       return executeRealCommand(command, payload);
     }
     return {
@@ -914,6 +966,7 @@ var appiumPlugin = {
         driver: "appium",
         platform: command.platform,
         command: command.command,
+        mode: "mock",
         message: "Mock mobile command executed"
       }
     };

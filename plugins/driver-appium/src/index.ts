@@ -1,9 +1,48 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
 import { normalizeInvokePayload, serializeRpcResult } from "@ada/driver-rpc";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
+
+const commandPathCache = new Map<string, string | null>();
+
+function resolveCommandPath(command: string): string | null {
+  if (path.isAbsolute(command)) {
+    return command;
+  }
+  if (commandPathCache.has(command)) {
+    return commandPathCache.get(command) ?? null;
+  }
+  const checker = process.platform === "win32" ? "where.exe" : "which";
+  const result = spawnSync(checker, [command], {
+    encoding: "utf8",
+    shell: false,
+    ...(process.platform === "win32" ? { windowsHide: true } : {})
+  });
+  const text = String(result.stdout ?? "");
+  const resolved = text
+    .split(/\r?\n/)
+    .map((line: string) => line.trim())
+    .find(Boolean);
+  commandPathCache.set(command, resolved ?? null);
+  return resolved ?? null;
+}
+
+function resolveAppiumNodeEntrypoint(): string | null {
+  const candidates = [
+    path.join(process.cwd(), "node_modules", "appium", "build", "lib", "main.js"),
+    path.join(process.cwd(), "..", "node_modules", "appium", "build", "lib", "main.js"),
+    path.join(process.cwd(), "..", "..", "node_modules", "appium", "build", "lib", "main.js")
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      return p;
+    }
+  }
+  return null;
+}
 
 async function runCommandCapture(
   command: string,
@@ -12,7 +51,8 @@ async function runCommandCapture(
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32"
+      shell: false,
+      ...(process.platform === "win32" ? { windowsHide: true } : {})
     });
 
     let out = "";
@@ -41,10 +81,16 @@ async function runCommandCapture(
 }
 
 async function runAppiumVersionProbe(): Promise<{ ok: boolean; output?: string; error?: string }> {
-  const candidates: Array<{ cmd: string; args: string[] }> = [
-    { cmd: "appium", args: ["--version"] },
-    { cmd: "npm", args: ["exec", "appium", "--", "--version"] }
-  ];
+  const candidates: Array<{ cmd: string; args: string[] }> = [];
+  const appiumPath = resolveCommandPath("appium");
+  if (appiumPath) {
+    candidates.push({ cmd: appiumPath, args: ["--version"] });
+  }
+  const nodeCmd = process.execPath;
+  const nodeEntry = resolveAppiumNodeEntrypoint();
+  if (nodeEntry) {
+    candidates.push({ cmd: nodeCmd, args: [nodeEntry, "--version"] });
+  }
   const errors: string[] = [];
   for (const candidate of candidates) {
     const result = await runCommandCapture(candidate.cmd, candidate.args);
@@ -58,6 +104,7 @@ async function runAppiumVersionProbe(): Promise<{ ok: boolean; output?: string; 
 
 interface RealAppiumPayload {
   real?: boolean;
+  mock?: boolean;
   serverUrl?: string;
   capabilities?: Record<string, unknown>;
   point?: [number, number];
@@ -173,17 +220,7 @@ async function createRemoteSession(
 ): Promise<{ sessionId: string; serverUrl: string } | { error: string }> {
   try {
     const serverUrl = normalizeServerUrl(payload.serverUrl);
-    const capabilities =
-      payload.capabilities ??
-      (command.platform === "harmony"
-        ? {
-            platformName: "harmonyos",
-            "appium:automationName": "harmonyos"
-          }
-        : {
-            platformName: "Android",
-            "appium:automationName": "UiAutomator2"
-          });
+    const capabilities = stableCapabilities(payload, command);
     const result = await requestJson("POST", `${serverUrl}/session`, {
       capabilities: { alwaysMatch: capabilities, firstMatch: [{}] }
     });
@@ -200,8 +237,32 @@ async function deleteRemoteSession(serverUrl: string, sessionId: string): Promis
   await requestJson("DELETE", `${serverUrl}/session/${sessionId}`);
 }
 
+function mergeAndroidLightweightCaps(
+  caps: Record<string, unknown>,
+  payload: RealAppiumPayload
+): Record<string, unknown> {
+  if (process.platform !== "win32") {
+    return caps;
+  }
+  const lightweight =
+    process.env.ADA_APPIUM_LIGHTWEIGHT_ANDROID === "1" ||
+    process.env.ADA_APPIUM_SKIP_DEVICE_INIT === "1" ||
+    payload.capabilities?.["appium:skipDeviceInitialization"] === true ||
+    caps["appium:skipDeviceInitialization"] === true;
+  if (!lightweight) {
+    return caps;
+  }
+  return {
+    ...caps,
+    "appium:skipDeviceInitialization":
+      caps["appium:skipDeviceInitialization"] ?? payload.capabilities?.["appium:skipDeviceInitialization"] ?? true,
+    "appium:skipServerInstallation":
+      caps["appium:skipServerInstallation"] ?? payload.capabilities?.["appium:skipServerInstallation"] ?? true
+  };
+}
+
 function stableCapabilities(payload: RealAppiumPayload, command: CommandEnvelope): Record<string, unknown> {
-  return (
+  const base =
     payload.capabilities ??
     (command.platform === "harmony"
       ? {
@@ -211,8 +272,11 @@ function stableCapabilities(payload: RealAppiumPayload, command: CommandEnvelope
       : {
           platformName: "Android",
           "appium:automationName": "UiAutomator2"
-        })
-  );
+        });
+  if (command.platform === "android") {
+    return mergeAndroidLightweightCaps(base, payload);
+  }
+  return base;
 }
 
 function buildSessionCacheKey(command: CommandEnvelope, payload: RealAppiumPayload, serverUrl: string): string {
@@ -871,7 +935,7 @@ const appiumPlugin: DriverPlugin = {
     id: "driver-appium",
     version: "0.1.0",
     engine: "appium",
-    platforms: ["android", "ios", "harmony"],
+    platforms: ["android", "ios"],
     capabilities: ["tap", "type", "swipe", "assertVisible", "screenshot"]
       .concat(["click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom", "invoke"]),
     semanticCommands: ["tap", "type", "swipe", "assertVisible", "screenshot", "click", "getText", "assertText", "wait", "back", "home", "launchApp", "terminateApp", "custom"],
@@ -911,7 +975,7 @@ const appiumPlugin: DriverPlugin = {
     }
 
     const payload = (command.payload ?? {}) as RealAppiumPayload;
-    if (payload.real === true) {
+    if (payload.mock !== true && payload.real !== false) {
       return executeRealCommand(command, payload);
     }
 
@@ -922,6 +986,7 @@ const appiumPlugin: DriverPlugin = {
         driver: "appium",
         platform: command.platform,
         command: command.command,
+        mode: "mock",
         message: "Mock mobile command executed"
       }
     };

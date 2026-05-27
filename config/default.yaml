@@ -58,20 +58,30 @@ dependencies:
   playwrightDownloadHost: "https://cdn.playwright.dev"
   # 国内 npm 镜像（按优先级；install-deps 启动时测速选最快，无需用户配置）
   npmRegistryCandidates:
-    - "https://registry.npmmirror.com" # 阿里云 / npmmirror（推荐）
+    - "https://registry.npmjs.org" # 官方
+    - "https://registry.npmmirror.com" # 阿里云 / npmmirror
     - "https://mirrors.cloud.tencent.com/npm" # 腾讯云
+    - "https://mirrors.sjtug.sjtu.edu.cn/npm-registry" # 上海交大
+    - "https://npmreg.proxy.ustclug.org" # 中科大
     - "https://repo.huaweicloud.com/repository/npm" # 华为云
-    - "https://registry.npmjs.org" # 官方兜底
+  # 浏览器 zip CDN（按序测速，吞吐最高优先；同速时官方靠前）
   playwrightHostCandidates:
     - "https://cdn.playwright.dev"
     - "https://playwright.azureedge.net"
-    - "https://npmmirror.com/mirrors/playwright"
     - "https://cdn.npmmirror.com/binaries/playwright"
+    - "https://npmmirror.com/mirrors/playwright"
   # 原生 WebDriver（geckodriver / chromedriver）统一放在项目 dirver 目录
   nativeDriversDir: "dirver"
   geckodriverVersion: "latest" # 如 0.36.0；install-deps --only=selenium 时下载到此目录
   chromedriverVersion: "latest" # 如 137、135、match-chrome（匹配本机 Chrome 主版本）
+  # 纯血鸿蒙工具（hdc 等），相对工作区根目录；也可用环境变量 ADA_TOOLS_DIR 覆盖
+  toolsDir: "tools"
+  # 可选：自动下载 hdc 的候选 URL（仅 install-deps --only=harmony / --only=all 时使用）
+  # 支持直链 .exe / 二进制，或 .zip（下载后自动解压并查找 hdc）
+  # harmonyHdcDownloadUrls:
+  #   - "https://your-internal-mirror/hdc-tools.zip"
+  #   - "https://your-internal-mirror/hdc.exe"
 
 appium:
   serverUrl: "http://127.0.0.1:4723"
-  requiredDrivers: ["uiautomator2", "xcuitest", "harmonyos"]
+  requiredDrivers: ["uiautomator2", "xcuitest"]

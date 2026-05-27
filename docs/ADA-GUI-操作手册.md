@@ -78,27 +78,27 @@
 
 该程序用于向 MCP Host 暴露 ADA 工具能力，通常由 MCP Host 拉起。
 
-**npm 标准配置**（与 `docs/ADA-MCP-接入手册.md` §3.9 一致）：
+**npm 标准配置**（与 `docs/ADA-MCP-接入手册.md` §1.1 一致）：
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "pnpm",
-      "args": ["dlx", "@ada-mcp/launcher@0.1.7"]
+      "args": ["dlx", "@ada-mcp/launcher@0.1.49"]
     }
   }
 }
 ```
 
-**npx 等价**：`npx -y @ada-mcp/launcher@0.1.7`（`0.1.7+` 内层同样用 npx，与 pnpm 测速逻辑一致）
+**npx 等价**：`npx -y @ada-mcp/launcher@0.1.49`（与 pnpm 测速逻辑一致）
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "npx",
-      "args": ["-y", "@ada-mcp/launcher@0.1.7"]
+      "args": ["-y", "@ada-mcp/launcher@0.1.49"]
     }
   }
 }
@@ -128,7 +128,7 @@
 
 启动后可调用 `ada_health`、`ada_diagnostics`、`ada_web_action`、`ada_mobile_action` 等工具。
 
-代理与镜像环境变量说明见 `docs/ADA-MCP-接入手册.md` §3.9.2（含 `npm_config_registry`、`ADA_REGISTRY_CANDIDATES` 等）。
+代理与镜像环境变量说明见 `docs/ADA-MCP-接入手册.md` §5（含 `npm_config_registry`、`ADA_REGISTRY_CANDIDATES` 等）。
 
 ## 5. `ada-web-win.exe` 使用方法
 

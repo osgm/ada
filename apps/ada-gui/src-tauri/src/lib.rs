@@ -152,8 +152,6 @@ fn emit_mcp_client_config(app: &AppHandle, mcp_exe: &str) {
                 "cwd": cwd_str,
                 "env": {
                     "ADA_PLAYWRIGHT_HEADLESS": "true",
-                    "ADA_NPM_PROXY_REGISTRY": "https://registry.npmmirror.com",
-                    "ADA_PNPM_PROXY_REGISTRY": "https://registry.npmmirror.com",
                     "ADA_INSTALL_STRATEGY_TIMEOUT_MS": "30000"
                 }
             }
@@ -169,7 +167,8 @@ fn emit_mcp_client_config(app: &AppHandle, mcp_exe: &str) {
          · 若客户端限制工具名字符，仅使用下划线工具名（如 ada_install_deps / ada_web_action）。\n\n\
          {pretty}\n\n\
          路径说明：command = 上表一体包可执行文件绝对路径；cwd = release 工作目录（与 exe 同目录，便于加载 config / tasks）。\n\
-         参数说明：env 为推荐性能与稳定性参数，可按网络与环境实际调整。"
+         参数说明：env 为推荐性能与稳定性参数，可按网络与环境实际调整。\n\
+         npm/Playwright 镜像由 install-deps 测速后写入 ~/.ada/deps-install-state.json；可选 ADA_REGISTRY_CANDIDATES、ADA_PLAYWRIGHT_HOST_CANDIDATES 追加候选。"
     );
     let _ = app.emit("agent-log", msg);
 }
@@ -730,7 +729,9 @@ fn spawn_mcp_process(app: &AppHandle, mcp_path: &str) -> Result<(), String> {
         .unwrap_or_else(|| PathBuf::from("."));
 
     let mut cmd = Command::new(mcp_path);
-    cmd.current_dir(work_dir)
+    cmd.arg("--skip-install-deps")
+        .env("ADA_MCP_SKIP_INSTALL_DEPS", "1")
+        .current_dir(work_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     hide_subprocess_console(&mut cmd);
@@ -809,7 +810,9 @@ fn start_mcp_remote_server(app: AppHandle, agent_path: Option<String>, input: Mc
         .unwrap_or_else(|| PathBuf::from("."));
 
     let mut cmd = Command::new(&mcp_path);
-    cmd.arg("server")
+    cmd.arg("--skip-install-deps")
+        .env("ADA_MCP_SKIP_INSTALL_DEPS", "1")
+        .arg("server")
         .arg(format!("--host={}", input.host))
         .arg(format!("--port={}", input.port))
         .arg(format!("--allow-risky={}", if input.allow_risky { "true" } else { "false" }))
@@ -898,6 +901,7 @@ fn start_services(app: AppHandle, agent_path: Option<String>, run_agent: bool, r
             .arg("--action=start")
             .arg("--watch")
             .arg("--skip-deps")
+            .arg("--skip-setup")
             .current_dir(work_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

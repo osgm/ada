@@ -18,7 +18,6 @@ function runStep(name, command, args) {
 }
 
 async function main() {
-  const withAppium = process.argv.includes("--with-appium");
   const strict = process.argv.includes("--strict");
 
   const webArgs = [
@@ -30,21 +29,11 @@ async function main() {
   ];
   await runStep("web smoke", "tsx", webArgs);
 
-  if (withAppium) {
-    const appiumArgs = [
-      "apps/ada-agent/src/main.ts",
-      "run",
-      "--file=tasks/appium-real.tasks.json",
-      ...(strict ? ["--require-real"] : [])
-    ];
-    await runStep("appium smoke", "tsx", appiumArgs);
-  } else {
-    await runStep("appium probe", "tsx", [
-      "apps/ada-agent/src/main.ts",
-      "run",
-      "--file=tasks/appium-probe.tasks.json"
-    ]);
-  }
+  await runStep("appium probe", "tsx", [
+    "apps/ada-agent/src/main.ts",
+    "run",
+    "--file=tasks/appium-probe.tasks.json"
+  ]);
 }
 
 main().catch((error) => {

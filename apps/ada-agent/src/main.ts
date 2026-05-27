@@ -140,8 +140,8 @@ async function main(): Promise<void> {
   const command = parseCommand(process.argv);
 
   if (command === "mcp") {
-    const { startMcpServer } = await import("@ada/mcp-server/stdio");
-    await startMcpServer();
+    const { launchMcp } = await import("./launch-mcp.js");
+    await launchMcp();
     return;
   }
 
@@ -180,6 +180,7 @@ async function main(): Promise<void> {
       await runStartFlow({
         localDev: hasFlag(process.argv, "local-dev"),
         skipDeps: hasFlag(process.argv, "skip-deps"),
+        skipSetup: hasFlag(process.argv, "skip-setup"),
         runOnce: hasFlag(process.argv, "once"),
         runWatch: hasFlag(process.argv, "watch")
       });

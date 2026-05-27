@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import net from "node:net";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -11,8 +12,14 @@ import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { closeAllSessions, closeSession, listActiveSessions, runCommand, runTaskset } from "./executor.js";
 import { loadAgentConfig } from "./config.js";
 import { captureMcpMonitor, type MonitorOptions } from "./monitoring.js";
+import {
+  resolveCommandPath,
+  spawnDetachedHidden,
+  spawnSyncHidden
+} from "./spawn-util.js";
 import { getBuiltInPlugins, getDoctorSnapshot, getHealthSnapshot, installDependencies, runStartFlow } from "@ada/agent-core";
 import type { InstallScope } from "@ada/agent/dependency-installer";
+import { buildAdaMcpToolDefinitions } from "./mcp-tool-definitions.js";
 
 function textResult(data: unknown) {
   return {
@@ -23,7 +30,7 @@ function textResult(data: unknown) {
 let appiumEnsureJob: Promise<void> | null = null;
 let persistedHomesCache: { androidHome?: string; appiumHome?: string } | null = null;
 let appiumReadyCache: { serverUrl: string; timestamp: number } | null = null;
-const APPIUM_READY_CACHE_TTL_MS = 3000;
+const APPIUM_READY_CACHE_TTL_MS = Number(process.env.ADA_APPIUM_READY_CACHE_MS ?? 300_000) || 300_000;
 
 function isMobilePlatform(v: "web" | "android" | "ios" | "harmony"): boolean {
   return v === "android" || v === "ios" || v === "harmony";
@@ -54,12 +61,17 @@ function commandAvailable(command: string): boolean {
   if (path.isAbsolute(command)) {
     return existsSync(command);
   }
-  const checker = process.platform === "win32" ? "where.exe" : "which";
-  const checked = spawnSync(checker, [command], {
-    stdio: "ignore",
-    shell: false
-  });
-  return checked.status === 0;
+  return resolveCommandPath(command) !== null;
+}
+
+const commandAvailableCache = new Map<string, boolean>();
+function commandAvailableCached(command: string): boolean {
+  if (commandAvailableCache.has(command)) {
+    return commandAvailableCache.get(command)!;
+  }
+  const ok = commandAvailable(command);
+  commandAvailableCache.set(command, ok);
+  return ok;
 }
 
 function spawnDetachedChecked(
@@ -69,14 +81,8 @@ function spawnDetachedChecked(
 ): Promise<{ ok: true; pid?: number } | { ok: false; error: string }> {
   return new Promise((resolve) => {
     try {
-      const child = spawn(cmd, args, {
-        cwd: process.cwd(),
-        detached: true,
-        stdio: "ignore",
-        shell: false,
-        env,
-        ...(process.platform === "win32" ? ({ windowsHide: true } as const) : {})
-      });
+      const resolved = path.isAbsolute(cmd) ? cmd : resolveCommandPath(cmd) ?? cmd;
+      const child = spawnDetachedHidden(resolved, args, { cwd: process.cwd(), env });
       let settled = false;
       child.once("error", (error) => {
         if (settled) return;
@@ -114,11 +120,22 @@ function resolveNodeCommandForChild(): string {
   return isPkg ? "node" : process.execPath;
 }
 
+function globalDepsStateFile(): string {
+  const override = process.env.ADA_HOME?.trim();
+  const adaHome = override ? path.resolve(override) : path.join(os.homedir(), ".ada");
+  const explicit = process.env.ADA_DEPS_STATE_FILE?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+  return path.join(adaHome, "deps-install-state.json");
+}
+
 function loadPersistedHomes(): { androidHome?: string; appiumHome?: string } {
   if (persistedHomesCache) {
     return persistedHomesCache;
   }
   const candidates = [
+    globalDepsStateFile(),
     path.join(process.cwd(), ".ada-agent", "deps-install-state.json"),
     path.join(process.cwd(), "..", ".ada-agent", "deps-install-state.json")
   ];
@@ -144,16 +161,20 @@ function loadPersistedHomes(): { androidHome?: string; appiumHome?: string } {
   return persistedHomesCache;
 }
 
+let cachedAndroidSdkRoot: string | null | undefined;
+
 function resolveAndroidSdkRoot(): string | null {
+  if (cachedAndroidSdkRoot !== undefined) {
+    return cachedAndroidSdkRoot;
+  }
   const persisted = loadPersistedHomes();
   const checker = process.platform === "win32" ? "where.exe" : "which";
-  const adbLookup = spawnSync(checker, ["adb"], {
-    encoding: "utf8",
-    shell: false
-  });
-  const adbPath = (adbLookup.stdout ?? "")
+  const adbLookup = spawnSyncHidden(checker, ["adb"], { encoding: "utf8" });
+  const adbStdout = adbLookup.stdout;
+  const adbText = typeof adbStdout === "string" ? adbStdout : adbStdout ? adbStdout.toString("utf8") : "";
+  const adbPath = adbText
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line: string) => line.trim())
     .find(Boolean);
   const adbSdkRoot = adbPath ? path.dirname(path.dirname(adbPath)) : null;
 
@@ -172,13 +193,16 @@ function resolveAndroidSdkRoot(): string | null {
     .filter(Boolean);
   for (const sdkRoot of candidates) {
     if (persisted.androidHome && sdkRoot === persisted.androidHome && existsSync(sdkRoot)) {
+      cachedAndroidSdkRoot = sdkRoot;
       return sdkRoot;
     }
     const platformTools = path.join(sdkRoot, "platform-tools");
     if (existsSync(platformTools)) {
+      cachedAndroidSdkRoot = sdkRoot;
       return sdkRoot;
     }
   }
+  cachedAndroidSdkRoot = null;
   return null;
 }
 
@@ -239,10 +263,13 @@ async function spawnAppium(host: string, port: number, platform: "android" | "io
       args: [nodeEntry, "--address", host, "--port", String(port), "--relaxed-security"]
     });
   }
-  candidates.push({
-    cmd: "appium",
-    args: ["--address", host, "--port", String(port), "--relaxed-security"]
-  });
+  const appiumPath = resolveCommandPath("appium");
+  if (appiumPath) {
+    candidates.push({
+      cmd: appiumPath,
+      args: ["--address", host, "--port", String(port), "--relaxed-security"]
+    });
+  }
 
   const sdkRoot = resolveAndroidSdkRoot();
   const appiumHome = resolveAppiumHome(platform);
@@ -257,7 +284,7 @@ async function spawnAppium(host: string, port: number, platform: "android" | "io
 
   const tried: string[] = [];
   for (const candidate of candidates) {
-    if (!commandAvailable(candidate.cmd)) {
+    if (!commandAvailableCached(candidate.cmd)) {
       tried.push(`${candidate.cmd} (missing)`);
       continue;
     }
@@ -384,72 +411,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
-function invokePayloadSchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    properties: {
-      engine: {
-        type: "string",
-        enum: ["playwright", "selenium"],
-        description: "Web automation backend (default playwright). Use selenium for system Firefox/Chrome via GeckoDriver."
-      },
-      browserName: {
-        type: "string",
-        description: "Selenium browser: firefox | chrome | MicrosoftEdge"
-      },
-      browserBinary: { type: "string", description: "Selenium: path to installed browser executable" },
-      profile: { type: "string", description: "Selenium: Firefox profile or Chrome user-data directory" },
-      seleniumServerUrl: { type: "string", description: "Selenium Grid / standalone server URL for remote sessions" },
-      mode: { type: "string", enum: ["method", "http"], description: "method=Playwright in-process; http=Appium WebDriver route" },
-      target: {
-        type: "string",
-        description: "Playwright handle: page|context|browser|playwright|locator (with payload.locator)"
-      },
-      method: { type: "string", description: "Playwright method name or required with http.mode" },
-      args: { type: "array", items: {}, description: "JSON-serializable method arguments" },
-      http: {
-        type: "object",
-        properties: {
-          method: { type: "string" },
-          path: { type: "string" },
-          body: {}
-        },
-        required: ["method", "path"],
-        description: "Appium WebDriver HTTP passthrough"
-      },
-      locator: { type: "object" },
-      options: { type: "object", additionalProperties: true },
-      custom: { type: "object", description: "Legacy Appium HTTP block (method/path/body)" },
-      browser: { type: "string", enum: ["chromium", "firefox", "webkit"] },
-      headless: { type: "boolean" },
-      userDataDir: {
-        type: "string",
-        description: "Persistent profile directory (Chrome/Firefox user data path) for cookies/cache"
-      },
-      cdpEndpoint: {
-        type: "string",
-        description: "Attach to local Chromium via CDP, e.g. http://127.0.0.1:9222 (alias: browserURL, cdpUrl)"
-      },
-      browserURL: { type: "string", description: "Alias of cdpEndpoint" },
-      executablePath: {
-        type: "string",
-        description: "Local browser executable, e.g. C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-      },
-      browserPath: { type: "string", description: "Alias of executablePath" },
-      channel: {
-        type: "string",
-        description: "Chromium channel: chrome | msedge | chrome-beta | msedge-beta (uses installed browser)"
-      },
-      storageStatePath: { type: "string" },
-      real: { type: "boolean" },
-      serverUrl: { type: "string" },
-      capabilities: { type: "object" },
-      keepSession: { type: "boolean" }
-    },
-    additionalProperties: true
-  };
-}
-
 function mergeWebEngineIntoPayload(args: Record<string, unknown>): Record<string, unknown> {
   const payload = { ...asRecord(args.payload) };
   if (args.engine !== undefined && payload.engine === undefined) {
@@ -504,12 +465,27 @@ function buildInvokeCommandPayload(args: Record<string, unknown>): Record<string
   return out;
 }
 
-function toCommandEnvelope(input: Record<string, unknown>): CommandEnvelope {
-  const payload = asRecord(input.payload);
+function ensureRealPayloadForPlatform(
+  platform: "web" | "android" | "ios" | "harmony",
+  payload: Record<string, unknown>,
+  allowMock = false
+): Record<string, unknown> {
+  const next = { ...payload };
+  if (allowMock) {
+    return next;
+  }
+  next.real = true;
+  next.mock = false;
+  return next;
+}
+
+function toCommandEnvelope(input: Record<string, unknown>, allowMock = false): CommandEnvelope {
+  const platform = normalizePlatform(input.platform);
+  const payload = ensureRealPayloadForPlatform(platform, asRecord(input.payload), allowMock);
   return {
     requestId: String(input.requestId ?? `mcp-${Date.now()}`),
     sessionId: String(input.sessionId ?? "mcp-session"),
-    platform: normalizePlatform(input.platform),
+    platform,
     command: normalizeCommand(input.command),
     payload
   };
@@ -768,9 +744,15 @@ function toExtractResponse(input: {
 }
 
 function assertRealResult(result: CommandResult, context: string, allowMockMode: boolean): void {
-  const mode = (result.data as Record<string, unknown> | undefined)?.mode;
-  if (!allowMockMode && mode === "mock") {
-    const reason = (result.data as Record<string, unknown> | undefined)?.reason ?? "unknown";
+  const data = result.data as Record<string, unknown> | undefined;
+  const mode = data?.mode;
+  const message = String(data?.message ?? "");
+  const mockMessage =
+    message === "Mock mobile command executed" ||
+    message === "Mock harmony command executed" ||
+    message === "Mock web command executed";
+  if (!allowMockMode && (mode === "mock" || mockMessage)) {
+    const reason = data?.reason ?? data?.errorMessage ?? data?.message ?? "unknown";
     throw new Error(`${context} fallback to mock is not allowed: ${String(reason)}`);
   }
 }
@@ -845,481 +827,10 @@ function scopedHealthSnapshot(snapshot: Record<string, unknown>, scope: "web" | 
 
 function wireAdaMcpProtocolServer(mcp: Server): void {
   mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "ada_health",
-      description: "Get ADA agent health snapshot",
-      inputSchema: {
-        type: "object",
-        properties: {
-          scope: {
-            type: "string",
-            enum: ["web", "mobile", "all"],
-            description: "Dependency check scope (default: web)"
-          }
-        },
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_diagnostics",
-      description: "ADA local runtime diagnostics: Node, Playwright, Appium, and related checks.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          scope: {
-            type: "string",
-            enum: ["web", "mobile", "all"],
-            description: "Diagnostic scope hint (default: web)"
-          }
-        },
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_plugins",
-      description: "List built-in ADA driver plugins",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false }
-    },
-    {
-      name: "ada_run_task_file",
-      description: "Run ADA task file and return command results",
-      inputSchema: {
-        type: "object",
-        properties: {
-          file: { type: "string", description: "Task file path, relative to workspace root or absolute path." },
-          allowMock: { type: "boolean", description: "Allow mock fallback results instead of strict real-only mode." },
-          monitor: {
-            type: "object",
-            properties: {
-              enabled: { type: "boolean" },
-              outputDir: { type: "string" },
-              maxWidth: { type: "number" },
-              maxHeight: { type: "number" },
-              keepAspectRatio: { type: "boolean" },
-              onFailureOnly: { type: "boolean" },
-              groupBySession: { type: "boolean" },
-              nonBlocking: { type: "boolean" }
-            },
-            additionalProperties: false
-          }
-        },
-        required: ["file"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_execute",
-      description: "Execute one ADA command envelope for web/mobile",
-      inputSchema: {
-        type: "object",
-        properties: {
-          requestId: { type: "string" },
-          sessionId: { type: "string" },
-          platform: { type: "string", enum: ["web", "android", "ios", "harmony"] },
-          command: {
-            type: "string",
-            enum: [
-              "click",
-              "type",
-              "swipe",
-              "assertVisible",
-              "screenshot",
-              "navigate",
-              "hover",
-              "press",
-              "select",
-              "scroll",
-              "forward",
-              "newTab",
-              "switchTab",
-              "uploadFile",
-              "dragDrop",
-              "wait",
-              "assertText",
-              "getText",
-              "back",
-              "reload",
-              "closeTab",
-              "home",
-              "launchApp",
-              "terminateApp",
-              "custom",
-              "invoke"
-            ]
-          },
-          payload: { type: "object" },
-          allowMock: { type: "boolean", description: "Allow mock fallback results instead of strict real-only mode." },
-          riskApproved: { type: "boolean", description: "Acknowledge high-risk command execution" },
-          monitor: {
-            type: "object",
-            properties: {
-              enabled: { type: "boolean" },
-              outputDir: { type: "string" },
-              maxWidth: { type: "number" },
-              maxHeight: { type: "number" },
-              keepAspectRatio: { type: "boolean" },
-              onFailureOnly: { type: "boolean" },
-              groupBySession: { type: "boolean" },
-              nonBlocking: { type: "boolean" }
-            },
-            additionalProperties: false
-          }
-        },
-        required: ["platform", "command"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_invoke",
-      description:
-        "Unified driver RPC: Playwright method (web, mode=method), Selenium method/http (web, engine=selenium), Appium HTTP (mobile). Covers native APIs beyond semantic commands.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          requestId: { type: "string" },
-          sessionId: { type: "string" },
-          platform: { type: "string", enum: ["web", "android", "ios", "harmony"] },
-          mode: { type: "string", enum: ["method", "http"] },
-          target: { type: "string" },
-          method: { type: "string" },
-          args: { type: "array", items: {} },
-          http: {
-            type: "object",
-            properties: {
-              method: { type: "string" },
-              path: { type: "string" },
-              body: {}
-            },
-            required: ["method", "path"]
-          },
-          payload: invokePayloadSchema(),
-          allowMock: { type: "boolean" },
-          riskApproved: { type: "boolean", description: "Required for invoke (high risk)" },
-          monitor: {
-            type: "object",
-            properties: {
-              enabled: { type: "boolean" },
-              outputDir: { type: "string" },
-              maxWidth: { type: "number" },
-              maxHeight: { type: "number" },
-              keepAspectRatio: { type: "boolean" },
-              onFailureOnly: { type: "boolean" },
-              groupBySession: { type: "boolean" },
-              nonBlocking: { type: "boolean" }
-            },
-            additionalProperties: false
-          }
-        },
-        required: ["platform"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_web_action",
-      description: "Convenience tool: execute web action (default engine=playwright; use engine=selenium for system browser)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          engine: { type: "string", enum: ["playwright", "selenium"] },
-          command: {
-            type: "string",
-            enum: [
-              "click",
-              "type",
-              "assertVisible",
-              "screenshot",
-              "navigate",
-              "hover",
-              "press",
-              "select",
-              "scroll",
-              "forward",
-              "newTab",
-              "switchTab",
-              "uploadFile",
-              "dragDrop",
-              "wait",
-              "assertText",
-              "getText",
-              "back",
-              "reload",
-              "closeTab",
-              "custom"
-            ]
-          },
-          sessionId: { type: "string" },
-          requestId: { type: "string" },
-          payload: invokePayloadSchema(),
-          allowMock: { type: "boolean", description: "Allow mock fallback results instead of strict real-only mode." },
-          riskApproved: { type: "boolean", description: "Acknowledge high-risk command execution" },
-          monitor: {
-            type: "object",
-            properties: {
-              enabled: { type: "boolean" },
-              outputDir: { type: "string" },
-              maxWidth: { type: "number" },
-              maxHeight: { type: "number" },
-              keepAspectRatio: { type: "boolean" },
-              onFailureOnly: { type: "boolean" },
-              groupBySession: { type: "boolean" },
-              nonBlocking: { type: "boolean" }
-            },
-            additionalProperties: false
-          }
-        },
-        required: ["command"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_mobile_action",
-      description: "Convenience tool: execute mobile action via driver-appium",
-      inputSchema: {
-        type: "object",
-        properties: {
-          platform: { type: "string", enum: ["android", "ios", "harmony"] },
-          command: {
-            type: "string",
-            enum: [
-              "click",
-              "type",
-              "swipe",
-              "assertVisible",
-              "screenshot",
-              "wait",
-              "assertText",
-              "getText",
-              "back",
-              "home",
-              "launchApp",
-              "terminateApp",
-              "custom"
-            ]
-          },
-          sessionId: { type: "string" },
-          requestId: { type: "string" },
-          payload: { type: "object" },
-          allowMock: { type: "boolean", description: "Allow mock fallback results instead of strict real-only mode." },
-          riskApproved: { type: "boolean", description: "Acknowledge high-risk command execution" },
-          monitor: {
-            type: "object",
-            properties: {
-              enabled: { type: "boolean" },
-              outputDir: { type: "string" },
-              maxWidth: { type: "number" },
-              maxHeight: { type: "number" },
-              keepAspectRatio: { type: "boolean" },
-              onFailureOnly: { type: "boolean" },
-              groupBySession: { type: "boolean" },
-              nonBlocking: { type: "boolean" }
-            },
-            additionalProperties: false
-          }
-        },
-        required: ["platform", "command"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_config",
-      description: "Read effective ADA agent configuration",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false }
-    },
-    {
-      name: "ada_install_deps",
-      description: "Install ADA runtime dependencies (playwright/selenium/appium/drivers)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          only: {
-            type: "string",
-            enum: ["all", "playwright", "selenium", "mobile", "android", "ios", "harmony", "appium", "drivers"],
-            description: "Install scope (default playwright when omitted)"
-          },
-          force: { type: "boolean", description: "Force reinstall selected scope" },
-          nativeDriversDir: {
-            type: "string",
-            description: "Native WebDriver directory (default dirver at workspace root)"
-          },
-          geckodriverVersion: {
-            type: "string",
-            description: "GeckoDriver version: 0.36.0 | latest | skip"
-          },
-          chromedriverVersion: {
-            type: "string",
-            description: "ChromeDriver major: 137 | 135 | match-chrome | latest | skip"
-          }
-        },
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_start_once",
-      description: "Run ADA agent in start --once mode (non-watch)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          localDev: { type: "boolean", description: "Skip credential requirement for local debug" },
-          skipDeps: { type: "boolean", description: "Skip dependency auto-install check on start" }
-        },
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_sessions",
-      description: "List active in-memory driver sessions",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false }
-    },
-    {
-      name: "ada_close_session",
-      description: "Close one active session by platform + sessionId (web: optional engine playwright|selenium)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          platform: { type: "string", enum: ["web", "android", "ios", "harmony"] },
-          sessionId: { type: "string" },
-          engine: {
-            type: "string",
-            enum: ["playwright", "selenium"],
-            description: "Web only: which engine session to close (default playwright)"
-          },
-          payload: { type: "object", description: "Optional; engine may also be set here" }
-        },
-        required: ["platform", "sessionId"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_close_all_sessions",
-      description: "Close all active in-memory sessions",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false }
-    },
-    {
-      name: "ada_batch_actions",
-      description: "Run multiple actions in one request with optional continue-on-error",
-      inputSchema: {
-        type: "object",
-        properties: {
-          platform: { type: "string", enum: ["web", "android", "ios", "harmony"] },
-          sessionId: { type: "string" },
-          continueOnError: { type: "boolean" },
-          onFailure: { type: "string", enum: ["stop", "continue"] },
-          allowMock: { type: "boolean" },
-          riskApproved: { type: "boolean" },
-          actions: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                requestId: { type: "string" },
-                command: { type: "string" },
-                payload: { type: "object" },
-                timeoutMs: { type: "number" },
-                retry: { type: "number" }
-              },
-              required: ["command"],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ["platform", "sessionId", "actions"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_extract",
-      description: "Extract text/list/table data from current web page",
-      inputSchema: {
-        type: "object",
-        properties: {
-          sessionId: { type: "string" },
-          mode: { type: "string", enum: ["text", "list", "table"] },
-          payload: { type: "object" },
-          allowMock: { type: "boolean" },
-          riskApproved: { type: "boolean" }
-        },
-        required: ["sessionId", "mode"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_assertions",
-      description: "Run assertion helpers on web page (visible/text/url)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          sessionId: { type: "string" },
-          type: { type: "string", enum: ["visible", "text", "url"] },
-          payload: { type: "object" },
-          allowMock: { type: "boolean" },
-          riskApproved: { type: "boolean" }
-        },
-        required: ["sessionId", "type"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_mobile_extract",
-      description: "Extract data from mobile session (text/pageSource)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          platform: { type: "string", enum: ["android", "ios", "harmony"] },
-          sessionId: { type: "string" },
-          type: { type: "string", enum: ["text", "pageSource"] },
-          payload: { type: "object" },
-          allowMock: { type: "boolean" },
-          riskApproved: { type: "boolean" }
-        },
-        required: ["platform", "sessionId", "type"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_mobile_assertions",
-      description: "Run assertion helpers on mobile session (visible/text)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          platform: { type: "string", enum: ["android", "ios", "harmony"] },
-          sessionId: { type: "string" },
-          type: { type: "string", enum: ["visible", "text"] },
-          payload: { type: "object" },
-          allowMock: { type: "boolean" },
-          riskApproved: { type: "boolean" }
-        },
-        required: ["platform", "sessionId", "type"],
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_risk_policy",
-      description: "View or update risky command allowlist",
-      inputSchema: {
-        type: "object",
-        properties: {
-          action: { type: "string", enum: ["view", "add", "remove", "reset"] },
-          command: { type: "string" }
-        },
-        additionalProperties: false
-      }
-    },
-    {
-      name: "ada_perf_summary",
-      description: "Get in-memory MCP performance summary (avg/p50/p95/max)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          reset: { type: "boolean", description: "Clear in-memory samples after reading summary" }
-        },
-        additionalProperties: false
-      }
-    }
-  ]
-}));
+    tools: buildAdaMcpToolDefinitions()
+  }));
 
-mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
+  mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   const tool = normalizeToolName(request.params.name);
   const args = asRecord(request.params.arguments);
 
@@ -1472,7 +983,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             platform === "android" || platform === "ios" || platform === "harmony"
               ? { ...rawPayload, keepSession: !isLastAction }
               : rawPayload
-        });
+        }, allowMock(args));
         result = await withTiming(`batch-action(${platform}:${command})`, () => executeWithTimeout(envelope, timeoutMs));
         if (result.success) {
           break;
@@ -1524,7 +1035,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         platform: "web",
         command: "custom",
         payload: { action: "evaluate", script, ...(asRecord(args.payload) || {}) }
-      })
+      }, allowMock(args))
     );
     assertRealResult(result, "ada_extract", allowMock(args));
     return textResult(
@@ -1556,7 +1067,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             action: "evaluate",
             script: `(() => location.href)()`
           }
-        })
+        }, allowMock(args))
       );
       assertRealResult(result, "ada_assertions", allowMock(args));
       const actual = String((result.data as Record<string, unknown> | undefined)?.value ?? "");
@@ -1576,7 +1087,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         platform: "web",
         command,
         payload
-      })
+      }, allowMock(args))
     );
     assertRealResult(result, "ada_assertions", allowMock(args));
     return textResult({ status: result.success ? "ok" : "failed", type, result });
@@ -1604,7 +1115,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
               path: "/source"
             }
           }
-        })
+        }, allowMock(args))
       );
       assertRealResult(result, "ada_mobile_extract", allowMock(args));
       return textResult(
@@ -1624,7 +1135,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         platform,
         command: "getText",
         payload
-      })
+      }, allowMock(args))
     );
     assertRealResult(result, "ada_mobile_extract", allowMock(args));
     return textResult(
@@ -1654,7 +1165,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
         platform,
         command,
         payload
-      })
+      }, allowMock(args))
     );
     assertRealResult(result, "ada_mobile_assertions", allowMock(args));
     return textResult({ status: result.success ? "ok" : "failed", platform, type, result });
@@ -1686,7 +1197,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   }
   if (tool === "ada_execute") {
     ensureRiskAllowed(normalizeCommand(args.command), args);
-    const command = toCommandEnvelope(args);
+    const command = toCommandEnvelope(args, allowMock(args));
     await withTiming(`ensureAppiumServerReady(${command.platform})`, () => ensureAppiumServerReady(command.platform));
     const result = await withTiming(`runCommand(${command.platform}:${command.command})`, () => runCommand(command));
     const maybeJob = runMonitorCapture(command, result, parseMonitorOptions(args));
@@ -1699,10 +1210,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   if (tool === "ada_invoke") {
     ensureRiskAllowed("invoke", args);
     const platform = normalizePlatform(args.platform);
-    const payload = buildInvokeCommandPayload(args);
-    if (platform !== "web" && payload.real !== false) {
-      payload.real = true;
-    }
+    const payload = ensureRealPayloadForPlatform(platform, buildInvokeCommandPayload(args), allowMock(args));
     const envelope: CommandEnvelope = {
       requestId: String(args.requestId ?? `invoke-${Date.now()}`),
       sessionId: String(args.sessionId ?? "mcp-invoke"),
@@ -1730,7 +1238,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       platform: "web",
       command,
       payload: mergeWebEngineIntoPayload(args)
-    });
+    }, allowMock(args));
     const result = await withTiming(`runCommand(web:${command})`, () => runCommand(envelope));
     const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
     if (maybeJob) {
@@ -1753,7 +1261,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       ...args,
       platform: normalizePlatform(args.platform),
       command
-    });
+    }, allowMock(args));
     await withTiming(`ensureAppiumServerReady(${envelope.platform})`, () => ensureAppiumServerReady(envelope.platform));
     const result = await withTiming(`runCommand(${envelope.platform}:${command})`, () => runCommand(envelope));
     const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
@@ -1830,7 +1338,7 @@ export async function startMcpServer(): Promise<void> {
           ADA_PLAYWRIGHT_HEADLESS: "true",
           ADA_MCP_INSTALL_DEPS: "playwright",
           ADA_INSTALL_STRATEGY_TIMEOUT_MS: "120000",
-          ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS: "1800000"
+          ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS: "3600000"
         }
       }
     }

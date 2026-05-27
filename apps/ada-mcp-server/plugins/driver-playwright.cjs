@@ -590,29 +590,29 @@ var playwrightPlugin = {
       const locator = locatorFromPayload(page, payload);
       if (cmd === "navigate") {
         if (!url) {
-          return runMock(command, "missing url");
+          return failResult(command, "INVALID_PAYLOAD", "navigate requires url");
         }
         await page.goto(url);
       } else if (command.command === "click") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         await locator.click();
       } else if (command.command === "hover") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         await locator.hover();
       } else if (command.command === "type") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const text = getString(payload?.text) ?? "";
         await locator.fill(text);
       } else if (command.command === "press") {
         const key = getString(payload?.key);
         if (!key) {
-          return runMock(command, "missing key");
+          return failResult(command, "INVALID_PAYLOAD", "press requires key");
         }
         if (locator) {
           await locator.press(key);
@@ -621,7 +621,7 @@ var playwrightPlugin = {
         }
       } else if (command.command === "select") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const value = getString(payload?.value);
         const label = getString(payload?.label);
@@ -633,7 +633,7 @@ var playwrightPlugin = {
         } else if (typeof index === "number") {
           await locator.selectOption({ index });
         } else {
-          return runMock(command, "missing value/label/index");
+          return failResult(command, "INVALID_PAYLOAD", "select requires value, label, or index");
         }
       } else if (command.command === "scroll") {
         const deltaX = getNumber(payload?.deltaX) ?? 0;
@@ -662,13 +662,13 @@ var playwrightPlugin = {
         await selected.bringToFront();
       } else if (command.command === "uploadFile") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const filePath = getString(payload?.filePath);
         const filePaths = getStringArray(payload?.filePaths);
         const targetPaths = filePaths.length > 0 ? filePaths : filePath ? [filePath] : [];
         if (targetPaths.length === 0) {
-          return runMock(command, "missing filePath/filePaths");
+          return failResult(command, "INVALID_PAYLOAD", "uploadFile requires filePath or filePaths");
         }
         await locator.setInputFiles(targetPaths);
       } else if (command.command === "dragDrop") {
@@ -677,7 +677,7 @@ var playwrightPlugin = {
         const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
         const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
         if (!source || !target) {
-          return runMock(command, "missing source/target locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "dragDrop requires source and target locator");
         }
         await source.dragTo(target);
       } else if (command.command === "wait") {
@@ -692,7 +692,7 @@ var playwrightPlugin = {
         pw.page = await pw.context.newPage();
       } else if (command.command === "assertVisible") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const visible = await locator.isVisible();
         if (!visible) {
@@ -700,11 +700,11 @@ var playwrightPlugin = {
         }
       } else if (command.command === "assertText") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const expected = getString(payload?.expectedText);
         if (!expected) {
-          return runMock(command, "missing expectedText");
+          return failResult(command, "INVALID_PAYLOAD", "assertText requires expectedText");
         }
         const actual = await locator.textContent() ?? "";
         if (!actual.includes(expected)) {
@@ -712,7 +712,7 @@ var playwrightPlugin = {
         }
       } else if (command.command === "getText") {
         if (!locator) {
-          return runMock(command, "missing locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const text = await locator.textContent() ?? "";
         return {
@@ -746,7 +746,7 @@ var playwrightPlugin = {
         if (action === "evaluate") {
           const script = getString(payload?.script);
           if (!script) {
-            return runMock(command, "missing script");
+            return failResult(command, "INVALID_PAYLOAD", "evaluate requires script");
           }
           const value = await page.evaluate(script);
           return {
@@ -763,9 +763,13 @@ var playwrightPlugin = {
             }
           };
         }
-        return runMock(command, "unsupported custom action; use action=evaluate|invoke or command=invoke");
+        return failResult(
+          command,
+          "UNSUPPORTED_COMMAND",
+          "unsupported custom action; use action=evaluate|invoke or command=invoke"
+        );
       } else {
-        return runMock(command, "unsupported command");
+        return failResult(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
       }
       return {
         requestId: command.requestId,
@@ -784,7 +788,7 @@ var playwrightPlugin = {
       if (cmd === "custom") {
         return failResult(command, "COMMAND_FAILED", error instanceof Error ? error.message : String(error));
       }
-      return runMock(command, error instanceof Error ? error.message : String(error));
+      return failResult(command, "COMMAND_FAILED", error instanceof Error ? error.message : String(error));
     }
   },
   async destroySession(session) {

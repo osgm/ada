@@ -144,7 +144,8 @@ export class PluginHost {
 const DEFAULT_PLUGIN_MODULE_IDS = [
   "@ada/driver-playwright",
   "@ada/driver-appium",
-  "@ada/driver-selenium"
+  "@ada/driver-selenium",
+  "@ada/driver-harmony"
 ];
 
 function isPluginModule(mod: unknown): mod is DriverPlugin {

@@ -31,8 +31,8 @@ const pluginText = plugins.content?.[0]?.text ?? "[]";
 const pluginList = JSON.parse(pluginText);
 const healthObj = JSON.parse(health.content?.[0]?.text ?? "{}");
 
-if (pluginList.length < 3) {
-  throw new Error(`expected 3 plugins, got ${pluginList.length}: ${pluginText}`);
+if (pluginList.length < 4) {
+  throw new Error(`expected 4 plugins, got ${pluginList.length}: ${pluginText}`);
 }
 if (healthObj.status !== "ok") {
   throw new Error(`health not ok: ${JSON.stringify(healthObj)}`);

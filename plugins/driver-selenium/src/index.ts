@@ -83,13 +83,7 @@ function runMock(command: CommandEnvelope, reason?: string): CommandResult {
 
 function wantsMock(payload?: Record<string, unknown>): boolean {
   const merged = mergeOptionsIntoPayload(payload);
-  if (merged.mock === true) {
-    return true;
-  }
-  if (merged.real === true) {
-    return false;
-  }
-  return process.env.ADA_SELENIUM_MOCK === "true";
+  return merged.mock === true;
 }
 
 async function buildDriver(payload?: Record<string, unknown>): Promise<SeleniumWebDriver> {
@@ -116,7 +110,7 @@ async function buildDriver(payload?: Record<string, unknown>): Promise<SeleniumW
     const firefox = await import("selenium-webdriver/firefox.js");
     const options = new firefox.Options();
     if (fields.browserBinary) {
-      options.setBinary(fields.browserBinary);
+      (options as unknown as { setBinary(path: string): void }).setBinary(fields.browserBinary);
     }
     if (fields.profile) {
       options.addArguments("-profile", fields.profile);
@@ -136,7 +130,7 @@ async function buildDriver(payload?: Record<string, unknown>): Promise<SeleniumW
     const chrome = await import("selenium-webdriver/chrome.js");
     const options = new chrome.Options();
     if (fields.browserBinary) {
-      options.setBinary(fields.browserBinary);
+      (options as unknown as { setBinary(path: string): void }).setBinary(fields.browserBinary);
     }
     if (fields.profile) {
       options.addArguments(`--user-data-dir=${fields.profile}`);
@@ -156,7 +150,7 @@ async function buildDriver(payload?: Record<string, unknown>): Promise<SeleniumW
     const edge = await import("selenium-webdriver/edge.js");
     const options = new edge.Options();
     if (fields.browserBinary) {
-      options.setBinary(fields.browserBinary);
+      (options as unknown as { setBinary(path: string): void }).setBinary(fields.browserBinary);
     }
     if (merged.headless === true) {
       options.addArguments("--headless=new");
@@ -236,7 +230,7 @@ async function runInvoke(
       );
     }
     const http = invoke.http!;
-    const sessionId = await state.driver?.getSession().then((s) => s.getId());
+    const sessionId = await state.driver?.getSession().then((s: { getId(): string }) => s.getId());
     if (!sessionId) {
       return failResult(command, "SESSION_MISSING", "no active selenium session");
     }
@@ -267,7 +261,7 @@ async function runInvoke(
 
   const driver = state.driver;
   if (!driver) {
-    return runMock(command, "invoke without driver");
+    return failResult(command, "DRIVER_NOT_READY", "invoke requires an active selenium driver");
   }
   const target = invoke.target ?? "driver";
   const method = invoke.method ?? "";
@@ -278,7 +272,7 @@ async function runInvoke(
     if (!el) {
       return failResult(command, "LOCATOR_NOT_FOUND", "element locator required for target=element");
     }
-    const fn = (el as Record<string, unknown>)[method];
+    const fn = (el as unknown as Record<string, unknown>)[method];
     if (typeof fn !== "function") {
       return failResult(command, "INVOKE_METHOD_UNSUPPORTED", `element.${method}`);
     }
@@ -290,7 +284,7 @@ async function runInvoke(
     };
   }
 
-  const driverFn = (driver as Record<string, unknown>)[method];
+  const driverFn = (driver as unknown as Record<string, unknown>)[method];
   if (typeof driverFn !== "function") {
     return failResult(command, "INVOKE_METHOD_UNSUPPORTED", `driver.${method}`);
   }
@@ -368,7 +362,7 @@ const seleniumPlugin: DriverPlugin = {
 
     const driver = state.driver;
     if (!driver) {
-      return runMock(command);
+      return failResult(command, "DRIVER_NOT_READY", "selenium driver is not available");
     }
 
     try {
@@ -413,8 +407,7 @@ const seleniumPlugin: DriverPlugin = {
       } else if (cmd === "forward") {
         await driver.navigate().forward();
       } else if (cmd === "newTab") {
-        const sw = await loadSeleniumModule();
-        await driver.switchTo().newWindow(sw.WindowType.TAB);
+        await driver.switchTo().newWindow("tab");
         const url = getString(payload.url);
         if (url) {
           await driver.get(url);
@@ -438,14 +431,13 @@ const seleniumPlugin: DriverPlugin = {
         if (!el) {
           return failResult(command, "LOCATOR_NOT_FOUND", "hover requires locator");
         }
-        const sw = await loadSeleniumModule();
-        await sw.driver.actions({ bridge: true }).move({ origin: el }).perform();
+        await driver.actions({ bridge: true }).move({ origin: el }).perform();
       } else if (cmd === "press") {
         const key = getString(payload.key) ?? "Enter";
         const el = await findElement(driver, payload);
         const sw = await loadSeleniumModule();
         const keys = sw.Key ?? (await import("selenium-webdriver")).Key;
-        const keyConst = (keys as Record<string, string>)[key] ?? key;
+        const keyConst = (keys as unknown as Record<string, string>)[key] ?? key;
         if (el) {
           await el.sendKeys(keyConst);
         } else {
@@ -495,7 +487,7 @@ const seleniumPlugin: DriverPlugin = {
           return failResult(command, "ASSERT_FAILED", `expected text "${expected}", got "${actual}"`);
         }
       } else {
-        return runMock(command, `unsupported command: ${cmd}`);
+        return failResult(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
       }
 
       return {

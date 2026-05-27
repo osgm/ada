@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { runBootstrapInstallDeps } from "./bootstrap-deps.js";
+import { runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 
 if (!process.env.ADA_MCP_SERVER_ENTRY?.trim()) {
   try {

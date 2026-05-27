@@ -4,23 +4,38 @@
  * 未设置 ADA_MCP_SERVER_VERSION 时，从所选 registry 读取 mcp-server 的 latest 版本（与 pnpm dlx 无 @ 版本一致）
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   detectBestRegistry,
   fetchPackageLatestVersion,
+  fetchPackageVersionExists,
+  normalizeRegistryUrl,
   registryCandidateList
 } from "./registry-probe.mjs";
 
+const NPMJS_REGISTRY = "https://registry.npmjs.org";
+
+function readJsonFile(filePath) {
+  let raw = fs.readFileSync(filePath, "utf8");
+  if (raw.charCodeAt(0) === 0xfeff) {
+    raw = raw.slice(1);
+  }
+  return JSON.parse(raw);
+}
+
 const LAUNCHER_DIR = path.dirname(fileURLToPath(import.meta.url));
-const LAUNCHER_PKG = JSON.parse(fs.readFileSync(path.join(LAUNCHER_DIR, "package.json"), "utf8"));
+const LAUNCHER_PKG = readJsonFile(path.join(LAUNCHER_DIR, "package.json"));
 const LAUNCHER_VERSION = String(LAUNCHER_PKG.version ?? "0.0.0");
 const LAUNCHER_PKG_NAME = "@ada-mcp/launcher";
 
 const MCP_SERVER_PKG = process.env.ADA_MCP_SERVER_PACKAGE?.trim() || "@ada-mcp/mcp-server";
-/** 低于此版本的 mcp-server 易出现 zod/v3、Playwright 404 等问题（registry latest 更低时抬高） */
-const MIN_MCP_SERVER_VERSION = "0.1.28";
+/** mcp-server 包内 bin 名（Windows npx 会误调包名 mcp-server，需显式指定 ada-mcp 或 node 直连） */
+const MCP_SERVER_BIN = "ada-mcp";
+/** 与 launcher 包版本一致（发布约定：两包同号）；registry latest 更低时抬高到此版本 */
+const MIN_MCP_SERVER_VERSION = LAUNCHER_VERSION;
 
 function parseSemverParts(version) {
   const m = String(version)
@@ -60,27 +75,111 @@ async function resolveMcpServerSpec(registry) {
   const fromEnv = process.env.ADA_MCP_SERVER_VERSION?.trim();
   if (fromEnv) {
     const v = applyMinMcpServerVersion(fromEnv, "ADA_MCP_SERVER_VERSION");
-    return { spec: `${MCP_SERVER_PKG}@${v}`, version: v, source: "env" };
+    return {
+      spec: `${MCP_SERVER_PKG}@${v}`,
+      version: v,
+      source: "env",
+      registryLatest: undefined
+    };
   }
 
   const latest = await fetchPackageLatestVersion(MCP_SERVER_PKG, registry);
   if (latest) {
     const v = applyMinMcpServerVersion(latest, "registry latest");
-    return { spec: `${MCP_SERVER_PKG}@${v}`, version: v, source: "registry-latest" };
+    return {
+      spec: `${MCP_SERVER_PKG}@${v}`,
+      version: v,
+      source: "registry-latest",
+      registryLatest: latest
+    };
   }
 
   console.error(
     `[ada-mcp launcher][warn] 无法从 registry 读取 ${MCP_SERVER_PKG} latest，使用 @latest 标签`
   );
-  return { spec: `${MCP_SERVER_PKG}@latest`, version: "latest", source: "tag-latest" };
+  return {
+    spec: `${MCP_SERVER_PKG}@latest`,
+    version: "latest",
+    source: "tag-latest",
+    registryLatest: undefined
+  };
 }
 
-function forwardArgs() {
+/**
+ * 解析 launcher 参数：剥离 --registry（勿传给 mcp-server / 内层 pnpm dlx）。
+ * pnpm dlx 不支持 `pnpm dlx --registry URL pkg`，应使用环境变量 ADA_MCP_REGISTRY。
+ */
+function parseLauncherArgv() {
   const argv = process.argv.slice(2);
+  let start = 0;
   if (argv[0] === "dlx-bootstrap") {
-    return argv.slice(1);
+    start = 1;
   }
-  return argv;
+  let forcedRegistry =
+    process.env.ADA_MCP_REGISTRY?.trim() || process.env.ADA_NPM_REGISTRY?.trim() || "";
+  const forward = [];
+  for (let i = start; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--registry" || a === "-r") {
+      forcedRegistry = argv[i + 1] ?? forcedRegistry;
+      i += 1;
+      continue;
+    }
+    if (a.startsWith("--registry=")) {
+      forcedRegistry = a.slice("--registry=".length);
+      continue;
+    }
+    forward.push(a);
+  }
+  return {
+    forward,
+    forcedRegistry: forcedRegistry ? normalizeRegistryUrl(forcedRegistry) : ""
+  };
+}
+
+async function resolveInstallRegistry(forcedRegistry) {
+  if (forcedRegistry) {
+    return {
+      best: forcedRegistry,
+      probeResults: [],
+      forced: true
+    };
+  }
+  const candidates = registryCandidateList();
+  const probed = await detectBestRegistry(candidates);
+  return { ...probed, forced: false };
+}
+
+/** 镜像 latest 滞后或缺包时，安装回退官方 npmjs */
+async function registryForPinnedVersion(registry, packageName, version, registryLatest) {
+  if (!version || version === "latest") {
+    return registry;
+  }
+  const reg = normalizeRegistryUrl(registry);
+  const bumpedAboveMirrorLatest =
+    registryLatest && semverLessThan(registryLatest, version);
+  const missingOnMirror =
+    reg !== NPMJS_REGISTRY && !(await fetchPackageVersionExists(packageName, version, reg));
+
+  if (!bumpedAboveMirrorLatest && !missingOnMirror) {
+    return registry;
+  }
+  if (reg === NPMJS_REGISTRY) {
+    return registry;
+  }
+  if (await fetchPackageVersionExists(packageName, version, NPMJS_REGISTRY)) {
+    if (bumpedAboveMirrorLatest) {
+      console.error(
+        `[ada-mcp launcher][warn] 镜像 latest=${registryLatest}，安装 ${version} 改用 ${NPMJS_REGISTRY}（pnpm 索引可能未同步）`
+      );
+    } else {
+      console.error(
+        `[ada-mcp launcher][warn] ${packageName}@${version} 在 ${reg} 不可用，安装改用 ${NPMJS_REGISTRY}`
+      );
+    }
+    return NPMJS_REGISTRY;
+  }
+  return registry;
 }
 
 function runnerCommand(runner) {
@@ -99,12 +198,17 @@ function quoteCmdToken(token) {
   return s;
 }
 
+function win32CmdLine(executable, args) {
+  const comspec = process.env.ComSpec || "cmd.exe";
+  const line = [quoteCmdToken(executable), ...args.map(quoteCmdToken)].join(" ");
+  return { comspec, line };
+}
+
 function spawnRunner(executable, args, options = {}) {
   const { stdio = "inherit", cwd, env } = options;
   const childEnv = env ?? process.env;
   if (process.platform === "win32") {
-    const comspec = process.env.ComSpec || "cmd.exe";
-    const line = [quoteCmdToken(executable), ...args.map(quoteCmdToken)].join(" ");
+    const { comspec, line } = win32CmdLine(executable, args);
     return spawn(comspec, ["/d", "/s", "/c", line], {
       stdio,
       cwd,
@@ -121,9 +225,29 @@ function spawnRunner(executable, args, options = {}) {
   });
 }
 
+/** 与 spawnRunner 相同：Windows 下经 cmd.exe /c，避免对 npm.cmd 直接 exec 触发 EINVAL */
+function execRunnerSync(executable, args, options = {}) {
+  const { stdio = "inherit", cwd, env } = options;
+  const childEnv = env ?? process.env;
+  if (process.platform === "win32") {
+    const { comspec, line } = win32CmdLine(executable, args);
+    return execFileSync(comspec, ["/d", "/s", "/c", line], {
+      cwd,
+      env: childEnv,
+      stdio,
+      windowsHide: true
+    });
+  }
+  return execFileSync(executable, args, { cwd, env: childEnv, stdio });
+}
+
 function runnerArgs(runner, pkgSpec, extra) {
   if (runner === "pnpm") {
     return ["dlx", pkgSpec, ...extra];
+  }
+  // Windows npx 对 scoped 包默认执行裸命令 `mcp-server`，.cmd shim 常无法解析（见 spawnMcpServer）
+  if (process.platform === "win32") {
+    return ["-y", "--package", pkgSpec, MCP_SERVER_BIN, ...extra];
   }
   return ["-y", pkgSpec, ...extra];
 }
@@ -138,8 +262,18 @@ function invokedViaPnpm() {
   if (/pnpm/i.test(execPath)) {
     return true;
   }
+  const ua = String(process.env.npm_config_user_agent ?? "");
+  if (/pnpm\//i.test(ua)) {
+    return true;
+  }
+  if (process.env.PNPM_HOME) {
+    return true;
+  }
   const argv1 = process.argv[1] ?? "";
   if (/[\\/]pnpm(?:\.cmd)?$/i.test(argv1)) {
+    return true;
+  }
+  if (/[\\/]pnpm-cache[\\/]dlx[\\/]/i.test(argv1)) {
     return true;
   }
   return false;
@@ -177,10 +311,14 @@ async function resolvePackageRunner() {
   if (invokedViaPnpm()) {
     return "pnpm";
   }
+  const pnpmOk = await commandAvailable(runnerCommand("pnpm"));
+  // Windows：npx -y @ada-mcp/mcp-server 会报「mcp-server 不是内部或外部命令」；有 pnpm 时一律用 pnpm dlx
+  if (process.platform === "win32" && pnpmOk) {
+    return "pnpm";
+  }
   if (invokedViaNpx()) {
     return "npx";
   }
-  const pnpmOk = await commandAvailable(runnerCommand("pnpm"));
   if (pnpmOk) {
     return "pnpm";
   }
@@ -190,6 +328,33 @@ async function resolvePackageRunner() {
   }
   console.error("[ada-mcp launcher] warn: pnpm/npx not found on PATH, trying npx");
   return "npx";
+}
+
+/**
+ * Windows + npx：npx 无法可靠执行 bin，临时 npm install 后用 node 跑 dist/cli.cjs。
+ */
+function spawnMcpServerViaNodeInstall(pkgSpec, extra, options) {
+  const { cwd, env } = options;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ada-mcp-run-"));
+  console.error(`[ada-mcp launcher] Windows npx fallback: npm install ${pkgSpec} -> node cli.cjs`);
+  execRunnerSync(
+    "npm",
+    ["install", pkgSpec, "--omit=dev", "--no-fund", "--no-audit", "--loglevel=error"],
+    { cwd: tmpDir, env, stdio: "inherit" }
+  );
+  const cli = path.join(tmpDir, "node_modules", "@ada-mcp", "mcp-server", "dist", "cli.cjs");
+  if (!fs.existsSync(cli)) {
+    throw new Error(`mcp-server entry not found after install: ${cli}`);
+  }
+  return spawnRunner(process.execPath, [cli, ...extra], { cwd, env });
+}
+
+function warnIfBadCwd(cwd) {
+  if (process.platform === "win32" && /\\Windows\\System32$/i.test(path.normalize(cwd))) {
+    console.error(
+      "[ada-mcp launcher][warn] 当前目录为 C:\\Windows\\System32，建议在用户目录或项目目录下运行（见接入手册排障）"
+    );
+  }
 }
 
 function writeProjectNpmrc(cwd, registry) {
@@ -220,43 +385,70 @@ async function warnIfLauncherStale(registry) {
 
 async function main() {
   console.error(`[ada-mcp launcher] ${LAUNCHER_PKG_NAME}@${LAUNCHER_VERSION}`);
+  const { forward: extra, forcedRegistry } = parseLauncherArgv();
   const runner = await resolvePackageRunner();
-  const candidates = registryCandidateList();
-  const { best, probeResults } = await detectBestRegistry(candidates);
-  console.error(`[ada-mcp launcher] registry probe selected: ${best}`);
-  for (const { candidate, latency } of probeResults) {
-    console.error(`[ada-mcp launcher]   ${candidate} -> ${latency === null ? "fail" : `${latency}ms`}`);
+  const { best: probedBest, probeResults, forced: registryForced } =
+    await resolveInstallRegistry(forcedRegistry);
+
+  if (registryForced) {
+    console.error(`[ada-mcp launcher] registry forced (skip probe): ${probedBest}`);
+  } else {
+    console.error(`[ada-mcp launcher] registry probe selected: ${probedBest}`);
+    for (const { candidate, latency, speedKBps, bytesRead } of probeResults) {
+      if (speedKBps != null) {
+        console.error(
+          `[ada-mcp launcher]   ${candidate} -> ${speedKBps.toFixed(0)} KB/s (${bytesRead} bytes / ${latency}ms)`
+        );
+      } else {
+        console.error(`[ada-mcp launcher]   ${candidate} -> fail`);
+      }
+    }
   }
 
-  await warnIfLauncherStale(best);
+  await warnIfLauncherStale(probedBest);
 
-  const { spec: pkgSpec, version: mcpVersion, source: mcpSource } = await resolveMcpServerSpec(best);
+  const {
+    spec: pkgSpec,
+    version: mcpVersion,
+    source: mcpSource,
+    registryLatest
+  } = await resolveMcpServerSpec(probedBest);
+  const installRegistry = await registryForPinnedVersion(
+    probedBest,
+    MCP_SERVER_PKG,
+    mcpVersion,
+    registryLatest
+  );
   console.error(
     `[ada-mcp launcher] ${LAUNCHER_PKG_NAME}@${LAUNCHER_VERSION} -> ${pkgSpec} (${mcpSource}${mcpVersion !== "latest" ? `, ${mcpVersion}` : ""})`
   );
 
   const cwd = process.cwd();
-  writeProjectNpmrc(cwd, best);
+  warnIfBadCwd(cwd);
+  writeProjectNpmrc(cwd, installRegistry);
 
-  const extra = forwardArgs();
   const childArgs = runnerArgs(runner, pkgSpec, extra);
   const cmd = runnerCommand(runner);
+  const childEnv = {
+    ...process.env,
+    npm_config_registry: installRegistry,
+    ADA_MCP_LAUNCHER_RAN: "1",
+    ADA_MCP_PACKAGE_RUNNER: runner,
+    ADA_MCP_LAUNCHER_VERSION: LAUNCHER_VERSION,
+    ADA_MCP_SERVER_RESOLVED_VERSION: mcpVersion
+  };
   console.error(
-    `[ada-mcp launcher] runner=${runner} exec: ${runnerExecLabel(runner, childArgs)} (registry=${best} via env/.npmrc)`
+    `[ada-mcp launcher] runner=${runner} exec: ${runnerExecLabel(runner, childArgs)} (registry=${installRegistry} via env/.npmrc)`
   );
 
-  const child = spawnRunner(cmd, childArgs, {
-    stdio: "inherit",
-    cwd,
-    env: {
-      ...process.env,
-      npm_config_registry: best,
-      ADA_MCP_LAUNCHER_RAN: "1",
-      ADA_MCP_PACKAGE_RUNNER: runner,
-      ADA_MCP_LAUNCHER_VERSION: LAUNCHER_VERSION,
-      ADA_MCP_SERVER_RESOLVED_VERSION: mcpVersion
-    }
-  });
+  const useWinNpxFallback = process.platform === "win32" && runner === "npx";
+  const child = useWinNpxFallback
+    ? spawnMcpServerViaNodeInstall(pkgSpec, extra, { cwd, env: childEnv })
+    : spawnRunner(cmd, childArgs, {
+        stdio: "inherit",
+        cwd,
+        env: childEnv
+      });
 
   child.on("exit", (code, signal) => {
     if (signal) {

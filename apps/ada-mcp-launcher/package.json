@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/launcher",
-  "version": "0.1.28",
+  "version": "0.1.50",
   "description": "Probe fastest npm registry then pnpm dlx @ada-mcp/mcp-server (zero deps)",
   "private": false,
   "type": "module",
@@ -9,6 +9,8 @@
   },
   "files": [
     "launcher.mjs",
+    "mirror-candidates.mjs",
+    "download-probe.mjs",
     "registry-probe.mjs",
     "playwright-probe.mjs",
     "README.md"
@@ -18,5 +20,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "node --check launcher.mjs && node --check registry-probe.mjs && node --check download-probe.mjs && node --check mirror-candidates.mjs && node --check playwright-probe.mjs"
   }
 }
