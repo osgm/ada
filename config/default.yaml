@@ -77,6 +77,7 @@ dependencies:
   # 纯血鸿蒙工具（hdc 等），相对工作区根目录；也可用环境变量 ADA_TOOLS_DIR 覆盖
   toolsDir: "tools"
   # install-deps --only=harmony / --only=all 时自动下载 hdc（支持 .zip 或直链；GitHub blob 链接会自动转 raw）
+  # Windows 会额外尝试下载 libusb_shared.dll 到 tools/；Linux/macOS 仅提示手动安装 hdc
   harmonyHdcDownloadUrls:
     - "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
 

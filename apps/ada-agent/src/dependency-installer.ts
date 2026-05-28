@@ -66,6 +66,7 @@ const PINNED_APPIUM_VERSION = "3.3.1";
 const PINNED_SELENIUM_WEBDRIVER_VERSION = "4.34.0";
 /** Harmony 自动化基线（与本地 command-line-tools 6.1.x 对齐） */
 const PINNED_HYPIUM_DRIVER_VERSION = "6.1.210";
+const DEFAULT_HARMONY_WINDOWS_LIBUSB_URL = "https://raw.githubusercontent.com/osgm/ada/main/tools/libusb_shared.dll";
 
 function playwrightInstallPackageSpec(): string {
   const fromEnv = process.env.ADA_PLAYWRIGHT_VERSION?.trim();
@@ -709,6 +710,26 @@ async function tryDownloadHarmonyHdcFromUrl(
   return true;
 }
 
+async function ensureHarmonyWindowsLibusb(
+  toolsDir: string,
+  onLogLine?: (line: string) => void
+): Promise<void> {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const dllPath = path.join(toolsDir, "libusb_shared.dll");
+  if (await pathExists(dllPath)) {
+    return;
+  }
+  onLogLine?.(`[harmony] 尝试下载依赖 libusb_shared.dll: ${DEFAULT_HARMONY_WINDOWS_LIBUSB_URL}`);
+  const fetched = await downloadFileWithTimeout(DEFAULT_HARMONY_WINDOWS_LIBUSB_URL, dllPath);
+  if (!fetched.ok) {
+    onLogLine?.(`[harmony][warn] libusb_shared.dll 下载失败: ${fetched.error}`);
+    return;
+  }
+  onLogLine?.(`[harmony] libusb_shared.dll 下载完成: ${dllPath} (${fetched.bytes} bytes)`);
+}
+
 async function ensureHarmonyHdcInToolsDir(
   toolsDir: string,
   config: AgentConfig,
@@ -725,6 +746,7 @@ async function ensureHarmonyHdcInToolsDir(
     try {
       const copied = await copyHarmonyToolBundle(fromPath, toolsDir);
       if (await pathExists(hdcPath)) {
+        await ensureHarmonyWindowsLibusb(toolsDir, onLogLine);
         onLogLine?.(
           `[harmony] 已从 PATH 复制 hdc 到 tools: ${hdcPath}${copied > 1 ? `（同目录 ${copied} 个文件）` : ""}`
         );
@@ -733,6 +755,13 @@ async function ensureHarmonyHdcInToolsDir(
     } catch (error) {
       onLogLine?.(`[harmony][warn] 从 PATH 复制 hdc 失败: ${briefErrorMessage(error)}`);
     }
+  }
+
+  if (process.platform !== "win32") {
+    onLogLine?.(
+      "[harmony][warn] 当前系统为 Linux/macOS，未内置 hdc 自动下载。请自行安装 hdc 并确保命令可执行（或放入 tools/、设置 ADA_TOOLS_DIR）。"
+    );
+    return;
   }
 
   const urls = parseHarmonyHdcDownloadUrls(config);
@@ -745,6 +774,7 @@ async function ensureHarmonyHdcInToolsDir(
   for (const url of urls) {
     const ok = await tryDownloadHarmonyHdcFromUrl(url, toolsDir, onLogLine);
     if (ok) {
+      await ensureHarmonyWindowsLibusb(toolsDir, onLogLine);
       return;
     }
   }
