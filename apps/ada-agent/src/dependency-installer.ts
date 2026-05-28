@@ -574,6 +574,25 @@ function hdcBinaryName(): string {
   return process.platform === "win32" ? "hdc.exe" : "hdc";
 }
 
+function normalizeDownloadUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "github.com" && parsed.pathname.includes("/blob/")) {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 5) {
+        const owner = parts[0];
+        const repo = parts[1];
+        const branch = parts[3];
+        const filePath = parts.slice(4).join("/");
+        return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+      }
+    }
+  } catch {
+    // keep original URL when parsing fails
+  }
+  return url;
+}
+
 function isZipDownloadUrl(url: string): boolean {
   try {
     const pathname = new URL(url).pathname;
@@ -647,14 +666,15 @@ async function tryDownloadHarmonyHdcFromUrl(
 ): Promise<boolean> {
   const hdcName = hdcBinaryName();
   const hdcPath = path.join(toolsDir, hdcName);
-  onLogLine?.(`[harmony] 尝试下载 hdc: ${url}`);
+  const resolvedUrl = normalizeDownloadUrl(url);
+  onLogLine?.(`[harmony] 尝试下载 hdc: ${resolvedUrl}`);
 
-  if (isZipDownloadUrl(url)) {
+  if (isZipDownloadUrl(resolvedUrl)) {
     const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ada-harmony-hdc-"));
     const zipPath = path.join(tmpRoot, "hdc-tools.zip");
     const extractDir = path.join(tmpRoot, "extract");
     try {
-      const fetched = await downloadFileWithTimeout(url, zipPath);
+      const fetched = await downloadFileWithTimeout(resolvedUrl, zipPath);
       if (!fetched.ok) {
         onLogLine?.(`[harmony][warn] ZIP 下载失败: ${fetched.error}`);
         return false;
@@ -677,7 +697,7 @@ async function tryDownloadHarmonyHdcFromUrl(
     }
   }
 
-  const fetched = await downloadFileWithTimeout(url, hdcPath);
+  const fetched = await downloadFileWithTimeout(resolvedUrl, hdcPath);
   if (!fetched.ok) {
     onLogLine?.(`[harmony][warn] 下载失败: ${fetched.error}`);
     return false;
@@ -717,7 +737,9 @@ async function ensureHarmonyHdcInToolsDir(
 
   const urls = parseHarmonyHdcDownloadUrls(config);
   if (urls.length === 0) {
-    onLogLine?.("[harmony][warn] 未配置 hdc 下载地址（ADA_HARMONY_HDC_DOWNLOAD_URLS / dependencies.harmonyHdcDownloadUrls）");
+    onLogLine?.(
+      "[harmony][warn] 未配置 hdc 下载地址（ADA_HARMONY_HDC_DOWNLOAD_URLS / dependencies.harmonyHdcDownloadUrls），请手动下载 hdc 并放到 tools/（或设置 ADA_TOOLS_DIR）"
+    );
     return;
   }
   for (const url of urls) {
@@ -726,7 +748,9 @@ async function ensureHarmonyHdcInToolsDir(
       return;
     }
   }
-  onLogLine?.("[harmony][warn] 自动下载 hdc 未成功，请手动放入 tools/ 或设置 ADA_TOOLS_DIR");
+  onLogLine?.(
+    `[harmony][warn] 自动下载 hdc 未成功。请手动下载并放入 ${hdcPath}（或设置 ADA_TOOLS_DIR 指向已包含 hdc 的目录）`
+  );
 }
 
 function browserArg(config: AgentConfig): string {

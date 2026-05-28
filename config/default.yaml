@@ -76,11 +76,9 @@ dependencies:
   chromedriverVersion: "latest" # 如 137、135、match-chrome（匹配本机 Chrome 主版本）
   # 纯血鸿蒙工具（hdc 等），相对工作区根目录；也可用环境变量 ADA_TOOLS_DIR 覆盖
   toolsDir: "tools"
-  # 可选：自动下载 hdc 的候选 URL（仅 install-deps --only=harmony / --only=all 时使用）
-  # 支持直链 .exe / 二进制，或 .zip（下载后自动解压并查找 hdc）
-  # harmonyHdcDownloadUrls:
-  #   - "https://your-internal-mirror/hdc-tools.zip"
-  #   - "https://your-internal-mirror/hdc.exe"
+  # install-deps --only=harmony / --only=all 时自动下载 hdc（支持 .zip 或直链；GitHub blob 链接会自动转 raw）
+  harmonyHdcDownloadUrls:
+    - "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
 
 appium:
   serverUrl: "http://127.0.0.1:4723"

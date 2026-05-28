@@ -88,7 +88,9 @@ export const defaultConfig: AgentConfig = {
     geckodriverVersion: "latest",
     chromedriverVersion: "match-chrome",
     toolsDir: "tools",
-    harmonyHdcDownloadUrls: []
+    harmonyHdcDownloadUrls: [
+      "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
+    ]
   },
   appium: {
     serverUrl: "http://127.0.0.1:4723",
