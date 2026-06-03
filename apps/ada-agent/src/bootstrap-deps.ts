@@ -2,20 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import {
+  applyPersistedDownloadProbeFromState,
+  applyAdaToolsToProcessEnv,
   ensureDriverDependencies,
+  resolveInstallContextCwd,
   type EnsureInstallOptions,
   type InstallScope
-} from "./dependency-installer.js";
+} from "@ada/install-deps";
 import type { AgentConfig } from "./types.js";
 import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "@ada/download-probe";
-import { applyPersistedDownloadProbeFromState } from "./dependency-installer.js";
-import { applyAdaToolsToProcessEnv } from "./tools-paths.js";
-import { resolveInstallContextCwd } from "./deps-install-paths.js";
 
 const INSTALL_SCOPE_TOKENS = new Set<InstallScope>([
   "playwright",
-  "selenium",
-  "appium",
   "drivers",
   "mobile",
   "android",
@@ -37,7 +35,7 @@ function isFalsy(v: string | undefined): boolean {
   return s === "0" || s === "false" || s === "no" || s === "off" || s === "skip" || s === "none";
 }
 
-/** 解析安装范围：未配置时默认仅 playwright；skip/none 表示跳过 */
+/** 解析安装范围：未配置时默认仅 playwright（MCP 冷启动轻量安装）；移动端需显式 `mobile`/`android`/`ios`/`harmony`/`all`；skip/none 表示跳过 */
 export function parseInstallDepsSpec(raw: string | undefined): InstallScope[] | null {
   const trimmed = String(raw ?? "").trim();
   if (!trimmed) {
@@ -82,21 +80,7 @@ export function resolveBootstrapInstallDeps(argv: string[]): InstallDepsParseRes
     argv.includes("--install-deps-force") ||
     isTruthy(process.env.ADA_MCP_INSTALL_DEPS_FORCE);
 
-  const extras: EnsureInstallOptions = {};
-  const gecko =
-    argv.find((x) => x.startsWith("--geckodriver-version="))?.slice("--geckodriver-version=".length) ??
-    process.env.ADA_MCP_GECKODRIVER_VERSION;
-  const chrome =
-    argv.find((x) => x.startsWith("--chromedriver-version="))?.slice("--chromedriver-version=".length) ??
-    process.env.ADA_MCP_CHROMEDRIVER_VERSION;
-  const nativeDir =
-    argv.find((x) => x.startsWith("--native-drivers-dir="))?.slice("--native-drivers-dir=".length) ??
-    process.env.ADA_MCP_NATIVE_DRIVERS_DIR;
-  if (gecko) extras.geckodriverVersion = gecko;
-  if (chrome) extras.chromedriverVersion = chrome;
-  if (nativeDir) extras.nativeDriversDir = nativeDir;
-
-  return { skip: false, scopes, force, extras };
+  return { skip: false, scopes, force, extras: {} };
 }
 
 const PREINSTALL_PLAYWRIGHT_HOST_ALLOW = new Set<string>([...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES]);

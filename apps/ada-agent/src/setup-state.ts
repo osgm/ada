@@ -1,6 +1,8 @@
 import type { AgentConfig, BootstrapInput, SecretRecord } from "./types.js";
 import { loadConfig, saveEffectiveConfig } from "./config.js";
+import { isDeviceAutoScanEnabled, scanAndPersistDevices } from "./device-store.js";
 import { loadSecret, saveSecret } from "./secrets.js";
+import { log } from "./logger.js";
 
 /** 仅更新远程管理平台地址与 API Key，其余密钥字段尽量保留 */
 export async function patchRemoteCredentials(serverUrl: string, token?: string): Promise<void> {
@@ -83,10 +85,6 @@ export function mergeBootstrapIntoConfig(base: AgentConfig, input: BootstrapInpu
       playwrightBrowser: pw.playwrightBrowser,
       playwrightInstallTargets: pw.playwrightInstallTargets
     },
-    appium:
-      dep?.appiumServerUrl !== undefined && dep.appiumServerUrl.trim()
-        ? { ...base.appium, serverUrl: dep.appiumServerUrl.trim() }
-        : base.appium,
     ...(dep?.graphicsEnabled !== undefined
       ? {
           graphics: {
@@ -118,5 +116,27 @@ export async function persistAgentSetup(config: AgentConfig, input: BootstrapInp
   await saveSecret(secret, config.bootstrapUI.secretsProvider);
   const updated = mergeBootstrapIntoConfig(config, input);
   await saveEffectiveConfig(updated);
+  if (isDeviceAutoScanEnabled(updated, "setup")) {
+    try {
+      const { registry, file } = await scanAndPersistDevices(updated, {
+        deviceTags: input.deviceTags,
+        applyEnv: true
+      });
+      log("info", {
+        event: "devices.scan.after_setup",
+        details: {
+          file,
+          count: registry.devices.length,
+          defaults: registry.defaults,
+          authorized: registry.devices.filter((d) => d.authorized).length
+        }
+      });
+    } catch (error) {
+      log("warn", {
+        event: "devices.scan.after_setup.failed",
+        details: { reason: error instanceof Error ? error.message : String(error) }
+      });
+    }
+  }
   return updated;
 }

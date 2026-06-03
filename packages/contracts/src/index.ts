@@ -1,12 +1,13 @@
 export type Platform = "web" | "android" | "ios" | "harmony";
 
 /** Desktop web automation backend (routed by plugin-host when platform=web). */
-export type WebEngine = "playwright" | "selenium";
+export type WebEngine = "playwright";
 
 export type CommandType =
   | "click"
   | "type"
   | "swipe"
+  | "pinch"
   | "assertVisible"
   | "screenshot"
   | "navigate"
@@ -25,11 +26,17 @@ export type CommandType =
   | "back"
   | "reload"
   | "closeTab"
+  /** @deprecated 使用 pressHome（系统 Home 键） */
   | "home"
+  | "pressHome"
   | "launchApp"
-  | "terminateApp"
+  | "exitApp"
+  /** 移动 UI 配方：fill_search / dump_ui / tap_search */
+  | "recipe"
   | "custom"
-  | "invoke";
+  | "invoke"
+  /** 设备管理：listApps / install / push / shell 等（payload.action） */
+  | "deviceAdmin";
 
 export type InvokeMode = "method" | "http";
 
@@ -39,7 +46,7 @@ export interface InvokeHttpPayload {
   body?: unknown;
 }
 
-/** Unified driver RPC payload (Playwright method mode or Appium HTTP mode). */
+/** Unified driver RPC payload (Playwright method mode or adapter HTTP mode). */
 export interface InvokePayload {
   mode?: InvokeMode;
   target?: string;
@@ -48,7 +55,7 @@ export interface InvokePayload {
   http?: InvokeHttpPayload;
   locator?: Record<string, unknown>;
   options?: Record<string, unknown>;
-  /** Legacy Appium custom HTTP block; normalized by @ada/driver-rpc */
+  /** Legacy custom HTTP block; normalized by @ada/driver-rpc */
   custom?: InvokeHttpPayload;
 }
 
@@ -107,14 +114,27 @@ export interface ArtifactIndex {
   items: ArtifactItem[];
 }
 
+export type {
+  LocatorV2,
+  ViewBounds,
+  ViewControlConfig,
+  ViewControlMode,
+  ViewDriverCapabilities,
+  ViewNode,
+  ViewRef,
+  ViewSnapshot
+} from "./view-control.js";
+
 export interface PluginManifest {
   id: string;
   version: string;
   platforms: Platform[];
   capabilities: string[];
-  engine: "playwright" | "appium" | "selenium" | "harmony";
+  engine: "playwright" | "android" | "ios" | "harmony";
   /** L1 semantic commands exposed by this driver */
   semanticCommands?: string[];
   /** L2 native RPC passthrough */
   invoke?: PluginInvokeManifest;
+  /** Optional view-control capabilities (observeSnapshot, resolveLocator, actOnView) */
+  viewCapabilities?: string[];
 }

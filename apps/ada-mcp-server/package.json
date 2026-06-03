@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.51",
+  "version": "0.1.53",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "private": false,
   "type": "commonjs",
@@ -25,9 +25,9 @@
   "scripts": {
     "preinstall": "node scripts/preinstall-probes.mjs",
     "dev": "tsx src/cli.ts",
-    "prebuild": "node ../../scripts/generate-bundled-config.mjs",
+    "prebuild": "node ../../scripts/build/generate-bundled-config.mjs",
     "build": "tsc -p tsconfig.json",
-    "build:npm": "node ../../scripts/build-mcp-npm.mjs",
+    "build:npm": "node ../../scripts/build/build-mcp-npm.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "prepublishOnly": "npm run build:npm",
     "pack:dry-run": "npm run build:npm && npm pack --dry-run"
@@ -42,20 +42,21 @@
     "jimp": "^1.6.0",
     "js-yaml": "^4.1.0",
     "hypium-driver": "^6.1.210",
-    "playwright": "1.59.1",
-    "selenium-webdriver": "^4.34.0"
+    "playwright": "1.59.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@ada/install-deps": "0.1.0",
+    "@ada/runtime-probe": "0.1.0",
     "@ada/agent-core": "0.1.0",
     "@ada/agent": "0.1.0",
     "@ada/contracts": "0.1.0",
     "@ada/core-kernel": "0.1.0",
     "@ada/core-runtime": "0.1.0",
-    "@ada/driver-appium": "0.1.0",
+    "@ada/driver-android": "0.1.0",
+    "@ada/driver-ios": "0.1.0",
     "@ada/driver-harmony": "0.1.0",
     "@ada/driver-playwright": "0.1.0",
-    "@ada/driver-selenium": "0.1.0",
     "@ada/plugin-host": "0.1.0"
   },
   "engines": {

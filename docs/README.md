@@ -8,10 +8,12 @@
 | [`ADA-部署手册.md`](ADA-部署手册.md) | 运维 / 实施 | 安装、启动、依赖、排障与发布验证 |
 | [`ADA-MCP-接入手册.md`](ADA-MCP-接入手册.md) | MCP 集成方 | 工具列表、Host 配置、镜像与环境变量 |
 | [`ADA-开发手册.md`](ADA-开发手册.md) | 研发 / 测试 | 本地开发、测试门禁、驱动规范 |
+| [`ADA-语义命令对照.md`](ADA-语义命令对照.md) | 脚本 / MCP 集成 | L0 流利 API ↔ MCP 工具 ↔ 语义命令 |
+| [`DEPRECATED-APIS.md`](DEPRECATED-APIS.md) | 脚本 / MCP 集成 | 已移除 API 与替代方式 |
 | [`ADA-GUI-操作手册.md`](ADA-GUI-操作手册.md) | 终端用户（Windows 发布包） | 四个 `.exe` 的用途与配置 |
 | [`Playwright-ADA-兼容映射.md`](Playwright-ADA-兼容映射.md) | MCP / 自动化迁移 | Playwright 步骤到 ADA MCP 的映射 |
 
-整体架构示意图见 [`ADA-架构设计方案.md`](ADA-架构设计方案.md) 第 3 节「总体架构」。
+整体架构示意图见 [`ADA-架构设计方案.md`](ADA-架构设计方案.md) 第 3 节「总体架构」；可视化蓝图见仓库根目录 [`canvases/ada-architecture-blueprint.canvas.tsx`](../canvases/ada-architecture-blueprint.canvas.tsx)（与 §17.1 驱动执行层一致）。**实现**在 `apps/ada-agent`，**对外能力导出**在 `packages/agent-core`。
 
 ## 使用建议
 

@@ -1,0 +1,14 @@
+[
+  {
+    "requestId": "android-invoke-real-adb-state",
+    "sessionId": "session-android-real",
+    "platform": "android",
+    "command": "invoke",
+    "payload": {
+      "mode": "method",
+      "target": "adb",
+      "method": "getState",
+      "args": []
+    }
+  }
+]

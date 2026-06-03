@@ -10,7 +10,6 @@ node_modules/
 # Build outputs
 node_modules/
 release/
-APPIUM_HOME/
 ANDROID_HOME/
 dist/
 release/

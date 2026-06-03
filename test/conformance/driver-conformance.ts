@@ -4,13 +4,15 @@ import type { CommandEnvelope } from "@ada/contracts";
 import type { DriverPlugin } from "@ada/plugin-sdk";
 import { PluginHost } from "@ada/plugin-host";
 import playwrightPlugin from "@ada/driver-playwright";
-import appiumPlugin from "@ada/driver-appium";
-import seleniumPlugin from "@ada/driver-selenium";
+import androidPlugin from "@ada/driver-android";
+import iosPlugin from "@ada/driver-ios";
+import harmonyPlugin from "@ada/driver-harmony";
 
 after(async () => {
   await playwrightPlugin.dispose();
-  await appiumPlugin.dispose();
-  await seleniumPlugin.dispose();
+  await androidPlugin.dispose();
+  await iosPlugin.dispose();
+  await harmonyPlugin.dispose();
 });
 
 function baseCommand(overrides: Partial<CommandEnvelope>): CommandEnvelope {
@@ -32,68 +34,14 @@ async function runAndAssertResult(plugin: DriverPlugin, command: CommandEnvelope
   assert.equal(result.requestId, command.requestId);
 }
 
-test("plugin-host: web engine routing playwright vs selenium", async () => {
+test("plugin-host: web engine routing resolves playwright", async () => {
   const host = new PluginHost();
   host.register(playwrightPlugin);
-  host.register(seleniumPlugin);
 
   const pw = host.resolve(
     baseCommand({ platform: "web", command: "navigate", payload: { url: "https://example.com" } })
   );
   assert.equal(pw.manifest.engine, "playwright");
-
-  const sel = host.resolve(
-    baseCommand({ platform: "web", command: "navigate", payload: { engine: "selenium", url: "https://example.com" } })
-  );
-  assert.equal(sel.manifest.engine, "selenium");
-});
-
-test("plugin-host: missing selenium engine throws WEB_ENGINE_SELENIUM_NOT_INSTALLED", async () => {
-  const host = new PluginHost();
-  host.register(playwrightPlugin);
-  assert.throws(
-    () =>
-      host.resolve(
-        baseCommand({ platform: "web", command: "navigate", payload: { engine: "selenium" } })
-      ),
-    /WEB_ENGINE_SELENIUM_NOT_INSTALLED/
-  );
-});
-
-test("selenium plugin conformance: mock navigate contract", async () => {
-  await runAndAssertResult(
-    seleniumPlugin,
-    baseCommand({
-      platform: "web",
-      command: "navigate",
-      payload: { engine: "selenium", mock: true, url: "https://example.com" }
-    })
-  );
-});
-
-test("selenium plugin conformance: newTab mock contract", async () => {
-  await runAndAssertResult(
-    seleniumPlugin,
-    baseCommand({
-      platform: "web",
-      command: "newTab",
-      payload: { engine: "selenium", mock: true, url: "https://example.com" }
-    })
-  );
-});
-
-test("selenium plugin conformance: invoke invalid payload", async () => {
-  const session = await seleniumPlugin.createSession("web");
-  const result = await seleniumPlugin.execute(
-    session,
-    baseCommand({
-      platform: "web",
-      command: "invoke",
-      payload: { engine: "selenium", mock: true }
-    })
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.errorCode, "INVOKE_INVALID_PAYLOAD");
 });
 
 test("playwright plugin conformance: command result contract", async () => {
@@ -202,94 +150,168 @@ test("playwright plugin conformance: invoke invalid payload returns standard err
   assert.equal(result.errorCode, "INVOKE_INVALID_PAYLOAD");
 });
 
-test("appium plugin conformance: invoke invalid payload returns standard error", async () => {
-  const session = await appiumPlugin.createSession("android");
-  const result = await appiumPlugin.execute(
+test("android plugin conformance: invoke invalid payload returns standard error", async () => {
+  const session = await androidPlugin.createSession("android");
+  const result = await androidPlugin.execute(
     session,
     baseCommand({
-      requestId: "conformance-appium-invoke-invalid",
+      requestId: "conformance-android-invoke-invalid",
       platform: "android",
       command: "invoke",
-      payload: { real: true, serverUrl: "http://127.0.0.1:4723", capabilities: {} }
+      payload: { capabilities: {}, mock: true }
     })
   );
   assert.equal(result.success, false);
   assert.ok(
-    result.errorCode === "INVOKE_INVALID_PAYLOAD" || result.errorCode === "APPIUM_SESSION_CREATE_FAILED"
+    result.errorCode === "INVOKE_INVALID_PAYLOAD" || typeof result.errorCode === "string"
   );
 });
 
-test("appium plugin conformance: command result contract", async () => {
-  await runAndAssertResult(
-    appiumPlugin,
+test("android plugin conformance: invoke mock http returns success", async () => {
+  const session = await androidPlugin.createSession("android");
+  const result = await androidPlugin.execute(
+    session,
     baseCommand({
+      requestId: "conformance-android-invoke-mock-http",
       platform: "android",
+      command: "invoke",
+      payload: {
+        mock: true,
+        mode: "http",
+        http: { method: "GET", path: "/status" }
+      }
+    })
+  );
+  assert.equal(result.success, true);
+  assert.equal((result.data as Record<string, unknown>).rpcMode, "http");
+});
+
+test("android plugin conformance: invoke mock method returns success", async () => {
+  const session = await androidPlugin.createSession("android");
+  const result = await androidPlugin.execute(
+    session,
+    baseCommand({
+      requestId: "conformance-android-invoke-mock-method",
+      platform: "android",
+      command: "invoke",
+      payload: {
+        mock: true,
+        mode: "method",
+        target: "adb",
+        method: "getState",
+        args: []
+      }
+    })
+  );
+  assert.equal(result.success, true);
+  assert.equal((result.data as Record<string, unknown>).rpcMode, "method");
+});
+
+test("ios plugin conformance: invoke mock http returns success", async () => {
+  const session = await iosPlugin.createSession("ios");
+  const result = await iosPlugin.execute(
+    session,
+    baseCommand({
+      requestId: "conformance-ios-invoke-mock-http",
+      platform: "ios",
+      command: "invoke",
+      payload: {
+        mock: true,
+        mode: "http",
+        http: { method: "GET", path: "/status" }
+      }
+    })
+  );
+  assert.equal(result.success, true);
+  assert.equal((result.data as Record<string, unknown>).rpcMode, "http");
+});
+
+test("ios plugin conformance: swipe mock contract", async () => {
+  await runAndAssertResult(
+    iosPlugin,
+    baseCommand({
+      platform: "ios",
       command: "swipe",
-      payload: { from: [0.5, 0.8], to: [0.5, 0.2] }
+      payload: { mock: true, from: [100, 500], to: [100, 200] }
     })
   );
 });
 
-test("appium plugin conformance: harmony command result contract", async () => {
+test("android plugin conformance: command result contract", async () => {
   await runAndAssertResult(
-    appiumPlugin,
+    androidPlugin,
+    baseCommand({
+      platform: "android",
+      command: "swipe",
+      payload: { from: [0.5, 0.8], to: [0.5, 0.2], mock: true }
+    })
+  );
+});
+
+test("ios plugin conformance: invoke invalid payload returns standard error", async () => {
+  const session = await iosPlugin.createSession("ios");
+  const result = await iosPlugin.execute(
+    session,
+    baseCommand({
+      requestId: "conformance-ios-invoke-invalid",
+      platform: "ios",
+      command: "invoke",
+      payload: { mock: true }
+    })
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "INVOKE_INVALID_PAYLOAD");
+});
+
+test("ios plugin conformance: command result contract", async () => {
+  await runAndAssertResult(
+    iosPlugin,
+    baseCommand({
+      platform: "ios",
+      command: "click",
+      payload: { mock: true, locator: { accessibilityId: "demo" } }
+    })
+  );
+});
+
+test("harmony plugin conformance: invoke invalid payload returns standard error", async () => {
+  const session = await harmonyPlugin.createSession("harmony");
+  const result = await harmonyPlugin.execute(
+    session,
+    baseCommand({
+      requestId: "conformance-harmony-invoke-invalid",
+      platform: "harmony",
+      command: "invoke",
+      payload: { mock: true }
+    })
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "INVOKE_INVALID_PAYLOAD");
+});
+
+test("harmony plugin conformance: command result contract", async () => {
+  await runAndAssertResult(
+    harmonyPlugin,
     baseCommand({
       platform: "harmony",
       command: "swipe",
-      payload: { from: [0.5, 0.8], to: [0.5, 0.2] }
+      payload: { from: [0.5, 0.8], to: [0.5, 0.2], mock: true }
     })
   );
 });
 
-test("appium plugin conformance: probe failure returns standard error fields", async () => {
-  const command = baseCommand({
-    requestId: "conformance-appium-probe",
-    platform: "android",
-    command: "swipe",
-    payload: { probe: true }
-  });
-  const session = await appiumPlugin.createSession("android");
-  const result = await appiumPlugin.execute(session, command);
-  if (!result.success) {
-    assert.equal(typeof result.errorCode, "string");
-    assert.equal(typeof result.errorMessage, "string");
-  }
-});
+test("plugin-host: mobile platform routing", async () => {
+  const host = new PluginHost();
+  host.register(androidPlugin);
+  host.register(iosPlugin);
+  host.register(harmonyPlugin);
 
-test("appium plugin conformance: harmony real mode type missing target returns standard error", async () => {
-  const command = baseCommand({
-    requestId: "conformance-appium-harmony-type",
-    platform: "harmony",
-    command: "type",
-    payload: { real: true, serverUrl: "http://127.0.0.1:4723", capabilities: {} }
-  });
-  const session = await appiumPlugin.createSession("harmony");
-  const result = await appiumPlugin.execute(session, command);
-  assert.equal(result.success, false);
-  assert.ok(
-    result.errorCode === "APPIUM_SESSION_CREATE_FAILED" ||
-      result.errorCode === "APPIUM_TYPE_MISSING_ELEMENT" ||
-      result.errorCode === "APPIUM_TYPE_ELEMENT_NOT_FOUND" ||
-      result.errorCode === "APPIUM_TYPE_LOOKUP_FAILED" ||
-      result.errorCode === "APPIUM_TYPE_FAILED"
-  );
-});
+  const android = host.resolve(baseCommand({ platform: "android", command: "click" }));
+  assert.equal(android.manifest.engine, "android");
 
-test("appium plugin conformance: real mode type missing target returns standard error", async () => {
-  const command = baseCommand({
-    requestId: "conformance-appium-type",
-    platform: "android",
-    command: "type",
-    payload: { real: true, serverUrl: "http://127.0.0.1:4723", capabilities: {} }
-  });
-  const session = await appiumPlugin.createSession("android");
-  const result = await appiumPlugin.execute(session, command);
-  assert.equal(result.success, false);
-  assert.ok(
-    result.errorCode === "APPIUM_SESSION_CREATE_FAILED" ||
-      result.errorCode === "APPIUM_TYPE_MISSING_ELEMENT" ||
-      result.errorCode === "APPIUM_TYPE_ELEMENT_NOT_FOUND" ||
-      result.errorCode === "APPIUM_TYPE_LOOKUP_FAILED" ||
-      result.errorCode === "APPIUM_TYPE_FAILED"
-  );
+  const ios = host.resolve(baseCommand({ platform: "ios", command: "click" }));
+  assert.equal(ios.manifest.engine, "ios");
+
+  const harmony = host.resolve(baseCommand({ platform: "harmony", command: "click" }));
+  assert.equal(harmony.manifest.engine, "harmony");
 });

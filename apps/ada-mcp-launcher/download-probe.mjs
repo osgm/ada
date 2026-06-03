@@ -1,6 +1,6 @@
 /**
  * 内联 @ada/download-probe（零 npm 依赖；与 packages/download-probe 保持同步）
- * 同步：node ../../scripts/sync-download-probe-vendor.mjs
+ * 同步：node ../../scripts/build/sync-download-probe-vendor.mjs
  */
 
 /**

@@ -15,7 +15,7 @@
 
 以下场景需要安装：
 
-- 在 GUI 中使用“安装依赖（Playwright / Appium / Drivers）”功能
+- 在 GUI 中使用“安装依赖（Playwright / Mobile Drivers）”功能
 - 需要本机执行 npm 相关安装/探测动作
 - 需要直接运行仓库内脚本（开发/调试场景）
 
@@ -28,7 +28,7 @@
 
 以下场景需要安装：
 
-- 使用 Android 设备 + Appium（UiAutomator2）执行真实移动端操作
+- 使用 Android 设备 + UIAutomator2 通道执行真实移动端操作
 - 需要通过 `ada-mcp-win.exe` 读取手机信息（如 App 列表、截图等真实设备能力）
 
 以下场景通常不强制要求：
@@ -47,7 +47,7 @@
 
 ### 2.1 在 GUI 中配置 `ANDROID_HOME`
 
-当你需要使用移动端能力（Appium / adb）时，建议先在 GUI 中配置 Android SDK 路径：
+当你需要使用移动端能力（adb / WDA / hdc）时，建议先在 GUI 中配置 Android SDK 路径：
 
 1. 打开 `ada-gui-win.exe`，展开“远程管理平台（可选）”区域。
 2. 在 `ANDROID_HOME` 输入框中直接填写 SDK 目录，或点击“选择目录”。

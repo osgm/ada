@@ -65,17 +65,15 @@ chmod +x ./ada-agent
 
 默认情况下，`ada-agent` 在启动时会自动检查并安装：
 
-- `playwright`
-- `appium`（默认 3+）
-- Playwright 浏览器（默认 `chrome`，可配置多选）
-- Appium drivers（默认 `uiautomator2`、`xcuitest`、`harmonyos`）
+- `playwright` 与 Playwright 浏览器（默认 `chrome`，可配置多选）
+- `hypium-driver`（HarmonyOS NEXT）
+- 移动运行时：`adb`（Android）、`xcrun`/WDA（iOS）、`hdc`（Harmony）
 
 当前项目运行时基线：
 
 - Node.js `>=22`（默认 Node.js 22）
 - npm `>=10`
-- Java：OpenJDK 11（Android + Appium 场景）
-- Appium 默认版本线：`3+`
+- Java：OpenJDK 11（Android UIA2 场景可选）
 
 安装策略顺序（自动回退）：
 
@@ -86,7 +84,7 @@ chmod +x ./ada-agent
 
 安装前会自动探测并选择最快地址：
 
-- Appium/npm 依赖：从 registry 候选中测速后选最快
+- npm 依赖：从 registry 候选中测速后选最快
 - Playwright 浏览器：从下载 host 候选中测速后选最快
 
 安装过程会输出阶段进度日志（`deps.progress`），用于定位当前执行阶段：
@@ -95,7 +93,7 @@ chmod +x ./ada-agent
 - `playwright.host.probe.*`
 - `packages.install.*`
 - `playwright.browser.install.*`
-- `appium.driver.install.*`
+- `mobile.driver.install.*`
 
 关键阶段会带序号标签（如 `[1/7]`、`[4/7]`），便于快速识别当前执行进度。
 
@@ -103,16 +101,6 @@ chmod +x ./ada-agent
 
 - `ADA_INSTALL_STRATEGY_TIMEOUT_MS`（默认 `120000` 毫秒，npm/pnpm 装包）
 - `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`（默认 `900000` 毫秒，`playwright install` 下载浏览器）
-
-Appium driver 兼容性优化（默认开启）：
-
-- 若检测到当前 Appium 为 2.x（历史环境），会自动尝试安装兼容版本的 driver 包
-- 可通过环境变量覆盖兼容版本范围：
-  - `ADA_APPIUM_DRIVER_RANGE_UIAUTOMATOR2`（默认 `<3`）
-  - `ADA_APPIUM_DRIVER_RANGE_XCUITEST`（默认 `<8`）
-- 也可直接覆盖安装包规格（仅历史 2.x 环境建议使用）：
-  - `ADA_APPIUM_DRIVER_SPEC_UIAUTOMATOR2`（默认 `appium-uiautomator2-driver@2`）
-  - `ADA_APPIUM_DRIVER_SPEC_XCUITEST`（默认 `appium-xcuitest-driver@7`）
 
 可通过环境变量覆盖代理地址（`install-deps` / 启动时自动安装阶段会**测速选最快**；`pnpm dlx` 拉包本身不探测，见 `docs/ADA-MCP-接入手册.md` §5）：
 
@@ -127,7 +115,7 @@ Appium driver 兼容性优化（默认开启）：
 | `ADA_INSTALL_STRATEGY_TIMEOUT_MS` | npm/pnpm 装包超时（默认 `120000`） |
 | `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS` | `playwright install` 超时（默认 `900000`） |
 
-配置文件 `config/default.yaml` → `dependencies.npmRegistryCandidates` 默认含阿里云(npmmirror)、腾讯云、华为云、npm 官方（按优先级测速）；**无需配置环境变量即可探测**。MCP npm 包无工作区时使用内置同序列表（见 `dependency-installer.ts`）。
+配置文件 `config/default.yaml` → `dependencies.npmRegistryCandidates` 默认含阿里云(npmmirror)、腾讯云、华为云、npm 官方（按优先级测速）；**无需配置环境变量即可探测**。MCP npm 包无工作区时使用内置同序列表（见 `packages/install-deps`）。
 
 执行命令：
 
@@ -166,7 +154,7 @@ Windows:
 - 自动安装前先检查依赖是否缺失；仅对缺失项执行安装。
 - 安装策略固定按顺序回退：`pnpm` -> `pnpm(代理)` -> `npm` -> `npm(代理)`。
 - 在国内网络环境下优先走 pnpm 与镜像代理以提升成功率与速度。
-- `--only` 支持：`all`、`playwright`、`mobile`、`android`、`ios`、`harmony`、`appium`、`drivers`。
+- `--only` 支持：`all`、`playwright`、`mobile`、`android`、`ios`、`harmony`、`drivers`。
 
 分步安装（提速/排障推荐）：
 
@@ -178,6 +166,12 @@ Windows:
 ./ada-agent install-deps --only=mobile
 ```
 
+**语义说明**：
+
+- `--only=playwright`：安装/检查 Playwright npm 包与浏览器运行时。
+- `--only=android|ios|harmony|mobile|drivers`：**环境/工具链检查**（`adb`、xcrun/WDA、`hdc`、`hypium-driver` 等），写入 `installedDrivers` / `failedDrivers` 摘要；**不会**安装 Appium、Selenium 或中心化移动 Server。
+- `doctor` 与 `install-deps` 的移动检查范围不同：`doctor` 受 `monitoring.platforms` 控制（默认仅 `web`）；`require-real` / MCP 预检按**任务平台**探测运行时。
+
 强制忽略阶段缓存重装：
 
 ```bash
@@ -188,14 +182,16 @@ Windows:
 
 - `scope`：本次安装范围
 - `installedPackages` / `skippedPackages`：包安装结果
-- `requestedDrivers` / `installedDrivers` / `skippedDrivers`：驱动安装结果
+- `requestedDrivers` / `installedDrivers` / `skippedDrivers` / `failedDrivers`：运行时组件（浏览器、hdc、adb、xcrun）检查结果
+- `summaryLines`：面向 GUI/Web 的中文摘要行（如「已就绪: Playwright 浏览器」）
+- `bestNpmRegistry` / `bestPlaywrightDownloadHost`：测速后写入 state 的镜像地址
 - `elapsedMs`：耗时
 
 `install-deps` 执行后会自动做基础自检：
 
 - Playwright 浏览器启动自检（headless about:blank）
-- Appium 本地包可用性自检（读取已安装版本）
-- Appium drivers 检查与缺失自动安装
+- 移动运行时检查（`adb` / `xcrun` / `hdc`）
+- `hypium-driver` 包可用性检查
 
 若自检失败，请按 3.3 章节进行分项手动安装与排查。
 
@@ -203,20 +199,14 @@ Windows:
 
 - `.ada-agent/deps-install-state.json`
 
-### 3.3 手动分项安装（Playwright / Appium）
+### 3.3 手动分项安装（Playwright / Mobile）
 
 若需要分别安装并控制版本，可在 Agent 运行目录手动执行：
 
-#### 3.3.1 安装 Appium
+#### 3.3.1 安装移动驱动依赖
 
 ```bash
-npm install appium
-```
-
-可选验证：
-
-```bash
-npx appium -v
+./ada-agent install-deps --only=mobile
 ```
 
 #### 3.3.2 安装 Playwright
@@ -294,17 +284,21 @@ Windows:
 
 ### 5.0 统一核心层与多入口
 
-当前版本采用统一核心能力层 `agent-core`，其余程序均为入口适配层：
+当前版本采用 **ada-agent 实现 + agent-core 导出 + 多入口适配**：
 
-- `ada-agent`：CLI 入口（命令行运维与任务执行）
-- `ada-mcp`：MCP 入口（经 stdio 供 MCP Host / 大模型客户端调用）
-- `ada-gui`：桌面 GUI 入口（原生窗口）
-- `ada-web`：WEB 控制台入口（浏览器页面）
+- `apps/ada-agent`：核心业务实现（依赖安装、doctor、任务执行、Web 控制台等）
+- `packages/agent-core`：对外稳定导出层，供 MCP/GUI 统一 import
+- `packages/install-deps`：依赖安装实现（npm/浏览器/hdc、`InstallSummary`）；`packages/runtime-probe`：adb/WDA 等运行时探针
+- 入口程序：
+  - `ada-agent`：CLI 入口（命令行运维与任务执行）
+  - `ada-mcp`：MCP 入口（经 stdio 供 MCP Host / 大模型客户端调用）
+  - `ada-gui`：桌面 GUI 入口（原生窗口）
+  - Web 控制台：`ada-agent` 子命令 / 内嵌页面（`web-console.ts`，可打包为 `ada-web.exe`）
 
 说明：
 
-- `health / doctor / install-deps / setup / start / run` 等核心流程由 `agent-core` 统一实现。
-- 多入口只负责协议、交互与展示差异，不再各自维护一套业务逻辑。
+- `health / doctor / install-deps / setup / start / run` 由 `agent-core` 导出，实现位于 `apps/ada-agent`。
+- 多入口只负责协议、交互与展示差异，不重复实现业务流程。
 - GUI 入口调用统一桥接命令：`ada-agent core --action=<health|doctor|setup|install-deps|start>`。
 - WEB 入口通过同一核心能力面提供接口（内部调用 `agent-core`，不再复制业务实现）。
 - MCP 入口已提供核心运维能力接口（如 `ada_health`、`ada_diagnostics`、`ada_install_deps`、`ada_start_once`）。
@@ -349,13 +343,13 @@ Windows:
 ./ada-agent run --file=tasks/web-real.tasks.json --require-real --verify-artifacts
 ```
 
-Appium 连通性探活任务：
+移动链路探活任务：
 
 ```bash
-./ada-agent run --file=tasks/appium-probe.tasks.json
+./ada-agent run --file=tasks/demo.tasks.json
 ```
 
-仓库内任务样例仅保留 `demo.tasks.json`、`web-real.tasks.json`、`appium-probe.tasks.json`；其它场景请自建 `.tasks.json` 或通过 MCP `ada_run_task_file` 调用。
+仓库内任务样例仅保留 `demo.tasks.json`、`web-real.tasks.json`；其它场景请自建 `.tasks.json` 或通过 MCP `ada_run_task_file` 调用。
 
 队列目录默认值：
 
@@ -438,10 +432,10 @@ npm run mcp:dev
 说明：
 
 - `health`：轻量状态查看
-- `doctor`：综合诊断（依赖、端口、队列目录、Appium Server 连通性）
+- `doctor`：综合诊断（依赖、端口、队列目录、移动运行时连通性）
   - 包含 Playwright 浏览器可启动性检查
   - 包含 native bootstrap 命令可达性检查（启用时）
-  - 包含 Java 运行时检查（`java -version`、`JAVA_HOME`），用于 Android + Appium 场景
+  - 包含 Java 运行时检查（`java -version`、`JAVA_HOME`），用于 Android UIA2 场景
 - `start` 运行时会自动打印环境检查日志：
   - `runtime.env.check.start`
   - `runtime.env.check.preflight`
@@ -460,14 +454,13 @@ npm run mcp:dev
 - `dependencies.playwrightBrowser`：`chromium | firefox | webkit | all`
 - `dependencies.playwrightInstallTargets`：Playwright 下载目标数组（如 `["chrome"]`、`["chromium","firefox"]`、`["all"]`）
 - `dependencies.playwrightDownloadHost`：Playwright 浏览器 CDN 默认值（`https://cdn.playwright.dev`）；`playwrightHostCandidates` 含官方 CDN、azureedge、npmmirror 等，install-deps 时测速选取
-- `appium.serverUrl`：Appium Server 地址（`doctor` 会检查连通性）
-- `appium.requiredDrivers`：Appium 必备 driver 列表（默认 `uiautomator2`、`xcuitest`、`harmonyos`）
+- 移动驱动通过 `driver-android` / `driver-ios` / `driver-harmony` 插件配置，不再使用中心化 Server URL
 - `transport.mode`：`auto | stream | http`（默认 `auto`，优先 stream 失败自动回退 http）
 - `transport.streamProtocol`：当前支持 `websocket`
 - `transport.requestPath` / `transport.healthPath` / `transport.streamPath`：远程执行与健康检查路径
 - `transport.requestTimeoutMs`：远程请求超时
 - `monitoring.enabled`：是否开启操作监控（Web/App）
-- `monitoring.platforms`：开启监控的平台范围（如仅 `["web"]`）
+- `monitoring.platforms`：平台范围（默认 `["web"]`）；`doctor` 仅对列表内平台做 adb/xcrun/hdc 等硬性检查，纯 Web 场景保持 `["web"]` 即可
 - `monitoring.sampleEvery`：采样频率（性能优先建议 >1，如 5 表示每 5 条操作监控 1 条）
 - `monitoring.outputDir`：监控截图输出目录
 - `monitoring.onFailureOnly`：仅失败操作抓图（高性能推荐）
@@ -527,10 +520,10 @@ monitoring:
 ./ada-agent health
 ```
 
-若需单独验证 Appium CLI 可用性，可执行：
+若需单独验证移动链路基础可用性，可执行：
 
 ```bash
-./ada-agent run --file=tasks/appium-probe.tasks.json
+./ada-agent run --file=tasks/demo.tasks.json
 ```
 
 若任务报 `require-real check failed`，说明当前执行路径回退到了 mock，
@@ -538,10 +531,9 @@ monitoring:
 
 `require-real` 失败信息已结构化输出，重点字段如下：
 
-- `summary.dependencyMissing`：缺失依赖（如 `playwright` / `appium`）
+- `summary.dependencyMissing`：缺失依赖（如 `playwright` / `hypium-driver`）
 - `summary.browserNotLaunchable`：Playwright 已安装但浏览器无法拉起
-- `summary.appiumCliNotReady`：Appium 包存在但 CLI 检测失败
-- `summary.appiumServerUnreachable`：移动端任务所需 Appium Server 不可达
+- `summary.mobileRuntimeUnready`：移动端运行时不可达（adb/xcrun/hdc）
 - `summary.mockFallbacks`：发生 mock 回退的任务列表
 - `summary.executionFailures`：真实执行失败的任务列表（含 `errorCode`、`errorType`）
 - `summary.executionFailureTypes`：失败类型汇总（`environment` / `locator` / `assertion` / `driver`）
@@ -568,15 +560,15 @@ monitoring:
 
 其中包含失败时间、重试次数、错误信息，可用于回放与排错。
 
-### 8.5 Appium 真实任务执行失败
+### 8.5 移动驱动真实任务执行失败
 
 请按顺序检查：
 
-1. Appium Server 是否可达（默认 `http://127.0.0.1:4723`）
+1. Android：`adb devices`；iOS：`xcrun` / WDA；Harmony：`hdc list targets`
 2. 设备是否已连接并可被对应驱动识别
 3. 任务 JSON 中 capabilities 是否匹配目标设备
-4. 使用 `doctor` 检查 `appium.serverUrl` 连通性
-5. 使用 `appium-probe` 先确认基础可用性
+4. 使用 `doctor` 检查移动运行时连通性
+5. 使用 `demo.tasks.json` 先确认基础可用性
 6. Android 场景额外检查 Java：
    - `java -version` 可执行
    - `doctor` 中 `checks.javaRuntime.ok=true`
@@ -587,11 +579,11 @@ monitoring:
 Harmony 真实执行前，请确认：
 
 1. 设备可被 `hdc list targets` 识别
-2. `appium-harmonyos-driver` 已安装（可执行 `install-deps --only=harmony`）
-3. Appium Server 版本为 3.x，且启动正常
+2. `hypium-driver` 已安装（可执行 `install-deps --only=harmony`）
+3. `hdc` 可达且设备在线
 4. 任务或能力参数中使用：
    - `platformName: harmonyos`
-   - `appium:automationName: harmonyos`
+   - `automationName: harmonyos`
 
 推荐验证顺序：
 
@@ -602,7 +594,7 @@ Harmony 真实执行前，请确认：
 
 常见问题：
 
-- `APPIUM_SESSION_CREATE_FAILED`：优先检查 Appium Server 与 `harmonyos` driver 是否安装
+- `SESSION_CREATE_FAILED`：优先检查 `hdc` 与 `hypium-driver` 是否安装
 - 设备不在线：检查 USB、开发者模式与 `hdc` 连接状态
 - 命令不支持：查看插件能力声明，内核会返回 `DRIVER_CAPABILITY_UNSUPPORTED`
 

@@ -151,7 +151,8 @@ fn emit_mcp_client_config(app: &AppHandle, mcp_exe: &str) {
                 "args": [],
                 "cwd": cwd_str,
                 "env": {
-                    "ADA_PLAYWRIGHT_HEADLESS": "true",
+                    "ADA_PLAYWRIGHT_HEADLESS": "false",
+                    "ADA_PLAYWRIGHT_BRING_TO_FRONT": "true",
                     "ADA_INSTALL_STRATEGY_TIMEOUT_MS": "30000"
                 }
             }
@@ -305,37 +306,10 @@ fn apply_android_home(android_home: String) -> Result<String, String> {
     ))
 }
 
-#[tauri::command]
-fn pick_appium_home_dir() -> Option<String> {
-    rfd::FileDialog::new()
-        .set_title("选择 APPIUM_HOME 目录")
-        .pick_folder()
-        .map(|p| p.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn apply_appium_home(appium_home: String) -> Result<String, String> {
-    let p = appium_home.trim();
-    if p.is_empty() {
-        return Err("APPIUM_HOME 不能为空".to_string());
-    }
-    let path = PathBuf::from(p);
-    if !path.exists() {
-        return Err("APPIUM_HOME 目录不存在".to_string());
-    }
-    if !path.is_dir() {
-        return Err("APPIUM_HOME 必须是目录".to_string());
-    }
-    let home = path.to_string_lossy().to_string();
-    std::env::set_var("APPIUM_HOME", &home);
-    Ok(format!("已设置进程环境变量:\nAPPIUM_HOME={home}"))
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HomeDirs {
     android_home: Option<String>,
-    appium_home: Option<String>,
 }
 
 fn non_empty_env(name: &str) -> Option<String> {
@@ -370,24 +344,10 @@ fn detect_android_home_dir() -> Option<String> {
     None
 }
 
-fn detect_appium_home_dir() -> Option<String> {
-    if let Some(v) = non_empty_env("APPIUM_HOME").and_then(existing_dir) {
-        return Some(v);
-    }
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        let user_home = PathBuf::from(user_profile);
-        if user_home.exists() && user_home.is_dir() {
-            return Some(user_home.to_string_lossy().to_string());
-        }
-    }
-    None
-}
-
 #[tauri::command]
 fn detect_home_dirs() -> HomeDirs {
     HomeDirs {
         android_home: detect_android_home_dir(),
-        appium_home: detect_appium_home_dir(),
     }
 }
 
@@ -400,6 +360,18 @@ fn detect_agent_path() -> String {
 fn run_health(agent_path: Option<String>, _control_url: Option<String>) -> Result<String, String> {
     let resolved = resolve_agent_path(agent_path)?;
     run_capture(&resolved, &["core", "--action=health"])
+}
+
+#[tauri::command]
+fn list_devices(agent_path: Option<String>) -> Result<String, String> {
+    let resolved = resolve_agent_path(agent_path)?;
+    run_capture(&resolved, &["core", "--action=devices", "--mode=list"])
+}
+
+#[tauri::command]
+fn scan_devices(agent_path: Option<String>) -> Result<String, String> {
+    let resolved = resolve_agent_path(agent_path)?;
+    run_capture(&resolved, &["core", "--action=devices", "--mode=scan"])
 }
 
 #[tauri::command]
@@ -441,8 +413,6 @@ struct InstallDepStep {
     only: String,
     #[serde(default)]
     playwright_targets: Option<Vec<String>>,
-    #[serde(default)]
-    appium_drivers: Option<Vec<String>>,
 }
 
 /// 流式输出 install-deps 到 agent-log（无额外 CMD 窗口），并汇总返回文本
@@ -542,6 +512,98 @@ fn format_elapsed_ms(ms: u128) -> String {
     }
 }
 
+fn append_install_deps_summary_lines(out: &mut Vec<String>, node: Option<&serde_json::Value>) {
+    let Some(node) = node else {
+        return;
+    };
+    if let Some(failed) = node.get("failedDrivers").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = failed
+            .iter()
+            .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !ids.is_empty() {
+            out.push(format!("未就绪组件: {}", ids.join(", ")));
+        }
+    }
+    if let (Some(inst), Some(skip)) = (
+        node.get("installedPackages").and_then(|v| v.as_array()),
+        node.get("skippedPackages").and_then(|v| v.as_array()),
+    ) {
+        let inst_s: Vec<String> = inst
+            .iter()
+            .filter_map(|x| x.as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from))
+            .collect();
+        let skip_s: Vec<String> = skip
+            .iter()
+            .filter_map(|x| x.as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from))
+            .collect();
+        if !inst_s.is_empty() || !skip_s.is_empty() {
+            out.push(format!(
+                "npm 包 · 新装: {} · 已就绪: {}",
+                if inst_s.is_empty() { "—".to_string() } else { inst_s.join(", ") },
+                if skip_s.is_empty() { "—".to_string() } else { skip_s.join(", ") }
+            ));
+        }
+    }
+    if let Some(summary_lines) = node.get("summaryLines").and_then(|v| v.as_array()) {
+        for line in summary_lines {
+            if let Some(t) = line.as_str() {
+                let t = t.trim();
+                if !t.is_empty() {
+                    out.push(t.to_string());
+                }
+            }
+        }
+        return;
+    }
+    if let Some(arr) = node.as_array() {
+        for item in arr {
+            if let Some(summary) = item.get("summary") {
+                append_install_deps_summary_lines(out, Some(summary));
+            }
+        }
+    } else if let Some(summary) = node.get("summary") {
+        append_install_deps_summary_lines(out, Some(summary));
+    }
+}
+
+/// 从 agent stdout 末尾的 `{ "installDeps": ... }` JSON 提取结构化摘要行
+fn extract_install_deps_summary_lines(combined: &str) -> Vec<String> {
+    let trimmed = combined.trim();
+    let mut lines = Vec::new();
+    if let Ok(root) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(merged) = root.get("merged") {
+            append_install_deps_summary_lines(&mut lines, Some(merged));
+            if !lines.is_empty() {
+                return lines;
+            }
+        }
+        append_install_deps_summary_lines(&mut lines, root.get("installDeps"));
+        if lines.is_empty() {
+            append_install_deps_summary_lines(&mut lines, Some(&root));
+        }
+        return lines;
+    }
+    for marker in ["{\n  \"installDeps\"", "{\"installDeps\"", "{\n  \"merged\"", "{\"merged\""] {
+        if let Some(idx) = trimmed.rfind(marker) {
+            if let Ok(root) = serde_json::from_str::<serde_json::Value>(&trimmed[idx..]) {
+                if let Some(merged) = root.get("merged") {
+                    append_install_deps_summary_lines(&mut lines, Some(merged));
+                    if !lines.is_empty() {
+                        return lines;
+                    }
+                }
+                append_install_deps_summary_lines(&mut lines, root.get("installDeps"));
+                if !lines.is_empty() {
+                    return lines;
+                }
+            }
+        }
+    }
+    lines
+}
+
 #[tauri::command]
 fn stop_install_deps() -> Result<(), String> {
     if !INSTALL_DEPS_RUNNING.load(Ordering::SeqCst) {
@@ -578,7 +640,7 @@ fn stop_install_deps() -> Result<(), String> {
     Ok(())
 }
 
-/// 与 Web 控制台一致：按步骤调用 core install-deps（支持 playwright-targets / appium-drivers）。
+/// 与 Web 控制台一致：按步骤调用 core install-deps（支持 playwright-targets / mobile|android|ios|harmony）。
 /// 实际安装在后台线程执行，避免长时间占用 IPC 导致界面假死；结果通过 `install-deps-finished` 投递。
 fn run_install_deps_plan_blocking(
     app: &AppHandle,
@@ -606,15 +668,10 @@ fn run_install_deps_plan_blocking(
                 parts.push(format!("--playwright-targets={}", t.join(",")));
             }
         }
-        if let Some(ref d) = step.appium_drivers {
-            if !d.is_empty() {
-                parts.push(format!("--appium-drivers={}", d.join(",")));
-            }
-        }
         if force {
             parts.push("--force".to_string());
         }
-        let _part = run_agent_install_deps_streaming(app, resolved, &parts)?;
+        let combined = run_agent_install_deps_streaming(app, resolved, &parts)?;
         let step_elapsed = step_started.elapsed().as_millis();
         let step_summary = format!(
             "步骤 {}：成功（耗时 {}）",
@@ -626,6 +683,11 @@ fn run_install_deps_plan_blocking(
             "agent-log",
             format!("[deps] {}", step_summary),
         );
+        for line in extract_install_deps_summary_lines(&combined) {
+            let detail = format!("  {line}");
+            summary_lines.push(detail.clone());
+            let _ = app.emit("agent-log", format!("【安装摘要】{line}"));
+        }
     }
     let elapsed_ms = started.elapsed().as_millis();
     let total_summary = format!(
@@ -1008,12 +1070,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             detect_agent_path,
             run_health,
+            list_devices,
+            scan_devices,
             run_setup_gui,
             apply_patch_remote,
             pick_android_home_dir,
             apply_android_home,
-            pick_appium_home_dir,
-            apply_appium_home,
             detect_home_dirs,
             run_install_deps_plan,
             stop_install_deps,

@@ -1,28 +1,20 @@
 import type { InvokeHttpPayload, InvokeMode, InvokePayload, PluginManifest, WebEngine } from "@ada/contracts";
+import { resolvePlaywrightHeadless } from "./playwright-defaults.js";
+import { isKnownWebEngine, parseWebEngineFromPayload } from "./web-engine.js";
 
 export type { InvokeHttpPayload, InvokeMode, InvokePayload, WebEngine };
+export { parseWebEngineFromPayload, isKnownWebEngine };
 
-const WEB_ENGINES = new Set<WebEngine>(["playwright", "selenium"]);
-
-export function parseWebEngineFromPayload(payload?: Record<string, unknown>): WebEngine {
-  const p = asRecord(payload);
-  const options = asRecord(p.options);
-  const raw = (getString(p.engine) ?? getString(options.engine) ?? "playwright").toLowerCase();
-  if (raw === "selenium") {
-    return "selenium";
-  }
-  return "playwright";
-}
+export {
+  MOBILE_RECIPE_ACTIONS,
+  normalizeCommandEnvelope,
+  normalizeCommandName,
+  normalizePayload,
+  type MobileRecipeAction
+} from "./normalize-command.js";
 
 export function manifestWebEngine(manifest: Pick<PluginManifest, "engine" | "id">): WebEngine {
-  if (manifest.engine === "selenium") {
-    return "selenium";
-  }
   return "playwright";
-}
-
-export function isKnownWebEngine(value: string): value is WebEngine {
-  return WEB_ENGINES.has(value as WebEngine);
 }
 
 const PLAYWRIGHT_OBJECT_TYPES = new Set([
@@ -49,7 +41,7 @@ export function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** Normalize invoke fields from command payload (supports legacy Appium `custom` block). */
+/** Normalize invoke fields from command payload (supports legacy `custom` block). */
 export function normalizeInvokePayload(
   raw: Record<string, unknown> | undefined,
   defaultMode: InvokeMode
@@ -159,58 +151,19 @@ export function buildSessionKey(payload?: Record<string, unknown>): string {
   const options = asRecord(p.options);
   const local = resolveLocalBrowserFields(p);
   const browser = getString(p.browser) ?? getString(options.browser) ?? "chromium";
-  const headless = typeof p.headless === "boolean" ? p.headless : typeof options.headless === "boolean" ? options.headless : "env";
+  const headless = resolvePlaywrightHeadless(p);
   const storageStatePath = getString(p.storageStatePath) ?? getString(options.storageStatePath) ?? "";
   const storageState = p.storageState ?? options.storageState;
   const storageKey =
     storageStatePath || (storageState !== undefined ? JSON.stringify(storageState) : "");
-  return `${browser}|${headless}|${local.cdpEndpoint}|${local.executablePath}|${local.channel}|${local.userDataDir}|${storageKey}`;
-}
-
-/** Resolved Selenium / system browser connection fields. */
-export function resolveSeleniumBrowserFields(payload?: Record<string, unknown>): {
-  browserName: string;
-  browserBinary: string;
-  profile: string;
-  seleniumServerUrl: string;
-} {
-  const p = asRecord(payload);
-  const options = asRecord(p.options);
-  const browserName =
-    getString(p.browserName) ??
-    getString(options.browserName) ??
-    getString(p.browser) ??
-    getString(options.browser) ??
-    process.env.ADA_SELENIUM_BROWSER ??
-    "firefox";
-  return {
-    browserName: browserName.toLowerCase(),
-    browserBinary: pickPayloadString(
-      p,
-      options,
-      "browserBinary",
-      ["executablePath", "browserPath", "browserExecutable"],
-      "ADA_SELENIUM_BROWSER_BINARY"
-    ),
-    profile: pickPayloadString(p, options, "profile", ["userDataDir"], "ADA_SELENIUM_PROFILE"),
-    seleniumServerUrl: pickPayloadString(
-      p,
-      options,
-      "seleniumServerUrl",
-      ["serverUrl", "gridUrl"],
-      "ADA_SELENIUM_SERVER_URL"
-    )
-  };
-}
-
-export function buildSeleniumSessionKey(payload?: Record<string, unknown>): string {
-  const p = asRecord(payload);
-  const fields = resolveSeleniumBrowserFields(p);
-  const headless =
-    typeof p.headless === "boolean" ? p.headless : typeof asRecord(p.options).headless === "boolean" ? asRecord(p.options).headless : "env";
-  const caps = p.capabilities ?? asRecord(p.options).capabilities;
-  const capsKey = caps !== undefined ? JSON.stringify(caps) : "";
-  return `selenium|${fields.browserName}|${headless}|${fields.browserBinary}|${fields.profile}|${fields.seleniumServerUrl}|${capsKey}`;
+  const cdpAutoLaunch =
+    typeof p.cdpAutoLaunch === "boolean"
+      ? p.cdpAutoLaunch
+      : typeof options.cdpAutoLaunch === "boolean"
+        ? options.cdpAutoLaunch
+        : process.env.ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH === "true";
+  const cdpPort = getString(p.cdpPort) ?? getString(options.cdpPort) ?? "";
+  return `${browser}|${headless}|${local.cdpEndpoint}|${cdpAutoLaunch}|${cdpPort}|${local.executablePath}|${local.channel}|${local.userDataDir}|${storageKey}`;
 }
 
 export function serializeRpcResult(value: unknown, depth = 0): unknown {
@@ -263,18 +216,166 @@ export function serializeRpcResult(value: unknown, depth = 0): unknown {
   }
 }
 
+export {
+  CommandTimeoutError,
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  raceCommandTimeout,
+  resolveCommandTimeoutMs,
+  resolveLocatorTimeoutMs,
+  resolveSubOperationTimeoutMs
+} from "./command-timeout.js";
+export {
+  UI_ELEMENT_NOT_FOUND,
+  buildOptionalUiMissResult,
+  isOptionalUiPayload,
+  suppressHypiumOptionalProbeLogs,
+  withSuppressedHypiumProbeLogs
+} from "./optional-ui.js";
+export {
+  HARMONY_CLEAR_RECENTS_LABELS,
+  HARMONY_KEY_RECENTS,
+  harmonySwipePixels,
+  type HarmonySwipeNorm
+} from "./harmony-gesture.js";
+export {
+  loadDeviceRegistryDefaults,
+  mergeMobileSessionPayload,
+  type DeviceRegistryDefaults
+} from "./session-defaults.js";
+export {
+  fillSearchPayloadFromArg,
+  parseFillSearchPayload,
+  type FillSearchOptions,
+  type ParsedFillSearchOptions
+} from "./fill-search-options.js";
+export {
+  recipeDumpUi,
+  recipeFillSearch,
+  recipeTapSearch,
+  type MobileRecipeContext,
+  type MobilePlatform,
+  type RecipeResult
+} from "./mobile-recipes.js";
+export { normalizeMobileCustomAction, runMobileCustomAction, type MobileCustomOutcome } from "./mobile-custom.js";
+export {
+  DEVICE_ADMIN_ACTIONS,
+  deviceAdminFail,
+  deviceAdminSuccess,
+  normalizeOrientation,
+  parseAndroidAppInfo,
+  parseAndroidCurrentApp,
+  parsePackageList,
+  readDeviceAdminAction,
+  type DeviceAdminAction
+} from "./mobile-device-admin.js";
+export {
+  buildKernelSessionKey,
+  parseKernelSessionKey,
+  resolveMobileDeviceId
+} from "./session-key.js";
+export { UiDumpCache, readUiDumpCacheTtlMs, shouldInvalidateDumpOnAction } from "./ui-dump-cache.js";
+export { RECIPE_ERROR_CODES, platformRecipeErrorCode, recipeErrorCodeForAction } from "./recipe-errors.js";
+export {
+  mergeSmartWait,
+  parseSmartWaitFromPayload,
+  recipeSettleDelay,
+  resolveLaunchSettleWait,
+  runSmartWait,
+  smartWaitFromEnv,
+  type LaunchPlatform,
+  type SmartWaitOptions,
+  type WaitUntilMode
+} from "./smart-wait.js";
+export { parseUiHeuristicsFromPayload } from "./ui-heuristics.js";
+export {
+  findUiNode,
+  normalizedSwipePoints,
+  parseAndroidHierarchy,
+  parseHarmonyLayoutJson,
+  extractHarmonyDumpPath,
+  type UiNode,
+  type UiPickResult,
+  type ScreenSize
+} from "@ada/mobile-ui";
+export { resolvePlaywrightBringToFront, resolvePlaywrightHeadless } from "./playwright-defaults.js";
+export { ElementIdCache, locatorCacheKey } from "./mobile-element-cache.js";
+export { isTransientMobileErrorCode, MOBILE_TRANSIENT_ERROR_CODES } from "./mobile-transient-errors.js";
+export {
+  defaultCdpPort,
+  ensureCdpEndpointReady,
+  parseCdpEndpoint,
+  probeCdpEndpoint,
+  resolveCdpAutoLaunchPlan,
+  resolveCdpBrowserFamily,
+  resolveChromiumCdpUserDataDir,
+  stopCdpSpawn,
+  cleanupCdpSpawns,
+  cleanupAllCdpSpawns,
+  cleanupAllCdpSpawnsDetached,
+  forceKillProcessTree,
+  forceKillProcessTreeDetached,
+  type CdpAutoLaunchPlan,
+  type CdpBrowserFamily,
+  type CdpSpawnHandle
+} from "./cdp-auto-launch.js";
+export {
+  executeAndroidMethodInvoke,
+  executeMobileHttpInvoke,
+  extractWebDriverElementId,
+  fetchWebDriverJson,
+  isHttpServerUrl,
+  resolveMobileHttpPath,
+  shouldRecoverMobileServer,
+  shouldRecoverWebDriverSession,
+  withMobileHttpRecovery,
+  withWebDriverSessionRecovery,
+  type AdbRunner,
+  type WebDriverJsonResponse
+} from "./mobile-invoke.js";
+
+export {
+  SWIPE_DURATION_MS,
+  resolveSwipeDurationMs,
+  withSwipeDuration,
+  type SwipePreset,
+  type ResolveSwipeDurationOptions
+} from "./swipe-duration.js";
+
+export {
+  SWIPE_POINT_PRESETS,
+  resolveSwipeEndpoints,
+  resolveSwipePoint,
+  type ResolveSwipeCoordsOptions,
+  type SwipePointInput
+} from "./swipe-coords.js";
+
+export {
+  computePinchFingerEnds,
+  resolvePinchDistance,
+  resolvePinchGesture,
+  type PinchFingerEnds,
+  type ResolvePinchOptions
+} from "./pinch-coords.js";
+
+export { buildDualPointerPinchActions } from "./pinch-gesture.js";
+export { readPinchEndsFromPayload } from "./pinch-payload.js";
+
 export function mergeOptionsIntoPayload(payload?: Record<string, unknown>): Record<string, unknown> {
   const p = { ...asRecord(payload) };
   const options = asRecord(p.options);
   for (const key of [
     "browser",
     "headless",
+    "bringToFront",
     "userDataDir",
     "storageStatePath",
     "storageState",
     "launchOptions",
     "contextOptions",
     "cdpEndpoint",
+    "cdpAutoLaunch",
+    "cdpPort",
+    "cdpLaunchArgs",
     "browserURL",
     "cdpUrl",
     "executablePath",
@@ -284,10 +385,7 @@ export function mergeOptionsIntoPayload(payload?: Record<string, unknown>): Reco
     "engine",
     "browserName",
     "browserBinary",
-    "profile",
-    "seleniumServerUrl",
-    "geckodriverVersion",
-    "chromedriverVersion"
+    "profile"
   ]) {
     if (p[key] === undefined && options[key] !== undefined) {
       p[key] = options[key];

@@ -1,40 +1,86 @@
 import fs from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
-import os from "node:os";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { URL } from "node:url";
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+
+import {
+  getBuiltInPlugins,
+  getDeviceRegistrySnapshot,
+  getDoctorSnapshot,
+  getHealthSnapshot,
+  installDependencies,
+  invalidateDoctorSnapshotCache,
+  runStartFlow,
+  scanDevicesAndListForDisplay,
+  scanMobileDevicesAndPersist
+} from "@ada/agent-core";
+import type { AgentConfig } from "@ada/agent/types";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
-import { closeAllSessions, closeSession, listActiveSessions, runCommand, runTaskset } from "./executor.js";
+import { invalidateDependencyHealthCache, type InstallScope } from "@ada/install-deps";
+
 import { loadAgentConfig } from "./config.js";
+import {
+  closeAllSessions,
+  closeSession,
+  listActiveSessions,
+  runCommand,
+  runTaskset,
+  shutdownExecutor
+} from "./executor.js";
+import { buildAdaMcpToolDefinitions } from "./mcp-tool-definitions.js";
+import {
+  isMobilePlatform,
+  normalizeCommand,
+  normalizePlatform,
+  requireMobilePlatform,
+  type AdaPlatform
+} from "./mcp-normalize.js";
+import {
+  ensureWebRuntimeReady,
+  executeWithTimeout,
+  parseActionRunOptions,
+  runCommandWithRetry,
+  shouldPreflightSession
+} from "./mcp-action-runner.js";
+import { handleMobileAction, handleMobileRecipe, handleWebAction } from "./mcp-actions.js";
+import { handleMobileDismissPopups, handleWebDismissPopups } from "./mcp-dismiss-popups.js";
+import {
+  handleCloseAllSessions,
+  handleCloseSession,
+  handleConfig,
+  handlePerfSummary,
+  handlePlugins,
+  handleRiskPolicy,
+  handleSessions
+} from "./mcp-admin.js";
+import { handleMobileAssertions, handleWebAssertions } from "./mcp-assertions.js";
+import { handleBatchActions } from "./mcp-batch-actions.js";
+import { handleExecute, handleInvoke, handleRunTaskFile } from "./mcp-execution.js";
+import { handleMobileExtract, handleWebExtract } from "./mcp-extract.js";
+import { buildHealthBlockers, buildSessionPolicy, healthStatusFromBlockers } from "./mcp-health-enrich.js";
+import { handleDiagnosticsTool, handleHealthTool } from "./mcp-health-diagnostics.js";
+import { handleDevices, handleInstallDeps, handleStartOnce } from "./mcp-runtime-admin.js";
+import { buildRecoveryPlan } from "./mcp-recovery.js";
+import { mcpTextResult, wrapAssertionResult, wrapCommandToolResult } from "./mcp-result.js";
+import { registerAdaMcpResources } from "./mcp-resources.js";
+import { applyMcpRuntimeConfigFromRecord, isMcpExtractRaw } from "./mcp-response-mode.js";
+import { buildStartHints, resolveStartPackageVersions } from "./mcp-start-hints.js";
+import { buildRecoveryHint } from "./mcp-tool-tiers.js";
 import { captureMcpMonitor, type MonitorOptions } from "./monitoring.js";
 import {
   resolveCommandPath,
-  spawnDetachedHidden,
   spawnSyncHidden
 } from "./spawn-util.js";
-import { getBuiltInPlugins, getDoctorSnapshot, getHealthSnapshot, installDependencies, runStartFlow } from "@ada/agent-core";
-import type { InstallScope } from "@ada/agent/dependency-installer";
-import { buildAdaMcpToolDefinitions } from "./mcp-tool-definitions.js";
-
-function textResult(data: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }]
-  };
-}
-
-let appiumEnsureJob: Promise<void> | null = null;
-let persistedHomesCache: { androidHome?: string; appiumHome?: string } | null = null;
-let appiumReadyCache: { serverUrl: string; timestamp: number } | null = null;
-const APPIUM_READY_CACHE_TTL_MS = Number(process.env.ADA_APPIUM_READY_CACHE_MS ?? 300_000) || 300_000;
-
-function isMobilePlatform(v: "web" | "android" | "ios" | "harmony"): boolean {
-  return v === "android" || v === "ios" || v === "harmony";
-}
+import {
+  ensureMobileRuntimeReady,
+  invalidateRuntimePreflightCache
+} from "./mcp-runtime-preflight.js";
 
 async function isPortOpen(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -74,347 +120,47 @@ function commandAvailableCached(command: string): boolean {
   return ok;
 }
 
-function spawnDetachedChecked(
-  cmd: string,
-  args: string[],
-  env: NodeJS.ProcessEnv
-): Promise<{ ok: true; pid?: number } | { ok: false; error: string }> {
-  return new Promise((resolve) => {
-    try {
-      const resolved = path.isAbsolute(cmd) ? cmd : resolveCommandPath(cmd) ?? cmd;
-      const child = spawnDetachedHidden(resolved, args, { cwd: process.cwd(), env });
-      let settled = false;
-      child.once("error", (error) => {
-        if (settled) return;
-        settled = true;
-        resolve({ ok: false, error: error instanceof Error ? error.message : String(error) });
-      });
-      child.once("spawn", () => {
-        if (settled) return;
-        settled = true;
-        child.unref();
-        resolve({ ok: true, pid: child.pid ?? undefined });
-      });
-    } catch (error) {
-      resolve({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
+function invalidateRuntimeCaches(): void {
+  invalidateDependencyHealthCache();
+  invalidateRuntimePreflightCache();
+  invalidateDoctorSnapshotCache();
 }
 
-function resolveAppiumNodeEntrypoint(): string | null {
-  const candidates = [
-    path.join(process.cwd(), "node_modules", "appium", "build", "lib", "main.js"),
-    path.join(process.cwd(), "..", "node_modules", "appium", "build", "lib", "main.js"),
-    path.join(process.cwd(), "..", "..", "node_modules", "appium", "build", "lib", "main.js")
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) {
-      return p;
-    }
-  }
-  return null;
-}
-
-function resolveNodeCommandForChild(): string {
-  const isPkg = Boolean((process as NodeJS.Process & { pkg?: unknown }).pkg);
-  return isPkg ? "node" : process.execPath;
-}
-
-function globalDepsStateFile(): string {
-  const override = process.env.ADA_HOME?.trim();
-  const adaHome = override ? path.resolve(override) : path.join(os.homedir(), ".ada");
-  const explicit = process.env.ADA_DEPS_STATE_FILE?.trim();
-  if (explicit) {
-    return path.resolve(explicit);
-  }
-  return path.join(adaHome, "deps-install-state.json");
-}
-
-function loadPersistedHomes(): { androidHome?: string; appiumHome?: string } {
-  if (persistedHomesCache) {
-    return persistedHomesCache;
-  }
-  const candidates = [
-    globalDepsStateFile(),
-    path.join(process.cwd(), ".ada-agent", "deps-install-state.json"),
-    path.join(process.cwd(), "..", ".ada-agent", "deps-install-state.json")
-  ];
-  for (const file of candidates) {
-    if (!existsSync(file)) {
-      continue;
-    }
-    try {
-      const raw = readFileSync(file, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const androidHome = typeof parsed.androidHome === "string" ? parsed.androidHome.trim() : "";
-      const appiumHome = typeof parsed.appiumHome === "string" ? parsed.appiumHome.trim() : "";
-      persistedHomesCache = {
-        androidHome: androidHome || undefined,
-        appiumHome: appiumHome || undefined
-      };
-      return persistedHomesCache;
-    } catch {
-      // ignore parse errors and continue fallback
-    }
-  }
-  persistedHomesCache = {};
-  return persistedHomesCache;
-}
-
-let cachedAndroidSdkRoot: string | null | undefined;
-
-function resolveAndroidSdkRoot(): string | null {
-  if (cachedAndroidSdkRoot !== undefined) {
-    return cachedAndroidSdkRoot;
-  }
-  const persisted = loadPersistedHomes();
-  const checker = process.platform === "win32" ? "where.exe" : "which";
-  const adbLookup = spawnSyncHidden(checker, ["adb"], { encoding: "utf8" });
-  const adbStdout = adbLookup.stdout;
-  const adbText = typeof adbStdout === "string" ? adbStdout : adbStdout ? adbStdout.toString("utf8") : "";
-  const adbPath = adbText
-    .split(/\r?\n/)
-    .map((line: string) => line.trim())
-    .find(Boolean);
-  const adbSdkRoot = adbPath ? path.dirname(path.dirname(adbPath)) : null;
-
-  const workspaceRoot = process.cwd();
-  const projectAndroidHome = path.join(workspaceRoot, "ANDROID_HOME");
-  const candidates = [
-    process.env.ANDROID_SDK_ROOT,
-    process.env.ANDROID_HOME,
-    persisted.androidHome,
-    existsSync(projectAndroidHome) ? projectAndroidHome : null,
-    adbSdkRoot,
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Android", "Sdk") : null,
-    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, "AppData", "Local", "Android", "Sdk") : null
-  ]
-    .map((v) => (typeof v === "string" ? v.trim() : ""))
-    .filter(Boolean);
-  for (const sdkRoot of candidates) {
-    if (persisted.androidHome && sdkRoot === persisted.androidHome && existsSync(sdkRoot)) {
-      cachedAndroidSdkRoot = sdkRoot;
-      return sdkRoot;
-    }
-    const platformTools = path.join(sdkRoot, "platform-tools");
-    if (existsSync(platformTools)) {
-      cachedAndroidSdkRoot = sdkRoot;
-      return sdkRoot;
-    }
-  }
-  cachedAndroidSdkRoot = null;
-  return null;
-}
-
-function getAppiumExtensionsFile(homeDir: string): string {
-  return path.join(homeDir, "node_modules", ".cache", "appium", "extensions.yaml");
-}
-
-function hasAppiumDriver(homeDir: string, driverName: string): boolean {
-  const file = getAppiumExtensionsFile(homeDir);
-  if (!existsSync(file)) {
-    return false;
-  }
-  try {
-    const text = readFileSync(file, "utf8");
-    return text.toLowerCase().includes(driverName.toLowerCase());
-  } catch {
-    return false;
-  }
-}
-
-function resolveAppiumHome(platform: "android" | "ios" | "harmony"): string | null {
-  const persisted = loadPersistedHomes();
-  const projectAppiumHome = path.join(process.cwd(), "APPIUM_HOME");
-  const candidates = [
-    process.env.APPIUM_HOME,
-    persisted.appiumHome,
-    existsSync(projectAppiumHome) ? projectAppiumHome : null,
-    process.env.USERPROFILE,
-    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, ".appium") : null
-  ]
-    .map((v) => (typeof v === "string" ? v.trim() : ""))
-    .filter(Boolean);
-  const uniq = Array.from(new Set(candidates));
-
-  // 优先选择包含目标平台驱动的目录，避免命中“有 Appium 但无驱动”的 home。
-  const targetDriver = platform === "android" ? "uiautomator2" : platform === "ios" ? "xcuitest" : "harmonyos";
-  for (const candidate of uniq) {
-    if (hasAppiumDriver(candidate, targetDriver)) {
-      return candidate;
-    }
-  }
-  // 次优：任意存在 extensions 文件的目录
-  for (const candidate of uniq) {
-    if (existsSync(getAppiumExtensionsFile(candidate))) {
-      return candidate;
-    }
-  }
-  // 最后兜底：使用 APPIUM 默认 home（用户目录），让行为与 appium CLI 一致
-  return process.env.USERPROFILE?.trim() || null;
-}
-
-async function spawnAppium(host: string, port: number, platform: "android" | "ios" | "harmony"): Promise<{ launched: boolean; details: string }> {
-  const nodeEntry = resolveAppiumNodeEntrypoint();
-  const candidates: Array<{ cmd: string; args: string[] }> = [];
-  if (nodeEntry) {
-    candidates.push({
-      cmd: resolveNodeCommandForChild(),
-      args: [nodeEntry, "--address", host, "--port", String(port), "--relaxed-security"]
-    });
-  }
-  const appiumPath = resolveCommandPath("appium");
-  if (appiumPath) {
-    candidates.push({
-      cmd: appiumPath,
-      args: ["--address", host, "--port", String(port), "--relaxed-security"]
-    });
-  }
-
-  const sdkRoot = resolveAndroidSdkRoot();
-  const appiumHome = resolveAppiumHome(platform);
-  const childEnv = { ...process.env };
-  if (sdkRoot) {
-    childEnv.ANDROID_SDK_ROOT = childEnv.ANDROID_SDK_ROOT || sdkRoot;
-    childEnv.ANDROID_HOME = childEnv.ANDROID_HOME || sdkRoot;
-  }
-  if (appiumHome) {
-    childEnv.APPIUM_HOME = childEnv.APPIUM_HOME || appiumHome;
-  }
-
-  const tried: string[] = [];
-  for (const candidate of candidates) {
-    if (!commandAvailableCached(candidate.cmd)) {
-      tried.push(`${candidate.cmd} (missing)`);
-      continue;
-    }
-    try {      
-      // eslint-disable-next-line no-await-in-loop
-      const startResult = await spawnDetachedChecked(candidate.cmd, candidate.args, childEnv);
-      if (!startResult.ok) {
-        tried.push(`${candidate.cmd} (${startResult.error})`);
-        continue;
-      }
-      return {
-        launched: true,
-        details: `${candidate.cmd} ${candidate.args.join(" ")} pid=${startResult.pid ?? "unknown"} sdkRoot=${sdkRoot ?? "not-found"} appiumHome=${appiumHome ?? "not-found"}`
-      };
-    } catch (error) {
-      tried.push(
-        `${candidate.cmd} (${error instanceof Error ? error.message : String(error)})`
-      );
-    }
-  }
-  return {
-    launched: false,
-    details: tried.length > 0 ? tried.join("; ") : "no candidate command available"
-  };
-}
-
-async function waitPortReady(host: string, port: number, timeoutMs = 15000): Promise<boolean> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (await isPortOpen(host, port)) {
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  return false;
-}
-
-async function checkAppiumStatus(serverUrl: string): Promise<{ ok: boolean; detail: string }> {
-  try {
-    const url = `${serverUrl.replace(/\/$/, "")}/status`;
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) {
-      return { ok: false, detail: `status http=${res.status}` };
-    }
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    const ready = data.value && typeof data.value === "object" ? asRecord(data.value).ready : undefined;
-    if (ready === false) {
-      return { ok: false, detail: "status ready=false" };
-    }
-    return { ok: true, detail: "status ok" };
-  } catch (error) {
-    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-async function ensureAppiumServerReady(platform: "web" | "android" | "ios" | "harmony"): Promise<void> {
-  if (!isMobilePlatform(platform)) {
-    return;
-  }
-  if (process.env.ADA_AUTO_START_APPIUM === "0") {
-    return;
-  }
-  if (appiumEnsureJob) {
-    await appiumEnsureJob;
-    return;
-  }
-
-  appiumEnsureJob = (async () => {
-    const mobilePlatform = platform as "android" | "ios" | "harmony";
-    const config = asRecord(await loadAgentConfig());
-    const appium = asRecord(config.appium);
-    const serverUrl = typeof appium.serverUrl === "string" && appium.serverUrl.trim()
-      ? appium.serverUrl.trim()
-      : "http://127.0.0.1:4723";
-    if (
-      appiumReadyCache &&
-      appiumReadyCache.serverUrl === serverUrl &&
-      Date.now() - appiumReadyCache.timestamp <= APPIUM_READY_CACHE_TTL_MS
-    ) {
-      return;
-    }
-    const { host, port } = parseServerEndpoint(serverUrl);
-    console.error(`[ADA-MCP] [appium.ensure] checking ${serverUrl} for platform=${platform}`);
-    if (await isPortOpen(host, port)) {
-      const status = await checkAppiumStatus(serverUrl);
-      console.error(`[ADA-MCP] [appium.ensure] already reachable (${status.detail})`);
-      if (status.ok) {
-        appiumReadyCache = { serverUrl, timestamp: Date.now() };
-      }
-      return;
-    }
-    console.error(`[ADA-MCP] [appium.ensure] not reachable, trying auto-start...`);
-    const launched = await spawnAppium(host, port, mobilePlatform);
-    console.error(`[ADA-MCP] [appium.ensure] launch result: ${launched.details}`);
-    if (!launched.launched) {
-      throw new Error(
-        `Appium server not reachable at ${serverUrl}. Auto-start failed: ${launched.details}`
-      );
-    }
-    const ready = await waitPortReady(host, port);
-    if (!ready) {
-      throw new Error(
-        `Appium server not reachable at ${serverUrl}. Auto-start attempted but port is still closed.`
-      );
-    }
-    const status = await checkAppiumStatus(serverUrl);
-    if (!status.ok) {
-      throw new Error(
-        `Appium server port is open at ${serverUrl}, but health check failed: ${status.detail}`
-      );
-    }
-    appiumReadyCache = { serverUrl, timestamp: Date.now() };
-    console.error(`[ADA-MCP] [appium.ensure] server is ready at ${serverUrl} (${status.detail})`);
-  })();
-
-  try {
-    await appiumEnsureJob;
-  } finally {
-    appiumEnsureJob = null;
-  }
+function mobilePreflight(platform: AdaPlatform): Promise<void> {
+  return ensureMobileRuntimeReady(platform, async () => (await loadAgentConfig()) as unknown as AgentConfig);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
+// Payload normalization helpers for execute/invoke/web commands.
 function mergeWebEngineIntoPayload(args: Record<string, unknown>): Record<string, unknown> {
   const payload = { ...asRecord(args.payload) };
   if (args.engine !== undefined && payload.engine === undefined) {
     payload.engine = args.engine;
+  }
+  const hoistKeys = [
+    "locator",
+    "selector",
+    "text",
+    "key",
+    "url",
+    "waitTimeoutMs",
+    "timeoutMs",
+    "locatorTimeoutMs",
+    "headless",
+    "channel",
+    "browser",
+    "userDataDir",
+    "cdpEndpoint",
+    "tabIndex",
+    "commandTimeoutMs"
+  ];
+  for (const key of hoistKeys) {
+    if (args[key] !== undefined && payload[key] === undefined) {
+      payload[key] = args[key];
+    }
   }
   return payload;
 }
@@ -435,6 +181,9 @@ function buildInvokeCommandPayload(args: Record<string, unknown>): Record<string
     "headless",
     "userDataDir",
     "cdpEndpoint",
+    "cdpAutoLaunch",
+    "cdpPort",
+    "cdpLaunchArgs",
     "browserURL",
     "cdpUrl",
     "executablePath",
@@ -455,7 +204,6 @@ function buildInvokeCommandPayload(args: Record<string, unknown>): Record<string
     "browserName",
     "browserBinary",
     "profile",
-    "seleniumServerUrl"
   ];
   for (const key of keys) {
     if (args[key] !== undefined && out[key] === undefined) {
@@ -480,7 +228,7 @@ function ensureRealPayloadForPlatform(
 }
 
 function toCommandEnvelope(input: Record<string, unknown>, allowMock = false): CommandEnvelope {
-  const platform = normalizePlatform(input.platform);
+  const platform = normalizePlatform(input.platform, { allowDefaultWeb: true });
   const payload = ensureRealPayloadForPlatform(platform, asRecord(input.payload), allowMock);
   return {
     requestId: String(input.requestId ?? `mcp-${Date.now()}`),
@@ -491,84 +239,14 @@ function toCommandEnvelope(input: Record<string, unknown>, allowMock = false): C
   };
 }
 
-function normalizePlatform(v: unknown): "web" | "android" | "ios" | "harmony" {
-  if (v === "android" || v === "ios" || v === "harmony") {
-    return v;
-  }
-  return "web";
-}
-
-type SupportedCommand =
-  | "click"
-  | "type"
-  | "swipe"
-  | "assertVisible"
-  | "screenshot"
-  | "navigate"
-  | "hover"
-  | "press"
-  | "select"
-  | "scroll"
-  | "forward"
-  | "newTab"
-  | "switchTab"
-  | "uploadFile"
-  | "dragDrop"
-  | "wait"
-  | "assertText"
-  | "getText"
-  | "back"
-  | "reload"
-  | "closeTab"
-  | "home"
-  | "launchApp"
-  | "terminateApp"
-  | "custom"
-  | "invoke";
-
-const supportedCommands = new Set<string>([
-  "click",
-  "type",
-  "swipe",
-  "assertVisible",
-  "screenshot",
-  "navigate",
-  "hover",
-  "press",
-  "select",
-  "scroll",
-  "forward",
-  "newTab",
-  "switchTab",
-  "uploadFile",
-  "dragDrop",
-  "wait",
-  "assertText",
-  "getText",
-  "back",
-  "reload",
-  "closeTab",
-  "home",
-  "launchApp",
-  "terminateApp",
-  "custom",
-  "invoke"
-]);
-
-const riskyCommandDefaults = ["custom", "invoke", "launchApp", "terminateApp"];
+// Risk gating for potentially destructive commands.
+const riskyCommandDefaults = ["custom", "invoke", "launchApp", "exitApp"];
 const riskyCommandAllowlist = new Set<string>(
   (process.env.ADA_MCP_RISKY_COMMAND_WHITELIST ?? riskyCommandDefaults.join(","))
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
 );
-
-function normalizeCommand(v: unknown): SupportedCommand {
-  if (typeof v === "string" && supportedCommands.has(v)) {
-    return v as SupportedCommand;
-  }
-  return "click";
-}
 
 function allowMock(args: Record<string, unknown>): boolean {
   return args.allowMock === true;
@@ -588,8 +266,6 @@ function parseInstallScope(v: unknown): InstallScope {
   if (
     v === "all" ||
     v === "playwright" ||
-    v === "selenium" ||
-    v === "appium" ||
     v === "drivers" ||
     v === "mobile" ||
     v === "android" ||
@@ -601,6 +277,7 @@ function parseInstallScope(v: unknown): InstallScope {
   return "playwright";
 }
 
+// Monitor capture wiring shared by command-style tools.
 function parseMonitorOptions(args: Record<string, unknown>): MonitorOptions {
   const monitor = asRecord(args.monitor);
   return {
@@ -628,6 +305,7 @@ function runMonitorCapture(
   return job;
 }
 
+// In-process perf telemetry for ada_perf_summary.
 const perfStats = new Map<string, number[]>();
 const PERF_MAX_SAMPLES_PER_LABEL = 500;
 
@@ -681,26 +359,7 @@ async function withTiming<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: number): Promise<CommandResult> {
-  const effectiveTimeout = typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 0;
-  if (effectiveTimeout <= 0) {
-    return runCommand(command);
-  }
-  return Promise.race([
-    runCommand(command),
-    new Promise<CommandResult>((resolve) => {
-      setTimeout(() => {
-        resolve({
-          requestId: command.requestId,
-          success: false,
-          errorCode: "MCP_ACTION_TIMEOUT",
-          errorMessage: `action timeout after ${effectiveTimeout}ms`
-        });
-      }, effectiveTimeout);
-    })
-  ]);
-}
-
+// Shared extract response shaping for web/mobile extract handlers.
 function toExtractResponse(input: {
   source: "web" | "mobile";
   mode: string;
@@ -739,7 +398,7 @@ function toExtractResponse(input: {
       errorCode: input.result.errorCode,
       errorMessage: input.result.errorMessage
     },
-    rawResult: input.result
+    ...(isMcpExtractRaw() ? { rawResult: input.result } : {})
   };
 }
 
@@ -780,9 +439,10 @@ async function gracefulShutdown(reason: string): Promise<void> {
   shuttingDown = true;
   try {
     console.error(`[ADA-MCP] shutting down: ${reason}`);
-    await closeAllSessions();
+    await shutdownExecutor({ timeoutMs: 10_000 });
+    await shutdownExecutor({ force: true });
   } catch (error) {
-    console.error("[ADA-MCP] closeAllSessions failed:", error);
+    console.error("[ADA-MCP] shutdownExecutor failed:", error);
   } finally {
     process.exit(0);
   }
@@ -792,40 +452,28 @@ function normalizeToolName(raw: unknown): string {
   return String(raw ?? "").trim();
 }
 
-function normalizeHealthScope(v: unknown): "web" | "mobile" | "all" {
-  if (v === "web" || v === "mobile" || v === "all") {
-    return v;
+async function ensureSessionActive(platform: AdaPlatform, sessionId: string, command: string): Promise<void> {
+  if (!shouldPreflightSession(command, platform)) {
+    return;
   }
-  // MCP 默认偏 Web 场景，避免未使用移动能力时触发不必要检查告警
-  return "web";
-}
-
-function scopedHealthSnapshot(snapshot: Record<string, unknown>, scope: "web" | "mobile" | "all"): Record<string, unknown> {
-  if (scope === "all") {
-    return snapshot;
+  if (sessionId === "mcp-session" || sessionId === "mcp-batch" || sessionId === "mcp-invoke") {
+    return;
   }
-  const out: Record<string, unknown> = { ...snapshot, dependencyScope: scope };
-  const deps = asRecord(snapshot.dependencies);
-  if (scope === "web") {
-    out.dependencies = {
-      playwrightInstalled: deps.playwrightInstalled,
-      playwrightLaunchOk: deps.playwrightLaunchOk,
-      seleniumWebdriverInstalled: deps.seleniumWebdriverInstalled,
-      geckodriverOk: deps.geckodriverOk,
-      chromedriverOk: deps.chromedriverOk
-    };
-    return out;
+  const sessions = listActiveSessions();
+  const active = sessions.some((item) => item.sessionId === sessionId);
+  if (!active) {
+    throw new Error(
+      `Session "${sessionId}" is not active for ${command}. Start with navigate/launchApp or check ada_sessions.`
+    );
   }
-  out.dependencies = {
-    appiumInstalled: deps.appiumInstalled,
-    appiumCliOk: deps.appiumCliOk,
-    appiumDriversOk: deps.appiumDriversOk,
-    missingAppiumDrivers: deps.missingAppiumDrivers
-  };
-  return out;
 }
 
 function wireAdaMcpProtocolServer(mcp: Server): void {
+  void loadAgentConfig()
+    .then((cfg) => applyMcpRuntimeConfigFromRecord(cfg))
+    .catch(() => undefined);
+  registerAdaMcpResources(mcp);
+
   mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: buildAdaMcpToolDefinitions()
   }));
@@ -835,441 +483,241 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
   const args = asRecord(request.params.arguments);
 
   if (tool === "ada_health") {
-    const scope = normalizeHealthScope(args.scope);
-    return textResult(scopedHealthSnapshot((await getHealthSnapshot()) as Record<string, unknown>, scope));
+    return handleHealthTool(args, {
+      loadAgentConfig,
+      getHealthSnapshot: (options) => getHealthSnapshot(options),
+      buildHealthBlockers,
+      buildSessionPolicy,
+      healthStatusFromBlockers,
+      mcpTextResult
+    });
   }
   if (tool === "ada_diagnostics") {
-    const scope = normalizeHealthScope(args.scope);
-    const report = (await getDoctorSnapshot()) as Record<string, unknown>;
-    const checks = asRecord(report.checks);
-    if (scope === "web") {
-      return textResult({
-        ...report,
-        dependencyScope: "web",
-        checks: {
-          playwrightBrowser: checks.playwrightBrowser,
-          playwrightPackage: checks.playwrightPackage,
-          nodeRuntime: checks.nodeRuntime
-        }
-      });
-    }
-    if (scope === "mobile") {
-      return textResult({
-        ...report,
-        dependencyScope: "mobile",
-        checks: {
-          appiumServer: checks.appiumServer,
-          javaRuntime: checks.javaRuntime,
-          appiumDrivers: checks.appiumDrivers,
-          appiumPackage: checks.appiumPackage
-        }
-      });
-    }
-    return textResult(report);
+    return handleDiagnosticsTool(args, {
+      getDoctorSnapshot: (scope) => getDoctorSnapshot(scope),
+      mcpTextResult
+    });
   }
   if (tool === "ada_plugins") {
-    return textResult(getBuiltInPlugins());
+    return handlePlugins({ getBuiltInPlugins, mcpTextResult });
   }
   if (tool === "ada_config") {
-    return textResult(await loadAgentConfig());
+    return handleConfig({ loadAgentConfig, mcpTextResult });
+  }
+  if (tool === "ada_devices") {
+    return handleDevices(args, {
+      invalidateRuntimeCaches,
+      scanMobileDevicesAndPersist,
+      scanDevicesAndListForDisplay,
+      getDeviceRegistrySnapshot,
+      mcpTextResult
+    });
   }
   if (tool === "ada_install_deps") {
-    const only = parseInstallScope(args.only);
-    const force = args.force === true;
-    const logs: string[] = [];
-    const summary = await installDependencies(only, force, (line: string) => logs.push(line), {
-      ...(typeof args.nativeDriversDir === "string" ? { nativeDriversDir: args.nativeDriversDir } : {}),
-      ...(typeof args.geckodriverVersion === "string" ? { geckodriverVersion: args.geckodriverVersion } : {}),
-      ...(typeof args.chromedriverVersion === "string" ? { chromedriverVersion: args.chromedriverVersion } : {})
-    });
-    return textResult({
-      status: "ok",
-      only,
-      force,
-      logLines: logs.length,
-      logs,
-      summary
+    return handleInstallDeps(args, {
+      parseInstallScope,
+      installDependencies,
+      invalidateRuntimeCaches,
+      mcpTextResult
     });
   }
   if (tool === "ada_start_once") {
-    const localDev = args.localDev === true;
-    const skipDeps = args.skipDeps !== false;
-    await runStartFlow({ runOnce: true, localDev, skipDeps, runWatch: false });
-    return textResult({
-      status: "ok",
-      mode: "once",
-      localDev,
-      skipDeps
+    return handleStartOnce(args, {
+      runStartFlow,
+      mcpTextResult
     });
   }
   if (tool === "ada_sessions") {
-    const sessions = listActiveSessions();
-    return textResult({ count: sessions.length, sessions });
+    return handleSessions({ listActiveSessions, mcpTextResult });
   }
   if (tool === "ada_close_session") {
-    const platform = normalizePlatform(args.platform);
-    const sessionId = String(args.sessionId ?? "");
-    if (!sessionId) {
-      throw new Error("sessionId is required");
-    }
-    const payload = mergeWebEngineIntoPayload(args);
-    const engine =
-      platform === "web" && typeof payload.engine === "string" ? (payload.engine as "playwright" | "selenium") : undefined;
-    const closed = await closeSession(platform, sessionId, { engine, payload });
-    return textResult({ status: "ok", closed, platform, sessionId, engine });
+    return handleCloseSession(args, {
+      normalizePlatform,
+      mergeWebEngineIntoPayload,
+      closeSession,
+      mcpTextResult
+    });
   }
   if (tool === "ada_close_all_sessions") {
-    const closed = await closeAllSessions();
-    return textResult({ status: "ok", closed });
+    return handleCloseAllSessions({ closeAllSessions, mcpTextResult });
   }
   if (tool === "ada_risk_policy") {
-    const action = typeof args.action === "string" ? args.action : "view";
-    const command = typeof args.command === "string" ? args.command : "";
-    if (action === "add" && command) {
-      riskyCommandAllowlist.add(command);
-    } else if (action === "remove" && command) {
-      riskyCommandAllowlist.delete(command);
-    } else if (action === "reset") {
-      riskyCommandAllowlist.clear();
-      for (const item of riskyCommandDefaults) {
-        riskyCommandAllowlist.add(item);
-      }
-    }
-    return textResult({
-      status: "ok",
-      action,
-      allowlist: Array.from(riskyCommandAllowlist.values()).sort()
+    return handleRiskPolicy(args, {
+      riskyCommandAllowlist,
+      riskyCommandDefaults,
+      mcpTextResult
     });
   }
   if (tool === "ada_perf_summary") {
-    const summary = buildPerfSummary();
-    if (args.reset === true) {
-      perfStats.clear();
-    }
-    return textResult(summary);
+    return handlePerfSummary(args, { buildPerfSummary, perfStats, mcpTextResult });
   }
   if (tool === "ada_batch_actions") {
-    const platform = normalizePlatform(args.platform);
-    await withTiming(`ensureAppiumServerReady(${platform})`, () => ensureAppiumServerReady(platform));
-    const sessionId = String(args.sessionId ?? "mcp-batch");
-    const continueOnError = args.continueOnError === true;
-    const onFailure = args.onFailure === "continue" || (args.onFailure !== "stop" && continueOnError) ? "continue" : "stop";
-    const actions = Array.isArray(args.actions) ? args.actions : [];
-    const results: Array<{ index: number; command: string; attempts: number; result: CommandResult }> = [];
-    for (let i = 0; i < actions.length; i += 1) {
-      const item = asRecord(actions[i]);
-      const command = normalizeCommand(item.command);
-      ensureRiskAllowed(command, args);
-      const timeoutMs = typeof item.timeoutMs === "number" ? Math.max(0, Math.floor(item.timeoutMs)) : 0;
-      const retry = typeof item.retry === "number" ? Math.max(0, Math.floor(item.retry)) : 0;
-      let attempts = 0;
-      let result: CommandResult = {
-        requestId: String(item.requestId ?? `batch-${Date.now()}-${i}`),
-        success: false,
-        errorCode: "MCP_BATCH_NOT_EXECUTED",
-        errorMessage: "batch action not executed"
-      };
-      const maxAttempts = retry + 1;
-      while (attempts < maxAttempts) {
-        attempts += 1;
-        const isLastAction = i === actions.length - 1;
-        const rawPayload = asRecord(item.payload);
-        const envelope = toCommandEnvelope({
-          requestId: item.requestId ?? `batch-${Date.now()}-${i}-a${attempts}`,
-          sessionId,
-          platform,
-          command,
-          payload:
-            platform === "android" || platform === "ios" || platform === "harmony"
-              ? { ...rawPayload, keepSession: !isLastAction }
-              : rawPayload
-        }, allowMock(args));
-        result = await withTiming(`batch-action(${platform}:${command})`, () => executeWithTimeout(envelope, timeoutMs));
-        if (result.success) {
-          break;
-        }
-      }
-      assertRealResult(result, "ada_batch_actions", allowMock(args));
-      results.push({ index: i, command, attempts, result });
-      if (!result.success && onFailure === "stop") {
-        break;
-      }
-    }
-    const successCount = results.filter((item) => item.result.success).length;
-    const failureCount = results.length - successCount;
-    const timeoutCount = results.filter((item) => item.result.errorCode === "MCP_ACTION_TIMEOUT").length;
-    return textResult({
-      status: "ok",
-      platform,
-      sessionId,
-      continueOnError,
-      onFailure,
-      executed: results.length,
-      summary: {
-        total: actions.length,
-        executed: results.length,
-        successCount,
-        failureCount,
-        timeoutCount,
-        stoppedOnFailure: failureCount > 0 && onFailure === "stop"
-      },
-      results
-    });
+    return handleBatchActions(args, {
+      normalizePlatform,
+      mobilePreflight,
+      withTiming,
+      asRecord,
+      normalizeCommand,
+      ensureRiskAllowed,
+      toCommandEnvelope,
+      allowMock,
+      executeWithTimeout,
+      assertRealResult,
+      mcpTextResult,
+      buildRecoveryHint,
+      buildRecoveryPlan
+    } as any);
   }
   if (tool === "ada_extract") {
-    const sessionId = String(args.sessionId ?? "mcp-extract");
-    const mode = typeof args.mode === "string" ? args.mode : "text";
-    let script = "";
-    if (mode === "list") {
-      script = `(() => Array.from(document.querySelectorAll('li,a')).map(el => (el.textContent||'').trim()).filter(Boolean).slice(0,50))()`;
-    } else if (mode === "table") {
-      script = `(() => Array.from(document.querySelectorAll('table')).map(t => Array.from(t.querySelectorAll('tr')).map(r => Array.from(r.querySelectorAll('th,td')).map(c => (c.textContent||'').trim()))).slice(0,5))()`;
-    } else {
-      script = `(() => (document.body?.innerText || '').slice(0, 5000))()`;
-    }
-    ensureRiskAllowed("custom", args);
-    const result = await runCommand(
-      toCommandEnvelope({
-        requestId: `extract-${Date.now()}`,
-        sessionId,
-        platform: "web",
-        command: "custom",
-        payload: { action: "evaluate", script, ...(asRecord(args.payload) || {}) }
-      }, allowMock(args))
-    );
-    assertRealResult(result, "ada_extract", allowMock(args));
-    return textResult(
-      toExtractResponse({
-        source: "web",
-        mode,
-        platform: "web",
-        result,
-        maxItems: Number((asRecord(args.payload).maxItems as number | undefined) ?? 50)
-      })
-    );
+    return handleWebExtract(args, {
+      runCommand,
+      toCommandEnvelope,
+      allowMock,
+      ensureRiskAllowed,
+      assertRealResult,
+      toExtractResponse,
+      mcpTextResult,
+      buildRecoveryHint
+    });
   }
   if (tool === "ada_assertions") {
-    const sessionId = String(args.sessionId ?? "mcp-assert");
-    const type = typeof args.type === "string" ? args.type : "visible";
-    const payload = asRecord(args.payload);
-    let command: SupportedCommand = "assertVisible";
-    if (type === "text") {
-      command = "assertText";
-    } else if (type === "url") {
-      ensureRiskAllowed("custom", args);
-      const result = await runCommand(
-        toCommandEnvelope({
-          requestId: `assert-url-${Date.now()}`,
-          sessionId,
-          platform: "web",
-          command: "custom",
-          payload: {
-            action: "evaluate",
-            script: `(() => location.href)()`
-          }
-        }, allowMock(args))
-      );
-      assertRealResult(result, "ada_assertions", allowMock(args));
-      const actual = String((result.data as Record<string, unknown> | undefined)?.value ?? "");
-      const expected = String(payload.expectedUrl ?? "");
-      const pass = expected.length === 0 ? actual.length > 0 : actual.includes(expected);
-      return textResult({
-        status: pass ? "ok" : "failed",
-        type: "url",
-        expectedUrl: expected,
-        actualUrl: actual
-      });
-    }
-    const result = await runCommand(
-      toCommandEnvelope({
-        requestId: `assert-${Date.now()}`,
-        sessionId,
-        platform: "web",
-        command,
-        payload
-      }, allowMock(args))
-    );
-    assertRealResult(result, "ada_assertions", allowMock(args));
-    return textResult({ status: result.success ? "ok" : "failed", type, result });
+    return handleWebAssertions(args, {
+      runCommand,
+      toCommandEnvelope,
+      allowMock,
+      ensureRiskAllowed,
+      assertRealResult,
+      wrapAssertionResult
+    });
   }
   if (tool === "ada_mobile_extract") {
-    const platform = normalizePlatform(args.platform);
-    if (platform === "web") {
-      throw new Error("ada_mobile_extract requires mobile platform");
-    }
-    await ensureAppiumServerReady(platform);
-    const sessionId = String(args.sessionId ?? "mcp-mobile-extract");
-    const type = typeof args.type === "string" ? args.type : "text";
-    const payload = asRecord(args.payload);
-    if (type === "pageSource") {
-      ensureRiskAllowed("custom", args);
-      const result = await runCommand(
-        toCommandEnvelope({
-          requestId: `mobile-page-source-${Date.now()}`,
-          sessionId,
-          platform,
-          command: "custom",
-          payload: {
-            custom: {
-              method: "GET",
-              path: "/source"
-            }
-          }
-        }, allowMock(args))
-      );
-      assertRealResult(result, "ada_mobile_extract", allowMock(args));
-      return textResult(
-        toExtractResponse({
-          source: "mobile",
-          mode: type,
-          platform,
-          result,
-          maxItems: Number((payload.maxItems as number | undefined) ?? 50)
-        })
-      );
-    }
-    const result = await runCommand(
-      toCommandEnvelope({
-        requestId: `mobile-extract-${Date.now()}`,
-        sessionId,
-        platform,
-        command: "getText",
-        payload
-      }, allowMock(args))
-    );
-    assertRealResult(result, "ada_mobile_extract", allowMock(args));
-    return textResult(
-      toExtractResponse({
-        source: "mobile",
-        mode: "text",
-        platform,
-        result,
-        maxItems: Number((payload.maxItems as number | undefined) ?? 50)
-      })
-    );
+    return handleMobileExtract(args, {
+      requireMobilePlatform,
+      mobilePreflight,
+      runCommand,
+      toCommandEnvelope,
+      allowMock,
+      ensureRiskAllowed,
+      assertRealResult,
+      toExtractResponse,
+      mcpTextResult,
+      buildRecoveryHint
+    });
   }
   if (tool === "ada_mobile_assertions") {
-    const platform = normalizePlatform(args.platform);
-    if (platform === "web") {
-      throw new Error("ada_mobile_assertions requires mobile platform");
-    }
-    await ensureAppiumServerReady(platform);
-    const sessionId = String(args.sessionId ?? "mcp-mobile-assert");
-    const type = typeof args.type === "string" ? args.type : "visible";
-    const payload = asRecord(args.payload);
-    const command = type === "text" ? "assertText" : "assertVisible";
-    const result = await runCommand(
-      toCommandEnvelope({
-        requestId: `mobile-assert-${Date.now()}`,
-        sessionId,
-        platform,
-        command,
-        payload
-      }, allowMock(args))
-    );
-    assertRealResult(result, "ada_mobile_assertions", allowMock(args));
-    return textResult({ status: result.success ? "ok" : "failed", platform, type, result });
+    return handleMobileAssertions(args, {
+      requireMobilePlatform,
+      mobilePreflight,
+      runCommand,
+      toCommandEnvelope,
+      allowMock,
+      assertRealResult,
+      wrapAssertionResult
+    });
   }
   if (tool === "ada_run_task_file") {
-    const file = String(args.file ?? "");
-    if (!file) {
-      throw new Error("file is required");
-    }
-    const taskPath = path.isAbsolute(file) ? file : path.resolve(process.cwd(), file);
-    const tasks = await loadTaskFile(taskPath);
-    const results = await runTaskset(tasks);
-    const monitor = parseMonitorOptions(args);
-    const monitorJobs: Promise<void>[] = [];
-    for (let i = 0; i < tasks.length; i += 1) {
-      const maybeJob = runMonitorCapture(tasks[i], results[i], monitor);
-      if (maybeJob) {
-        monitorJobs.push(maybeJob);
-      }
-    }
-    if (monitorJobs.length > 0) {
-      await Promise.allSettled(monitorJobs);
-    }
-    const allowMockMode = allowMock(args);
-    for (const result of results) {
-      assertRealResult(result, "ada_run_task_file", allowMockMode);
-    }
-    return textResult(results);
+    return handleRunTaskFile(args, {
+      resolveTaskPath: (file) => (path.isAbsolute(file) ? file : path.resolve(process.cwd(), file)),
+      loadTaskFile,
+      runTaskset,
+      parseMonitorOptions,
+      runMonitorCapture,
+      allowMock,
+      assertRealResult,
+      mcpTextResult,
+      buildRecoveryHint
+    });
   }
   if (tool === "ada_execute") {
-    ensureRiskAllowed(normalizeCommand(args.command), args);
-    const command = toCommandEnvelope(args, allowMock(args));
-    await withTiming(`ensureAppiumServerReady(${command.platform})`, () => ensureAppiumServerReady(command.platform));
-    const result = await withTiming(`runCommand(${command.platform}:${command.command})`, () => runCommand(command));
-    const maybeJob = runMonitorCapture(command, result, parseMonitorOptions(args));
-    if (maybeJob) {
-      await maybeJob;
-    }
-    assertRealResult(result, "ada_execute", allowMock(args));
-    return textResult(result);
+    return handleExecute(args, {
+      normalizeCommand,
+      ensureRiskAllowed,
+      toCommandEnvelope,
+      allowMock,
+      withTiming,
+      mobilePreflight,
+      runCommand,
+      runMonitorCapture,
+      parseMonitorOptions,
+      assertRealResult,
+      wrapCommandToolResult
+    });
   }
   if (tool === "ada_invoke") {
-    ensureRiskAllowed("invoke", args);
-    const platform = normalizePlatform(args.platform);
-    const payload = ensureRealPayloadForPlatform(platform, buildInvokeCommandPayload(args), allowMock(args));
-    const envelope: CommandEnvelope = {
-      requestId: String(args.requestId ?? `invoke-${Date.now()}`),
-      sessionId: String(args.sessionId ?? "mcp-invoke"),
-      platform,
-      command: "invoke",
-      payload
-    };
-    await withTiming(`ensureAppiumServerReady(${platform})`, () => ensureAppiumServerReady(platform));
-    const result = await withTiming(`runCommand(${platform}:invoke)`, () => runCommand(envelope));
-    const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
-    if (maybeJob) {
-      await maybeJob;
-    }
-    assertRealResult(result, "ada_invoke", allowMock(args));
-    return textResult(result);
+    return handleInvoke(args, {
+      ensureRiskAllowed,
+      normalizePlatform,
+      ensureRealPayloadForPlatform,
+      buildInvokeCommandPayload,
+      allowMock,
+      withTiming,
+      mobilePreflight,
+      runCommand,
+      runMonitorCapture,
+      parseMonitorOptions,
+      assertRealResult,
+      wrapCommandToolResult
+    });
+  }
+  if (tool === "ada_web_dismiss_popups") {
+    return handleWebDismissPopups(args, {
+      mergeWebEngineIntoPayload,
+      mcpTextResult
+    });
   }
   if (tool === "ada_web_action") {
-    const command = normalizeCommand(args.command);
-    ensureRiskAllowed(command, args);
-    if (["swipe", "home", "launchApp", "terminateApp"].includes(command)) {
-      throw new Error(`web_action does not support command: ${command}`);
-    }
-    const envelope = toCommandEnvelope({
-      ...args,
-      platform: "web",
-      command,
-      payload: mergeWebEngineIntoPayload(args)
-    }, allowMock(args));
-    const result = await withTiming(`runCommand(web:${command})`, () => runCommand(envelope));
-    const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
-    if (maybeJob) {
-      await maybeJob;
-    }
-    assertRealResult(result, "ada_web_action", allowMock(args));
-    return textResult(result);
+    return handleWebAction(args, {
+      normalizeCommand,
+      ensureRiskAllowed,
+      toCommandEnvelope,
+      mergeWebEngineIntoPayload,
+      allowMock,
+      ensureWebRuntimeReady,
+      ensureSessionActive,
+      parseActionRunOptions,
+      runCommandWithRetry,
+      withTiming,
+      runMonitorCapture,
+      parseMonitorOptions,
+      assertRealResult,
+      wrapCommandToolResult
+    });
+  }
+  if (tool === "ada_mobile_recipe") {
+    return handleMobileRecipe(args, {
+      requireMobilePlatform,
+      toCommandEnvelope,
+      allowMock,
+      withTiming,
+      mobilePreflight,
+      runCommand,
+      assertRealResult,
+      wrapCommandToolResult
+    });
+  }
+  if (tool === "ada_mobile_dismiss_popups") {
+    return handleMobileDismissPopups(args, {
+      requireMobilePlatform,
+      mcpTextResult
+    });
   }
   if (tool === "ada_mobile_action") {
-    const command = normalizeCommand(args.command);
-    ensureRiskAllowed(command, args);
-    if (
-      ["navigate", "hover", "press", "select", "scroll", "reload", "closeTab", "forward", "newTab", "switchTab", "uploadFile", "dragDrop"].includes(
-        command
-      )
-    ) {
-      throw new Error(`mobile_action does not support command: ${command}`);
-    }
-    const envelope = toCommandEnvelope({
-      ...args,
-      platform: normalizePlatform(args.platform),
-      command
-    }, allowMock(args));
-    await withTiming(`ensureAppiumServerReady(${envelope.platform})`, () => ensureAppiumServerReady(envelope.platform));
-    const result = await withTiming(`runCommand(${envelope.platform}:${command})`, () => runCommand(envelope));
-    const maybeJob = runMonitorCapture(envelope, result, parseMonitorOptions(args));
-    if (maybeJob) {
-      await maybeJob;
-    }
-    assertRealResult(result, "ada_mobile_action", allowMock(args));
-    return textResult(result);
+    return handleMobileAction(args, {
+      normalizeCommand,
+      ensureRiskAllowed,
+      requireMobilePlatform,
+      toCommandEnvelope,
+      allowMock,
+      withTiming,
+      mobilePreflight,
+      ensureSessionActive,
+      parseActionRunOptions,
+      runCommandWithRetry,
+      runMonitorCapture,
+      parseMonitorOptions,
+      assertRealResult,
+      wrapCommandToolResult
+    });
   }
 
   throw new Error(`Unknown tool: ${tool}`);
@@ -1284,7 +732,8 @@ export function createAdaMcpProtocolServer(): Server {
     },
     {
       capabilities: {
-        tools: {}
+        tools: {},
+        resources: {}
       }
     }
   );
@@ -1301,56 +750,12 @@ export async function startMcpServer(): Promise<void> {
   if (passedArgs.includes("mcp")) {
     console.error('[ADA-MCP] warning: standalone ada-mcp binary does not require "mcp" arg; it is safe to remove.');
   }
-  function tryReadPackageVersion(name: string): string | null {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const raw = require(`${name}/package.json`) as { version?: unknown };
-      const v = String(raw?.version ?? "").trim();
-      return v.length > 0 ? v : null;
-    } catch {
-      return null;
-    }
-  }
-
-  const launcherVersion = tryReadPackageVersion("@ada-mcp/launcher");
-  const selfVersion = tryReadPackageVersion("@ada-mcp/mcp-server");
-  const alignedLauncherVersion = launcherVersion || selfVersion;
-
-  const launcherSpec = alignedLauncherVersion
-    ? `@ada-mcp/launcher@${alignedLauncherVersion}`
-    : "@ada-mcp/launcher";
-
-  const configHint = {
-    mcpServers: {
-      "ada-mcp": {
-        command: "pnpm",
-        args: ["dlx", launcherSpec]
-      }
-    }
-  };
-  const binaryHint = {
-    mcpServers: {
-      "ada-mcp": {
-        command: binaryCommand,
-        args: [],
-        cwd,
-        env: {
-          ADA_PLAYWRIGHT_HEADLESS: "true",
-          ADA_MCP_INSTALL_DEPS: "playwright",
-          ADA_INSTALL_STRATEGY_TIMEOUT_MS: "120000",
-          ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS: "3600000"
-        }
-      }
-    }
-  };
-  const npmDevHint = {
-    mcpServers: {
-      "ada-mcp-dev": {
-        command: "npm",
-        args: ["run", "mcp:dev"]
-      }
-    }
-  };
+  const { launcherVersion, selfVersion, alignedLauncherVersion } = resolveStartPackageVersions();
+  const { configHint, binaryHint, npmDevHint } = buildStartHints({
+    binaryCommand,
+    cwd,
+    alignedLauncherVersion
+  });
   console.error("[ADA-MCP] config hint (npm standard):");
   console.error(JSON.stringify(configHint, null, 2));
   if (selfVersion) {

@@ -1,0 +1,30 @@
+{
+  "name": "@ada/install-deps",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./install-summary": {
+      "types": "./src/install-summary.ts",
+      "default": "./src/install-summary.ts"
+    },
+    "./registry-probe": {
+      "types": "./src/registry-probe.ts",
+      "default": "./src/registry-probe.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noCheck",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ada/core-runtime": "0.1.0",
+    "@ada/download-probe": "0.1.0",
+    "@ada/runtime-probe": "0.1.0"
+  }
+}

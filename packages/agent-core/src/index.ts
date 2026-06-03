@@ -4,17 +4,29 @@ import { runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 import {
   ensureDriverDependencies,
   getDependencyHealth,
+  probeRuntimesForTasks,
   type InstallScope,
   type InstallSummary
-} from "@ada/agent/dependency-installer";
-import { runDoctor } from "@ada/agent/doctor";
+} from "@ada/install-deps";
+import { checkJavaRuntime, runDoctor } from "@ada/agent/doctor";
 import { listBuiltInPluginManifests } from "@ada/agent/plugin-registry";
 import { runSetupCli } from "@ada/agent/setup-cli";
 import { runSetupNative } from "@ada/agent/setup-native";
 import { runSetupUi } from "@ada/agent/bootstrap-ui";
+import {
+  applyDeviceRegistryToEnv,
+  registryToDeviceListRows,
+  type DeviceListRow,
+  type DeviceRegistryDefaults
+} from "@ada/runtime-probe";
+import {
+  deviceRegistryPath,
+  isDeviceAutoScanEnabled,
+  loadDeviceRegistry,
+  scanAndPersistDevices
+} from "@ada/agent/device-store";
 import { patchRemoteCredentials, persistAgentSetup } from "@ada/agent/setup-state";
 import { createRuntimeTransport } from "@ada/agent/transport-client";
-import { parseWebEngineFromPayload } from "@ada/driver-rpc";
 import { processQueueOnce, watchQueue } from "@ada/agent/queue-runner";
 import { runDemoTaskset, runForegroundLoop, runTaskset } from "@ada/agent/runtime";
 import { loadTaskFile } from "@ada/agent/task-loader";
@@ -23,10 +35,16 @@ import type { AgentConfig, BootstrapInput, SetupMode } from "@ada/agent/types";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import fs from "node:fs/promises";
 
-export async function getHealthSnapshot(): Promise<Record<string, unknown>> {
-  const config = await loadConfig();
+export async function getHealthSnapshot(options?: {
+  config?: AgentConfig;
+  includeHarmony?: boolean;
+  fresh?: boolean;
+}): Promise<Record<string, unknown>> {
+  const config = options?.config ?? (await loadConfig());
   const secret = await loadSecret(config.bootstrapUI.secretsProvider);
-  const deps = await getDependencyHealth(config);
+  const includeHarmony = options?.includeHarmony ?? true;
+  const deps = await getDependencyHealth(config, { includeHarmony, fresh: options?.fresh });
+  const deviceRegistry = await loadDeviceRegistry();
   return {
     status: "ok",
     setupConfigured: Boolean(secret),
@@ -38,13 +56,102 @@ export async function getHealthSnapshot(): Promise<Record<string, unknown>> {
       platforms: m.platforms,
       engine: m.engine
     })),
-    dependencies: deps
+    dependencies: deps,
+    deviceRegistry: deviceRegistry
+      ? {
+          lastScanAt: deviceRegistry.lastScanAt,
+          defaults: deviceRegistry.defaults,
+          deviceCount: deviceRegistry.devices.length,
+          authorizedCount: deviceRegistry.devices.filter((d) => d.authorized).length
+        }
+      : null
   };
 }
 
-export async function getDoctorSnapshot(): Promise<Record<string, unknown>> {
+export async function getDeviceRegistrySnapshot(): Promise<Record<string, unknown>> {
   const config = await loadConfig();
-  return (await runDoctor(config)) as Record<string, unknown>;
+  const registry = await loadDeviceRegistry();
+  const display = await getDeviceListForDisplay();
+  return {
+    configured: Boolean(config.devices),
+    autoScanOnSetup: config.devices?.autoScanOnSetup ?? true,
+    autoScanOnStart: config.devices?.autoScanOnStart ?? true,
+    registry,
+    rows: display.rows,
+    lastScanAt: display.lastScanAt,
+    defaults: display.defaults
+  };
+}
+
+export async function scanMobileDevicesAndPersist(options?: {
+  deviceTags?: string[];
+}): Promise<Record<string, unknown>> {
+  const config = await loadConfig();
+  const { registry, scan, file } = await scanAndPersistDevices(config, {
+    deviceTags: options?.deviceTags,
+    applyEnv: true
+  });
+  return { file, scan, registry };
+}
+
+export type { DeviceListRow };
+
+/** GUI / 上游展示：设备列表行（名称、ID、分辨率、系统类别、SDK） */
+export async function getDeviceListForDisplay(): Promise<{
+  rows: DeviceListRow[];
+  lastScanAt?: string;
+  defaults: DeviceRegistryDefaults;
+  file?: string;
+}> {
+  const registry = await loadDeviceRegistry();
+  let file: string | undefined;
+  try {
+    file = await deviceRegistryPath();
+  } catch {
+    file = undefined;
+  }
+  return {
+    rows: registryToDeviceListRows(registry),
+    lastScanAt: registry?.lastScanAt,
+    defaults: registry?.defaults ?? {},
+    file: registry ? file : undefined
+  };
+}
+
+export async function scanDevicesAndListForDisplay(): Promise<{
+  rows: DeviceListRow[];
+  lastScanAt?: string;
+  defaults: DeviceRegistryDefaults;
+  file: string;
+  scanErrors: Array<{ platform: string; message: string }>;
+}> {
+  const config = await loadConfig();
+  const { registry, scan, file } = await scanAndPersistDevices(config, { applyEnv: true });
+  return {
+    rows: registryToDeviceListRows(registry),
+    lastScanAt: registry.lastScanAt,
+    defaults: registry.defaults,
+    file,
+    scanErrors: scan.errors.map((e) => ({ platform: e.platform, message: e.message }))
+  };
+}
+
+const DOCTOR_CACHE_MS = Number(process.env.ADA_DOCTOR_CACHE_MS ?? 60_000);
+let doctorSnapshotCache: { scope: string; checkedAt: number; result: Record<string, unknown> } | null = null;
+
+export function invalidateDoctorSnapshotCache(): void {
+  doctorSnapshotCache = null;
+}
+
+export async function getDoctorSnapshot(scope: "web" | "mobile" | "all" = "all"): Promise<Record<string, unknown>> {
+  const now = Date.now();
+  if (doctorSnapshotCache && doctorSnapshotCache.scope === scope && now - doctorSnapshotCache.checkedAt < DOCTOR_CACHE_MS) {
+    return doctorSnapshotCache.result;
+  }
+  const config = await loadConfig();
+  const result = (await runDoctor(config, { scope })) as Record<string, unknown>;
+  doctorSnapshotCache = { scope, checkedAt: now, result };
+  return result;
 }
 
 export function getBuiltInPlugins() {
@@ -61,12 +168,16 @@ export {
   runBootstrapInstallDeps
 } from "@ada/agent/bootstrap-deps";
 
+export type { InstallScope, InstallSummary, TaskRuntimeProbe } from "@ada/install-deps";
+export { getDependencyHealth, ensureDriverDependencies, probeRuntimesForTasks } from "@ada/install-deps";
+export {
+  isDeviceAutoScanEnabled,
+  loadDeviceRegistry,
+  scanAndPersistDevices
+} from "@ada/agent/device-store";
+
 export type InstallDependencyExtras = {
   playwrightInstallTargetsOverride?: string[];
-  appiumRequiredDriversOverride?: string[];
-  nativeDriversDir?: string;
-  geckodriverVersion?: string;
-  chromedriverVersion?: string;
 };
 
 export async function installDependencies(
@@ -88,22 +199,21 @@ function hasPlatformTask(tasks: CommandEnvelope[], platform: "web" | "android" |
   return tasks.some((task) => task.platform === platform);
 }
 
-function hasSeleniumWebTask(tasks: CommandEnvelope[]): boolean {
-  return tasks.some((task) => task.platform === "web" && parseWebEngineFromPayload(task.payload) === "selenium");
-}
-
 function hasPlaywrightWebTask(tasks: CommandEnvelope[]): boolean {
-  return tasks.some((task) => task.platform === "web" && parseWebEngineFromPayload(task.payload) !== "selenium");
+  return tasks.some((task) => task.platform === "web");
 }
 
 function classifyExecutionFailure(errorCode: string): "environment" | "locator" | "assertion" | "driver" | "unknown" {
   if (
-    errorCode === "APPIUM_SESSION_CREATE_FAILED" ||
-    errorCode === "APPIUM_PROBE_FAILED" ||
-    errorCode === "APPIUM_CLICK_FAILED" ||
-    errorCode === "APPIUM_SWIPE_FAILED" ||
-    errorCode === "APPIUM_TYPE_FAILED" ||
-    errorCode === "APPIUM_SCREENSHOT_FAILED"
+    errorCode === "SESSION_CREATE_FAILED" ||
+    errorCode === "ANDROID_SESSION_CREATE_FAILED" ||
+    errorCode === "IOS_SESSION_CREATE_FAILED" ||
+    errorCode === "HARMONY_SESSION_CREATE_FAILED" ||
+    errorCode.endsWith("_PROBE_FAILED") ||
+    errorCode.endsWith("_CLICK_FAILED") ||
+    errorCode.endsWith("_SWIPE_FAILED") ||
+    errorCode.endsWith("_TYPE_FAILED") ||
+    errorCode.endsWith("_SCREENSHOT_FAILED")
   ) {
     return "environment";
   }
@@ -122,57 +232,45 @@ function classifyExecutionFailure(errorCode: string): "environment" | "locator" 
 function buildRemediationHints(input: {
   dependencyMissing: string[];
   browserNotLaunchable: boolean;
-  seleniumDriverMissing: boolean;
-  appiumCliNotReady: boolean;
-  appiumServerUnreachable: boolean;
+  mobileRuntimeUnready: boolean;
+  harmonyHdcUnready: boolean;
   executionFailureTypes: Array<"environment" | "locator" | "assertion" | "driver" | "unknown">;
 }): string[] {
   const hints: string[] = [];
   if (input.dependencyMissing.length > 0) hints.push("运行 `./ada-agent install-deps` 补齐依赖");
+  if (input.dependencyMissing.includes("java-runtime")) hints.push("安装 JDK 并配置 JAVA_HOME / PATH 中的 java");
   if (input.browserNotLaunchable) hints.push("执行 `./ada-agent doctor` 检查 Playwright 后重试安装浏览器");
-  if (input.seleniumDriverMissing) {
-    hints.push("Selenium 任务需 geckodriver/chromedriver：运行 `./ada-agent install-deps --only=selenium` 查看检测说明");
-  }
-  if (input.appiumCliNotReady) hints.push("重新安装 Appium 后用 `tasks/appium-probe.tasks.json` 验证");
-  if (input.appiumServerUnreachable) hints.push("先启动 Appium Server 并确认 `appium.serverUrl` 正确");
+  if (input.mobileRuntimeUnready) hints.push("移动运行环境未就绪：请先检查 `adb` / `xcrun` / WDA 与设备连接");
+  if (input.harmonyHdcUnready) hints.push("Harmony 未就绪：请执行 install-deps --only=harmony 并确认 hdc 可连接设备");
   if (input.executionFailureTypes.includes("locator")) hints.push("定位失败：检查 locator/elementId 是否正确");
   if (input.executionFailureTypes.includes("assertion")) hints.push("断言失败：先加截图确认页面状态");
   if (input.executionFailureTypes.includes("driver")) hints.push("驱动失败：检查 command 是否被当前平台支持");
-  if (input.executionFailureTypes.includes("environment")) hints.push("环境失败：检查设备连接与浏览器/Appium运行状态");
+  if (input.executionFailureTypes.includes("environment")) hints.push("环境失败：检查设备连接与浏览器/驱动运行状态");
   if (input.executionFailureTypes.includes("unknown")) hints.push("未知失败：结合日志与 executionFailures 继续定位");
   return hints;
 }
 
-function classifyRequireRealFailures(
+export function classifyRequireRealFailures(
   tasks: CommandEnvelope[],
   results: CommandResult[],
   deps: Awaited<ReturnType<typeof getDependencyHealth>>,
-  doctor: Awaited<ReturnType<typeof runDoctor>>
+  runtime: Awaited<ReturnType<typeof probeRuntimesForTasks>>,
+  javaOk: boolean
 ): Record<string, unknown> {
-  const hasWebTask = hasPlatformTask(tasks, "web");
-  const hasSeleniumTask = hasSeleniumWebTask(tasks);
   const hasPlaywrightTask = hasPlaywrightWebTask(tasks);
-  const hasAppiumTask = hasPlatformTask(tasks, "android") || hasPlatformTask(tasks, "ios");
+  const hasAndroidTask = hasPlatformTask(tasks, "android");
+  const hasIosTask = hasPlatformTask(tasks, "ios");
   const hasHarmonyTask = hasPlatformTask(tasks, "harmony");
   const dependencyMissing: string[] = [];
   if (hasPlaywrightTask && !deps.playwrightInstalled) dependencyMissing.push("playwright");
-  if (hasSeleniumTask && !deps.seleniumWebdriverInstalled) dependencyMissing.push("selenium-webdriver");
-  if (hasAppiumTask && !deps.appiumInstalled) dependencyMissing.push("appium");
   const browserNotLaunchable = hasPlaywrightTask && deps.playwrightInstalled && !deps.playwrightLaunchOk;
-  const seleniumDriverMissing =
-    hasSeleniumTask && !deps.geckodriverOk && !deps.chromedriverOk;
-  if (seleniumDriverMissing) dependencyMissing.push("geckodriver-or-chromedriver");
-  const appiumCliNotReady = hasAppiumTask && deps.appiumInstalled && !deps.appiumCliOk;
-  const appiumServerReachable = Boolean(
-    (doctor.checks as Record<string, unknown> | undefined)?.appiumServer &&
-      ((doctor.checks as Record<string, unknown>).appiumServer as Record<string, unknown>).reachable
-  );
-  const appiumServerUnreachable = hasAppiumTask && !appiumServerReachable;
-  const harmonyHdcOk = Boolean(
-    (doctor.checks as Record<string, unknown> | undefined)?.harmonyHdc &&
-      ((doctor.checks as Record<string, unknown>).harmonyHdc as Record<string, unknown>).ok
-  );
-  const harmonyHdcUnready = hasHarmonyTask && !harmonyHdcOk;
+  const androidUnready = hasAndroidTask && (!runtime.android.ready || !javaOk);
+  const iosUnready = hasIosTask && !runtime.ios.ready;
+  const mobileRuntimeUnready = androidUnready || iosUnready;
+  const harmonyHdcUnready = hasHarmonyTask && !runtime.harmony.ready;
+  if (hasAndroidTask && !javaOk) dependencyMissing.push("java-runtime");
+  if (hasAndroidTask && !runtime.android.ready) dependencyMissing.push("android-runtime");
+  if (iosUnready) dependencyMissing.push("ios-runtime");
   if (harmonyHdcUnready) dependencyMissing.push("hdc-or-tools");
   const mockFallbacks = results
     .map((result, index) => ({ result, index }))
@@ -192,9 +290,9 @@ function classifyRequireRealFailures(
   return {
     dependencyMissing,
     browserNotLaunchable,
-    appiumCliNotReady,
-    appiumServerUnreachable,
+    mobileRuntimeUnready,
     harmonyHdcUnready,
+    runtimeProbe: runtime,
     mockFallbackCount: mockFallbacks.length,
     executionFailureCount: executionFailures.length,
     executionFailureTypes,
@@ -203,9 +301,8 @@ function classifyRequireRealFailures(
     remediationHints: buildRemediationHints({
       dependencyMissing,
       browserNotLaunchable,
-      seleniumDriverMissing,
-      appiumCliNotReady,
-      appiumServerUnreachable,
+      mobileRuntimeUnready,
+      harmonyHdcUnready,
       executionFailureTypes
     })
   };
@@ -272,27 +369,32 @@ export async function runStartFlow(options?: {
       platform: process.platform
     }
   });
-  const preDeps = await getDependencyHealth(config);
+  const includeHarmonyForConfig = (config.monitoring?.platforms ?? []).some(
+    (platform) => platform.toLowerCase().trim() === "harmony"
+  );
+  const preDeps = await getDependencyHealth(config, { includeHarmony: includeHarmonyForConfig, fresh: true });
   const preDoctor = await runDoctor(config);
   log("info", {
     event: "runtime.env.check.preflight",
     details: {
       status: preDoctor.status,
       dependencies: preDeps,
-      appiumServer: (preDoctor.checks as Record<string, unknown> | undefined)?.appiumServer,
+      androidRuntime: (preDoctor.checks as Record<string, unknown> | undefined)?.androidRuntime,
+      iosRuntime: (preDoctor.checks as Record<string, unknown> | undefined)?.iosRuntime,
       javaRuntime: (preDoctor.checks as Record<string, unknown> | undefined)?.javaRuntime
     }
   });
   if (config.dependencies.autoInstallOnStart && !skipDeps) {
     await runBootstrapInstallDeps(process.argv.slice(2), { config });
-    const postDeps = await getDependencyHealth(config);
+    const postDeps = await getDependencyHealth(config, { includeHarmony: includeHarmonyForConfig, fresh: true });
     const postDoctor = await runDoctor(config);
     log("info", {
       event: "runtime.env.check.post-install",
       details: {
         status: postDoctor.status,
         dependencies: postDeps,
-        appiumServer: (postDoctor.checks as Record<string, unknown> | undefined)?.appiumServer,
+        androidRuntime: (postDoctor.checks as Record<string, unknown> | undefined)?.androidRuntime,
+        iosRuntime: (postDoctor.checks as Record<string, unknown> | undefined)?.iosRuntime,
         javaRuntime: (postDoctor.checks as Record<string, unknown> | undefined)?.javaRuntime
       }
     });
@@ -322,6 +424,30 @@ export async function runStartFlow(options?: {
         token: maskToken(effectiveSecret.token)
       }
     });
+    if (isDeviceAutoScanEnabled(config, "start")) {
+      try {
+        const { registry, file } = await scanAndPersistDevices(config, { applyEnv: true });
+        log("info", {
+          event: "devices.scan.on_start",
+          details: {
+            file,
+            count: registry.devices.length,
+            defaults: registry.defaults
+          }
+        });
+      } catch (error) {
+        log("warn", {
+          event: "devices.scan.on_start.failed",
+          details: { reason: error instanceof Error ? error.message : String(error) }
+        });
+      }
+    } else {
+      const existing = await loadDeviceRegistry();
+      if (existing) {
+        const { applyDeviceRegistryToEnv } = await import("@ada/runtime-probe");
+        applyDeviceRegistryToEnv(existing);
+      }
+    }
   }
   const runtimeTransport = await createRuntimeTransport(config, effectiveSecret);
   try {
@@ -371,14 +497,17 @@ export async function runTaskFileFlow(file: string, options?: { requireReal?: bo
     await runtimeTransport?.close();
   }
   if (options?.requireReal) {
-    const deps = await getDependencyHealth(config);
-    const doctor = await runDoctor(config);
-    const failureSummary = classifyRequireRealFailures(tasks, results, deps, doctor);
+    const needsHarmony = hasPlatformTask(tasks, "harmony");
+    const deps = await getDependencyHealth(config, { includeHarmony: needsHarmony, fresh: true });
+    const runtime = await probeRuntimesForTasks(tasks, config);
+    const needsJava = hasPlatformTask(tasks, "android");
+    const javaOk = needsJava ? (await checkJavaRuntime()).ok : true;
+    const failureSummary = classifyRequireRealFailures(tasks, results, deps, runtime, javaOk);
     const hasFailures =
       ((failureSummary.dependencyMissing as string[]).length ?? 0) > 0 ||
       Boolean(failureSummary.browserNotLaunchable) ||
-      Boolean(failureSummary.appiumCliNotReady) ||
-      Boolean(failureSummary.appiumServerUnreachable) ||
+      Boolean(failureSummary.mobileRuntimeUnready) ||
+      Boolean(failureSummary.harmonyHdcUnready) ||
       (Number(failureSummary.mockFallbackCount) ?? 0) > 0 ||
       (Number(failureSummary.executionFailureCount) ?? 0) > 0;
     if (hasFailures) {

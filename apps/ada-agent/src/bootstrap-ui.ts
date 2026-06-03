@@ -20,7 +20,6 @@ function parseDependencyInstallScope(value: unknown): DependencyInstallScope {
     value === "android" ||
     value === "ios" ||
     value === "harmony" ||
-    value === "appium" ||
     value === "drivers"
   ) {
     return value;
@@ -127,14 +126,13 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
         </div>
         <label class="field" style="margin-top:12px">立即安装时的范围
           <select id="dependencyInstallScope">
-            <option value="all">完整（Playwright + Appium 与驱动）</option>
+            <option value="all">完整（Playwright + 移动驱动与 Harmony 工具）</option>
             <option value="playwright">仅 Web / Playwright 栈</option>
             <option value="mobile">仅移动端（Android + iOS + Harmony）</option>
             <option value="android">仅 Android 驱动</option>
             <option value="ios">仅 iOS 驱动</option>
             <option value="harmony">仅 Harmony 驱动</option>
-            <option value="appium">仅 Appium 主包（不含驱动）</option>
-            <option value="drivers">仅 Appium 驱动（按配置）</option>
+            <option value="drivers">仅移动驱动依赖</option>
           </select></label>
         <label class="field">Playwright 浏览器包 <span class="hint">（至少选一项；选「全部」将安装所有渠道）</span></label>
         <div class="row" id="pwRow">
@@ -147,8 +145,6 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
         </div>
         <label class="field">Playwright 下载镜像 (PLAYWRIGHT_DOWNLOAD_HOST) <span class="hint">（可选，默认用国内镜像）</span>
           <input type="text" id="playwrightDownloadHost" placeholder="https://npmmirror.com/mirrors/playwright" /></label>
-        <label class="field">Appium Server 地址 <span class="hint">（可选覆盖配置）</span>
-          <input type="text" id="appiumServerUrl" placeholder="http://127.0.0.1:4723" /></label>
       </section>
       <section>
         <h2>其它（可选）</h2>
@@ -188,7 +184,6 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
         playwrightDownloadHost: document.getElementById("playwrightDownloadHost").value.trim(),
         runDependencyInstallNow: document.getElementById("runDependencyInstallNow").checked,
         dependencyInstallScope: document.getElementById("dependencyInstallScope").value,
-        appiumServerUrl: document.getElementById("appiumServerUrl").value.trim(),
         graphicsEnabled: document.getElementById("graphicsEnabled").checked ? true : undefined,
         monitoringEnabled: document.getElementById("monitoringEnabled").checked ? true : undefined
       };
@@ -286,7 +281,6 @@ function parseFormUrlEncoded(body: string): BootstrapInput {
     runDependencyInstallNow: form.get("runDependencyInstallNow") === "on",
     dependencyInstallScope: parseDependencyInstallScope(form.get("dependencyInstallScope")),
     playwrightDownloadHost: form.get("playwrightDownloadHost") ?? "",
-    appiumServerUrl: form.get("appiumServerUrl") ?? "",
     requestTimeoutMs: rt,
     graphicsEnabled: form.get("graphicsEnabled") === "on",
     monitoringEnabled: form.get("monitoringEnabled") === "on"
@@ -307,7 +301,6 @@ function buildBootstrapFromParts(parts: {
   runDependencyInstallNow: boolean;
   dependencyInstallScope: DependencyInstallScope;
   playwrightDownloadHost: string;
-  appiumServerUrl: string;
   requestTimeoutMs?: number;
   graphicsEnabled?: boolean;
   monitoringEnabled?: boolean;
@@ -319,9 +312,6 @@ function buildBootstrapFromParts(parts: {
     runDependencyInstallNow: parts.runDependencyInstallNow,
     dependencyInstallScope: parts.dependencyInstallScope
   };
-  if (parts.appiumServerUrl.trim()) {
-    deps.appiumServerUrl = parts.appiumServerUrl.trim();
-  }
   if (parts.requestTimeoutMs !== undefined && Number.isFinite(parts.requestTimeoutMs)) {
     deps.requestTimeoutMs = Math.max(1000, Math.floor(parts.requestTimeoutMs));
   }
@@ -422,7 +412,6 @@ export async function runSetupUi(config: AgentConfig): Promise<SetupUiResult> {
                 runDependencyInstallNow: d?.runDependencyInstallNow === true,
                 dependencyInstallScope: parseDependencyInstallScope(d?.dependencyInstallScope),
                 playwrightDownloadHost: d?.playwrightDownloadHost !== undefined ? String(d.playwrightDownloadHost) : "",
-                appiumServerUrl: d?.appiumServerUrl !== undefined ? String(d.appiumServerUrl) : "",
                 requestTimeoutMs:
                   d?.requestTimeoutMs !== undefined && Number.isFinite(Number(d.requestTimeoutMs))
                     ? Math.floor(Number(d.requestTimeoutMs))

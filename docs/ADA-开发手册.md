@@ -1,6 +1,10 @@
 # ADA 开发手册（第一阶段）
 
-本手册用于指导 ADA monorepo 本地研发，面向开发、测试与运维联调同学。核心能力统一在 `packages/agent-core`，四入口（`ada-agent` / `ada-mcp` / `ada-gui` / `ada-web`）仅做协议与交互适配。
+本手册用于指导 ADA monorepo 本地研发，面向开发、测试与运维联调同学。
+
+**实现与导出关系**：依赖安装在 **`packages/install-deps`**，移动运行时探针在 **`packages/runtime-probe`**；任务编排、`doctor` 编排、`runtime`、`queue-runner` 等在 **`apps/ada-agent`**。`packages/agent-core` 是对外**稳定能力导出层**（`health` / `doctor` / `install-deps` / `setup` / `start` / `run`）。CLI / MCP / GUI 应优先 `import` **`@ada/install-deps`** 或 **`agent-core`**，不在入口重复实现安装逻辑。
+
+**架构示意图**：总体分层见 [`ADA-架构设计方案.md`](ADA-架构设计方案.md) 第 3 节；可视化蓝图见仓库 [`canvases/ada-architecture-blueprint.canvas.tsx`](../canvases/ada-architecture-blueprint.canvas.tsx)（与架构文档 §17.1 驱动执行层一致）。
 
 ## 文档边界说明
 
@@ -16,7 +20,7 @@
 当前阶段目标：
 
 - 四入口可构建、可验收（`npm run build:exe`、`npm run test:entrypoints`）
-- 驱动基线：`driver-playwright`（Web 默认）+ `driver-selenium`（Web 可选）+ `driver-appium`（Android/iOS/HarmonyOS NEXT）+ `driver-harmony`（鸿蒙 hypium）
+- 驱动基线：`driver-playwright`（Web）+ `driver-android` + `driver-ios` + `driver-harmony`
 - 支持 CLI/GUI 首启配置与任务队列（`inbox -> processed/failed`）
 - MCP 以 `@ada-mcp/launcher` + `@ada-mcp/mcp-server` 同号发布（见接入手册）
 
@@ -35,9 +39,11 @@ ada/
     ada-mcp-server/         # MCP 服务（stdio / 远程 HTTP）
     ada-mcp-launcher/       # npm：@ada-mcp/launcher
     ada-gui/                # Tauri 桌面 GUI
-    ada-web/                # Web 控制台（pkg 入口）
+    ada-agent/src/web*.ts   # Web 控制台（可 pkg 为 ada-web.exe）
   packages/
-    agent-core/             # 统一能力面（health/doctor/install-deps/setup/start/run）
+    agent-core/             # 稳定能力导出层（转发 apps/ada-agent 编排实现）
+    install-deps/           # 依赖安装（npm/浏览器/hdc、InstallSummary）
+    runtime-probe/          # 移动/Web 运行时探针（adb、WDA 等）
     contracts/              # 统一协议与类型
     core-kernel/            # 命令执行内核
     core-runtime/           # 日志、配置根目录、deepMerge
@@ -47,22 +53,22 @@ ada/
     download-probe/         # registry / CDN 测速（monorepo；launcher 已内联）
     transport-http/         # HTTP 传输适配
     transport-stream/       # 长连接传输适配
-    native-drivers/         # 原生驱动桥接
     vision-contracts/       # 图形交互协议（骨架）
     graphics-safety/        # 图形交互安全策略（骨架）
     graphics-kernel/        # 图形编排内核（骨架）
   plugins/
     driver-playwright/      # Web（Playwright）
-    driver-selenium/        # Web（Selenium，engine=selenium）
-    driver-appium/          # Android / iOS / Harmony（Appium）
+    driver-android/         # Android（adb + UIA2 adapter）
+    driver-ios/             # iOS（WDA adapter）
     driver-harmony/         # Harmony（hypium-driver + hdc）
   tools/                    # 内置工具（如 hdc.exe）
   config/
     default.yaml
   tasks/
-    demo.tasks.json
-    web-real.tasks.json
-    appium-probe.tasks.json
+    demo.tasks.json          # Web + Android mock 冒烟
+    web-real.tasks.json      # Web 真实执行（require-real 门禁）
+    android-mock.tasks.json  # Android mock 联调
+    harmony-mock.tasks.json  # Harmony mock 联调
     inbox/processed/failed   # 队列运行时目录
   docs/                     # 见 docs/README.md
 ```
@@ -72,23 +78,28 @@ ada/
 ## 3. 核心模块职责
 
 - `packages/agent-core`
-  - 对外统一能力面：`health`、`doctor`、`install-deps`、`setup`、`start`、`run` 等
-  - 被 `ada-agent`、`ada-mcp-server`、`ada-gui`、`ada-web` 复用，避免入口层重复实现
+  - 对外稳定导出：`health`、`doctor`、`install-deps`、`setup`、`start`、`run` 等
+  - `install-deps` / `runtime-probe` 由独立包实现；其余编排委托 `apps/ada-agent`
 
-- `apps/ada-agent/src/main.ts`
-  - CLI 命令路由（`start/setup/run/health/plugins/install-deps/reset`）
-  - 启动前依赖安装、鉴权检查、运行模式选择
+- `apps/ada-agent`（实现主体）
+  - `src/main.ts`：CLI 命令路由（`start/setup/run/health/plugins/install-deps/reset`）
+  - `src/doctor.ts`、`src/runtime.ts`：健康检查编排（安装实现见 `@ada/install-deps`）
+  - `src/runtime.ts`、`src/queue-runner.ts`：任务执行与队列
 
 - `apps/ada-mcp-server/src/main.ts`
   - MCP stdio 工具注册（21 个 `ada_*` 工具）与远程 HTTP 可选模式
 
-- `apps/ada-gui` / `apps/ada-web`
+- `apps/ada-gui`（Web 控制台见 `apps/ada-agent/src/web-console.ts`）
   - 图形 / Web 交互；运维动作应走 `agent-core` 能力面
 
-- `apps/ada-agent/src/dependency-installer.ts`（及 `bootstrap-deps.ts`）
-  - 自动检测并安装 Playwright、Selenium、Appium、Harmony 相关依赖
-  - 安装 Playwright 浏览器；Appium driver（`uiautomator2` / `xcuitest` / `harmonyos`）
-  - registry / CDN 测速见 `packages/download-probe`（launcher 发布包内已内联）
+- `packages/install-deps`（`dependency-installer`、`playwright-browser-install`、`harmony-hdc-install`、`install-summary`）
+  - 自动检测并安装 Playwright、Harmony npm 包与浏览器 / hdc 工具链
+  - 结构化 `InstallSummary` 供 GUI / Web / MCP 展示
+  - registry / CDN 测速复用 `packages/download-probe`
+- `packages/runtime-probe`
+  - `adb` / `xcrun`+WDA 等平台运行时探针；`probeRuntimesForTasks` 在 `install-deps` 中组合 Harmony 健康检查
+- `apps/ada-agent/src/bootstrap-deps.ts`
+  - 调用 `install-deps` 完成引导安装
 
 - `apps/ada-agent/src/queue-runner.ts`
   - 队列任务消费
@@ -115,12 +126,23 @@ ada/
 
 - `apps/ada-agent/src/transport-client.ts`
   - `TransportSelector`（`stream/http/auto`）
-  - 统一将 `CommandEnvelope` 透传为远程 `ada_execute` 请求（传输层 `action` 字段）
+  - 统一将 `CommandEnvelope` 透传为远程 `ada_execute` 请求（传输层 `action` 字段；MCP 日常 E2E 优先 `ada_web_action` / `ada_mobile_action`，`ada_execute` 为 T3）
   - 将远端返回规范化为 `CommandResult`，并在 `auto` 模式下实现 `stream -> http` 回退
 
 - `packages/core-runtime`
   - 提供通用 `resolveWorkspaceRoot`、`deepMerge` 与 JSON logger
   - 已被 `ada-agent` 与 `ada-mcp-server` 复用，避免重复实现
+
+---
+
+## 3.1 可观测性（脚本 / MCP）
+
+| 变量 | 作用 |
+|------|------|
+| `ADA_TRACE=1` | 本地 `ada()` 每条命令打印 `requestId`、platform、command、耗时（stderr） |
+| MCP 工具返回 | 含 `requestId`（与 agent 日志对齐） |
+
+示例：`ADA_TRACE=1 npm run test:jd-harmony`
 
 ---
 
@@ -163,6 +185,14 @@ npm run demo
 npm run health
 npm run plugins
 npm run test:conformance
+npm run test:unit
+```
+
+移动 mock 联调（无需真机）：
+
+```bash
+npm exec tsx -- apps/ada-agent/src/main.ts run --file=tasks/android-mock.tasks.json
+npm exec tsx -- apps/ada-agent/src/main.ts run --file=tasks/harmony-mock.tasks.json
 ```
 
 真实执行门禁验证（高优先推荐）：
@@ -193,7 +223,8 @@ npm exec tsx -- apps/ada-agent/src/main.ts start --once --local-dev --skip-deps
 - `run --file=...`：直接执行任务文件
 - `setup --mode=auto|cli|gui`：首启配置
   - `gui` 模式支持“原生引导程序优先，失败回退 Web”
-- `install-deps`：手动安装驱动依赖（支持 `--only=playwright|mobile|android|ios|harmony|appium|drivers|all`）
+- `install-deps`：安装 npm 包与运行时组件（支持 `--only=playwright|mobile|android|ios|harmony|drivers|all`）
+  - `--only=android|ios|harmony`：**环境/工具链检查**（adb、xcrun/WDA、hdc 等），**不安装** Appium / Selenium 类中心化 Server
 - `health`：查看运行与依赖健康状态
 
 ---
@@ -213,7 +244,7 @@ npm exec tsx -- apps/ada-agent/src/main.ts start --once --local-dev --skip-deps
 - `dependencies.autoInstallOnStart`
 - `dependencies.playwrightBrowser`
 - `dependencies.playwrightInstallTargets`
-- `appium.requiredDrivers`（默认包含 `uiautomator2`、`xcuitest`、`harmonyos`）
+- 移动驱动插件按平台自动判定通道（Android/UIA2、iOS/WDA、Harmony/hypium）
 - `monitoring.enabled / platforms / sampleEvery / outputDir`
 - `monitoring.resolution.maxWidth / maxHeight / keepAspectRatio`
 - `queue.inboxDir / processedDir / failedDir`
@@ -277,14 +308,14 @@ npm exec tsx -- apps/ada-agent/src/main.ts start --once --local-dev --skip-deps
 - `url` 存在时会先导航再执行动作
 - `screenshot` 产物默认输出到 `artifacts/<requestId>.png`
 
-## 8.2 Appium 插件
+## 8.2 移动驱动插件
 
 - 统一 Android/iOS/Harmony 会话生命周期
 - 动作能力保持与 Web 插件命令面一致
 - 保留坐标动作为兜底，不作为主路径
 - 当平台为 `harmony` 且未显式传入 capabilities 时，默认使用：
   - `platformName: harmonyos`
-  - `appium:automationName: harmonyos`
+  - `automationName: harmonyos`
 
 ## 8.3 Feature Negotiation（能力协商）
 
@@ -308,7 +339,7 @@ npm exec tsx -- apps/ada-agent/src/main.ts start --once --local-dev --skip-deps
 
 - 单元测试：配置、队列、命令解析
 - 集成测试：插件路由与任务执行
-- 端到端：真实 Playwright/Appium 执行链（后续阶段）
+- 端到端：真实 Playwright/移动驱动执行链（后续阶段）
 
 可执行冒烟命令（当前可直接用）：
 
@@ -320,11 +351,13 @@ npm run test:e2e:smoke:full
 
 说明：
 
-- `test:e2e:smoke`：Web 真实链路 + Appium probe
-- `test:e2e:smoke:strict`：Web 开启 `--require-real` + Appium probe
-- `test:e2e:smoke:full`：同 `test:e2e:smoke:strict`（保留 npm 别名）
+- `test:e2e:smoke`：`demo.tasks.json` mock 冒烟（无需真机 / 浏览器）
+- `test:e2e:smoke:mobile`：增加 Android/iOS invoke mock 任务
+- `test:e2e:smoke:mobile:strict`：在 mobile 基础上跑 `android-invoke-real`（需 adb 真机）；macOS 且 WDA `/status` 可达时跑 `ios-invoke-real`；UIA2 `/status` 可达时跑 `android-uia2-invoke-real`
+- `test:e2e:smoke:strict`：增加 `web-real.tasks.json` + `--require-real`（需 Playwright 就绪）
+- `test:e2e:smoke:full`：`--strict --mobile`（Web strict + 移动 mock）
 
-任务样例：`tasks/demo.tasks.json`、`web-real.tasks.json`、`appium-probe.tasks.json`。鸿蒙专项联调见 `plugins/driver-harmony` 的 `smoke:real`。
+任务样例：`tasks/demo.tasks.json`、`web-real.tasks.json`。鸿蒙专项联调见 `plugins/driver-harmony` 的 `smoke:real`。
 
 ---
 

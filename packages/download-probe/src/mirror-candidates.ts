@@ -1,5 +1,5 @@
 /**
- * 常用下载源候选（npm registry / Playwright CDN / geckodriver 镜像）
+ * 常用下载源候选（npm registry / Playwright CDN）
  */
 
 /** 国内优先 npmmirror；测速相同时列表靠前者优先 */
@@ -33,12 +33,6 @@ export const DEFAULT_PLAYWRIGHT_HOST_CANDIDATES = [
 export const CHINA_PLAYWRIGHT_HOST_PRIORITY = [
   "https://cdn.npmmirror.com/binaries/playwright",
   "https://npmmirror.com/mirrors/playwright"
-] as const;
-
-export const DEFAULT_GECKODRIVER_MIRROR_CANDIDATES = [
-  "https://cdn.npmmirror.com/binaries/geckodriver",
-  "https://npmmirror.com/mirrors/geckodriver",
-  "https://mirrors.huaweicloud.com/geckodriver"
 ] as const;
 
 export function isChinaFriendlyNpmRegistry(registry: string): boolean {

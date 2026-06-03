@@ -1,0 +1,19 @@
+{
+  "name": "@ada/driver-ios",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ada/contracts": "0.1.0",
+    "@ada/driver-rpc": "0.1.0",
+    "@ada/install-deps": "0.1.0",
+    "@ada/plugin-sdk": "0.1.0",
+    "@ada/runtime-probe": "0.1.0",
+    "wda": "^1.0.0"
+  }
+}

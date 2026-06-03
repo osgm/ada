@@ -1,0 +1,29 @@
+[
+  {
+    "requestId": "android-invoke-mock-adb-state",
+    "sessionId": "session-android-invoke",
+    "platform": "android",
+    "command": "invoke",
+    "payload": {
+      "mock": true,
+      "mode": "method",
+      "target": "adb",
+      "method": "getState",
+      "args": []
+    }
+  },
+  {
+    "requestId": "android-invoke-mock-http-status",
+    "sessionId": "session-android-invoke",
+    "platform": "android",
+    "command": "invoke",
+    "payload": {
+      "mock": true,
+      "mode": "http",
+      "http": {
+        "method": "GET",
+        "path": "/status"
+      }
+    }
+  }
+]

@@ -54,7 +54,7 @@ export function resolveCommandPath(command: string): string | null {
 
 /**
  * 启动 detached 子进程。优先直接 spawn 可执行文件 + windowsHide；
- * 仅对 .cmd/.bat 使用 cmd.exe /c（避免对 node/appium 多包一层 cmd 导致闪窗增多）。
+ * 仅对 .cmd/.bat 使用 cmd.exe /c（避免对 node 进程多包一层 cmd 导致闪窗增多）。
  */
 export function spawnDetachedHidden(
   executable: string,

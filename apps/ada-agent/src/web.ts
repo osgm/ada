@@ -12,19 +12,22 @@ import {
   runSetupFlow
 } from "@ada/agent-core";
 import { getConsoleHtml } from "./web-console.js";
+import { mergeInstallSummaries } from "@ada/install-deps";
+
+type InstallSummaryResult = Awaited<ReturnType<typeof installDependencies>>;
 
 interface ParsedInstallDeps {
   full: boolean;
   force: boolean;
   playwright?: { enabled: boolean; targets: string[] };
-  appium?: { enabled: boolean; android: boolean; ios: boolean; harmony: boolean };
+  mobile?: { enabled: boolean; platforms: string[] };
 }
 
 function parseInstallDepsRequest(body: Record<string, unknown>): ParsedInstallDeps {
   const full = Boolean(body.full);
   const force = Boolean(body.force);
   const pw = body.playwright;
-  const ap = body.appium;
+  const mob = body.mobile;
   const out: ParsedInstallDeps = { full, force };
   if (pw && typeof pw === "object" && pw !== null) {
     const o = pw as Record<string, unknown>;
@@ -33,13 +36,11 @@ function parseInstallDepsRequest(body: Record<string, unknown>): ParsedInstallDe
       targets: Array.isArray(o.targets) ? o.targets.map((x) => String(x)) : []
     };
   }
-  if (ap && typeof ap === "object" && ap !== null) {
-    const o = ap as Record<string, unknown>;
-    out.appium = {
+  if (mob && typeof mob === "object" && mob !== null) {
+    const o = mob as Record<string, unknown>;
+    out.mobile = {
       enabled: Boolean(o.enabled),
-      android: Boolean(o.android),
-      ios: Boolean(o.ios),
-      harmony: Boolean(o.harmony)
+      platforms: Array.isArray(o.platforms) ? o.platforms.map((x) => String(x)) : []
     };
   }
   return out;
@@ -206,11 +207,12 @@ export async function runWeb(config: AgentConfig): Promise<void> {
       jsonPost("/api/install-deps", async (body) => {
         const req = parseInstallDepsRequest(body);
         const force = req.force;
-        const parts: unknown[] = [];
+        const parts: Array<{ step: string; summary: InstallSummaryResult }> = [];
         if (req.full) {
           const summary = await installDependencies("all", force, (line) => push(`[deps:all] ${line}`));
           parts.push({ step: "all", summary });
-          return { body: JSON.stringify({ installDeps: parts }, null, 2) };
+          const merged = mergeInstallSummaries(parts.map((p) => p.summary));
+          return { body: JSON.stringify({ installDeps: parts, merged }, null, 2) };
         }
         if (req.playwright?.enabled) {
           const targets = req.playwright.targets.map((x) => x.trim()).filter(Boolean);
@@ -224,36 +226,30 @@ export async function runWeb(config: AgentConfig): Promise<void> {
           );
           parts.push({ step: "playwright", summary });
         }
-        if (req.appium?.enabled) {
-          const d: string[] = [];
-          if (req.appium.android) {
-            d.push("uiautomator2");
-          }
-          if (req.appium.ios) {
-            d.push("xcuitest");
-          }
-          if (req.appium.harmony) {
-            d.push("harmonyos");
-          }
-          if (d.length > 0) {
-            const summary = await installDependencies(
-              "drivers",
-              force,
-              (line) => push(`[deps:appium-drivers] ${line}`),
-              { appiumRequiredDriversOverride: d }
-            );
-            parts.push({ step: "appium-drivers", summary });
+        if (req.mobile?.enabled) {
+          const platforms = req.mobile.platforms.map((x) => x.trim().toLowerCase()).filter(Boolean);
+          if (platforms.length === 0) {
+            const summary = await installDependencies("mobile", force, (line) => push(`[deps:mobile] ${line}`));
+            parts.push({ step: "mobile", summary });
           } else {
-            const summary = await installDependencies("appium", force, (line) =>
-              push(`[deps:appium] ${line}`)
-            );
-            parts.push({ step: "appium-package", summary });
+            for (const platform of platforms) {
+              if (platform !== "android" && platform !== "ios" && platform !== "harmony") {
+                continue;
+              }
+              const summary = await installDependencies(
+                platform as "android" | "ios" | "harmony",
+                force,
+                (line) => push(`[deps:${platform}] ${line}`)
+              );
+              parts.push({ step: platform, summary });
+            }
           }
         }
         if (parts.length === 0) {
-          return { status: 400, body: "请勾选「完整安装」或至少一类组件（Playwright / Appium）" };
+          return { status: 400, body: "请勾选「完整安装」或至少一类组件（Playwright / 移动驱动）" };
         }
-        return { body: JSON.stringify({ installDeps: parts }, null, 2) };
+        const merged = mergeInstallSummaries(parts.map((p) => p.summary));
+        return { body: JSON.stringify({ installDeps: parts, merged }, null, 2) };
       })
     ) {
       return;

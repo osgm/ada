@@ -162,6 +162,79 @@ label.dep-force {
   margin-top: 8px;
 }
 
+.device-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 4px;
+}
+
+.device-head h2 {
+  margin: 0;
+}
+
+.device-meta {
+  margin: 0;
+  flex: 1 1 200px;
+  text-align: right;
+}
+
+.device-table-wrap {
+  margin-top: 12px;
+  overflow-x: auto;
+  border: 1px solid #d7e7ee;
+  border-radius: 10px;
+  background: #fbfeff;
+}
+
+.device-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.device-table th,
+.device-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e8f2f5;
+  vertical-align: top;
+}
+
+.device-table th {
+  background: #eef9f8;
+  color: #0f5f6b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.device-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.device-table tbody tr.is-default {
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.device-table tbody tr.is-default td:first-child::before {
+  content: "★ ";
+  color: #0d9488;
+}
+
+.device-table td.mono {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.device-table tr.empty-row td {
+  text-align: center;
+  color: #608096;
+  padding: 20px;
+}
+
 button {
   border: 0;
   border-radius: 9px;

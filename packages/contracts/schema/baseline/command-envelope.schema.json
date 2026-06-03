@@ -44,9 +44,12 @@
         "getText",
         "back",
         "home",
+        "pressHome",
         "launchApp",
-        "terminateApp",
-        "custom"
+        "exitApp",
+        "recipe",
+        "custom",
+        "invoke"
       ]
     },
     "payload": {

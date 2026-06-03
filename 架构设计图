@@ -1,0 +1,198 @@
+# ADA 架构设计图（当前实现 · 2026-06）
+
+> 与 [docs/ADA-架构设计方案.md](docs/ADA-架构设计方案.md) 互补：本文侧重**现网分层与数据流**；详细协议与演进路线见该文档。
+
+---
+
+## 1. 总体分层
+
+```mermaid
+flowchart TB
+  subgraph L6["L6 应用 / 示例"]
+    EX["scripts/examples<br/>jd-e2e · jd-mcp-*"]
+    TASK["tasks/*.tasks.json"]
+    AI["AI Host + MCP Client"]
+  end
+
+  subgraph L5["L5 流利 API / 适配"]
+    FLU["scripts/lib/ada-fluent.mjs<br/>ada_client.py"]
+    MCPAD["ada-mcp-adapters"]
+    POP["popups.mjs · smart-wait-launch.mjs"]
+  end
+
+  subgraph L4["L4 执行中枢"]
+    AGENT["apps/ada-agent<br/>CLI · Web 控制台 · executor"]
+    MCPS["apps/ada-mcp-server<br/>21 MCP Tools"]
+    LAUNCH["apps/ada-mcp-launcher"]
+  end
+
+  subgraph L3["L3 协议与领域"]
+    CORE["packages/agent-core"]
+    RPC["packages/driver-rpc<br/>smart-wait · mobile-recipes · fill-search"]
+    CONTRACT["packages/contracts<br/>CommandEnvelope"]
+    MUI["packages/mobile-ui<br/>UI 启发式 / dump 解析"]
+  end
+
+  subgraph L2["L2 驱动插件"]
+    PW["driver-playwright"]
+    AND["driver-android<br/>adb + UIA2"]
+    IOS["driver-ios<br/>WDA"]
+    HAR["driver-harmony<br/>hdc + hypium"]
+  end
+
+  subgraph L1["L1 设备 / 浏览器"]
+    BROWSER["Chrome / CDP"]
+    ADB["Android 真机"]
+    WDAdev["iOS 真机"]
+    HDC["Harmony 真机"]
+  end
+
+  EX --> FLU
+  TASK --> AGENT
+  AI --> LAUNCH --> MCPS
+  FLU --> AGENT
+  MCPAD --> MCPS
+  POP --> FLU
+  AGENT --> CORE
+  MCPS --> RPC
+  CORE --> CONTRACT
+  AGENT --> RPC
+  RPC --> MUI
+  RPC --> PW & AND & IOS & HAR
+  PW --> BROWSER
+  AND --> ADB
+  IOS --> WDAdev
+  HAR --> HDC
+```
+
+---
+
+## 2. 命令路径（本地脚本 vs MCP）
+
+```mermaid
+sequenceDiagram
+  participant Script as 示例脚本
+  participant Fluent as ada-fluent / ada_client
+  participant Exec as ada-agent executor
+  participant Plugin as driver-* 插件
+  participant Device as 浏览器 / 真机
+
+  alt 本地 ada-client
+    Script->>Fluent: open(browser|device)
+    Fluent->>Exec: ada(platform, session, command, payload)
+    Exec->>Plugin: CommandEnvelope
+    Plugin->>Device: Playwright / adb / WDA / hypium
+  else MCP 全程
+    Script->>Fluent: open(..., { connect: "mcp" })
+    Fluent->>MCPS: ada_web_action / ada_mobile_action
+    MCPS->>Exec: 同 CommandEnvelope
+    Exec->>Plugin: 同上
+  end
+```
+
+**原则**：业务脚本只写流利 API（`page.goto` / `phone.fillSearch`）；本地与 MCP 差异仅在传输层。
+
+---
+
+## 3. Smart-Wait 与可靠性（框架层）
+
+```mermaid
+flowchart LR
+  subgraph Mobile["移动 launch / recipe"]
+    GOTO["phone.goto(appId)"]
+    LAUNCH["launchApp"]
+    SW1["custom: smart_wait<br/>launch_settled · 默认上限 8s"]
+    FS["recipe fill_search<br/>tap → settle → dump → type"]
+    GOTO --> LAUNCH --> SW1
+    FS
+  end
+
+  subgraph Web["Web 关弹窗"]
+    DIS["dismissPopups"]
+    PRE["pre: 轮询 blocker<br/>login2025 / dialog"]
+    DOM["DOM 扫描 + force-hide"]
+    DIS --> PRE --> DOM
+  end
+
+  subgraph Core["packages/driver-rpc"]
+    SW["smart-wait.ts<br/>timeout · ui_stable · launch_settled"]
+    FST["fill-search-transition.ts<br/>页面跳转检测"]
+    SW --> SW1
+    FST --> FS
+  end
+```
+
+| 机制 | 位置 | 行为 |
+|------|------|------|
+| `launch_settled` | `phone.goto` 后 | UI dump 节点数连续稳定即返回；未传 `settleMs` 时上限 **8s**（全平台） |
+| `fillSearch` settle | `mobile-recipes.ts` | 跳转检测 + 收紧默认常量；避免 tap/fill 双重长等待 |
+| Web pre-wait | `popups.mjs` | dismiss 前探测 `#login2025-dialog-wrap` 等遮挡，再 DOM 关弹窗 |
+| 环境变量 | `ADA_WAIT_UNTIL` 等 | 全局覆盖 wait 模式，无需改脚本 |
+
+---
+
+## 4. 包与目录映射
+
+```text
+ada/
+├── apps/
+│   ├── ada-agent/          executor · doctor · Web 控制台
+│   ├── ada-mcp-server/     MCP 工具 · mcp-dismiss-popups · mcp-action-runner
+│   ├── ada-mcp-launcher/   @ada-mcp/launcher 发布入口
+│   └── ada-gui/            Tauri 桌面壳
+├── packages/
+│   ├── contracts/          CommandEnvelope
+│   ├── agent-core/         health · doctor · install-deps · run
+│   ├── driver-rpc/         smart-wait · mobile-recipes · fill-search · normalize
+│   ├── mobile-ui/          parseHierarchy · findUiNode · heuristics
+│   ├── install-deps/       Playwright / 移动探针安装
+│   └── plugin-host/        驱动插件加载
+├── plugins/
+│   ├── driver-playwright/
+│   ├── driver-android/
+│   ├── driver-ios/
+│   └── driver-harmony/
+├── scripts/
+│   ├── lib/                ada-fluent · popups · smart-wait-launch · ada.mjs
+│   └── examples/           京东 E2E（Node / Python · 本地 / MCP）
+├── test/                   单元 / 契约（npm test）
+└── tasks/                  任务 JSON 场景
+```
+
+---
+
+## 5. 京东 E2E 验证矩阵（npm scripts）
+
+| 平台 | 本地 Node | 本地 Python | MCP Node | MCP Python |
+|------|-----------|-------------|----------|------------|
+| Web 四场景 | `test:jd-web` | `test:jd-web:py` | `test:jd-web:mcp` | `test:jd-web:mcp:py` |
+| Android 10 步 | `test:jd-android` | `test:jd-android:py` | `test:jd-android:mcp` | `test:jd-android:mcp:py` |
+| 鸿蒙 10 步 | `test:jd-harmony` | `test:jd-harmony:py` | `test:jd-harmony:mcp` | `test:jd-harmony:mcp:py` |
+| iOS MCP | — | — | `test:jd-ios:mcp` | `test:jd-ios:mcp:py` |
+
+自动化门禁：`npm test` = `test:unit` + `test:mcp:unit` + `test:conformance`（非真机 e2e）。
+
+---
+
+## 6. MCP 工具面（21 个 · 摘要）
+
+```text
+ada_health · ada_install_deps · ada_doctor · ada_diagnostics
+ada_web_action · ada_web_dismiss_popups · ada_web_extract
+ada_mobile_action · ada_mobile_dismiss_popups · ada_mobile_recipe · ada_mobile_device_admin
+ada_invoke · ada_run_task_file · ada_sessions · …
+```
+
+Web / 移动 **dismiss** 与 **recipe fill_search** 走独立工具或 `custom` 通道，与流利 API 共用 `popups.*` / `driver-rpc` 实现。
+
+---
+
+## 7. 演进预留（未进关键路径）
+
+- 实时视频流监控（会话目视）
+- 长连接远程管理平台（设备纳管 / 策略 / 审计）
+- `ada-control` 云端控制面（第二阶段）
+
+---
+
+*最后更新：2026-06 · 与 monorepo `0.1.0` / npm `@ada-mcp/*` `0.1.53` 对齐*

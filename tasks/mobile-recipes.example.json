@@ -1,0 +1,33 @@
+{
+  "name": "mobile-recipes-example",
+  "description": "通用 custom recipe 示例（profile / wait / uiHeuristics 可配置）",
+  "profile": "example",
+  "tasks": [
+    {
+      "requestId": "ex-dump-ui",
+      "sessionId": "mobile-ex",
+      "platform": "harmony",
+      "command": "custom",
+      "payload": {
+        "real": true,
+        "custom": { "action": "dump_ui" },
+        "wait": { "until": "ui_stable", "timeoutMs": 8000 }
+      }
+    },
+    {
+      "requestId": "ex-fill-search",
+      "sessionId": "mobile-ex",
+      "platform": "android",
+      "command": "custom",
+      "payload": {
+        "real": true,
+        "custom": { "action": "fill_search", "text": "test", "skipRedundantDump": true },
+        "uiHeuristics": {
+          "searchEntryLabels": ["search", "query"],
+          "searchInputLabels": ["search", "input"]
+        },
+        "wait": { "until": "launch_settled", "timeoutMs": 12000 }
+      }
+    }
+  ]
+}

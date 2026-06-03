@@ -48,7 +48,7 @@ npx -y @ada-mcp/launcher@0.1.50
 - **0.1.45**：Windows + `npx` 回退路径中 `npm install` 经 `cmd.exe /c` 执行，修复 `spawn EINVAL`。
 - **0.1.46**：harmony 驱动、内联 registry/playwright 探测脚本等同号发布。
 - **0.1.47**：MCP 21 工具与参数 schema 描述优化（`title` + 中英 `description`，便于 AI 客户端识别）。
-- **0.1.48**：所有驱动与 MCP 工具默认真实执行（mock 仅 `allowMock: true` 或 `payload.mock: true`）；Appium/Harmony 不再要求显式 `real: true`。
+- **0.1.48**：所有驱动与 MCP 工具默认真实执行（mock 仅 `allowMock: true` 或 `payload.mock: true`）；Harmony 不再要求显式 `real: true`。
 - **0.1.49**：文档与 Host 配置示例版本同步；接入手册补充默认真实执行与排障说明。
 - **0.1.50**：MCP 启动时自动设置 `ADA_TOOLS_DIR`/`HDC_HOME` 为工作区 `tools/`（含 hdc 探测与 PATH）；鸿蒙无需在 Host 中手写工具目录（仍可用 `cwd` 或 env 覆盖）。
 - **0.1.51**：`install-deps --only=harmony` 自动下载 hdc（默认 `raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe`）；支持 ZIP 解压与 GitHub blob 链接转 raw；失败时提示手动下载。

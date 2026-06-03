@@ -51,21 +51,65 @@ export interface RuntimeTransport {
   close(): Promise<void>;
 }
 
+function remoteToolAction(command: CommandEnvelope): string {
+  if (command.platform === "web") return "ada_web_action";
+  if (command.command === "recipe") return "ada_mobile_recipe";
+  if (command.platform === "android" || command.platform === "ios" || command.platform === "harmony") {
+    return "ada_mobile_action";
+  }
+  return "ada_execute";
+}
+
+function remoteToolPayload(command: CommandEnvelope): Record<string, unknown> {
+  const payload = command.payload ?? {};
+  if (command.command === "recipe") {
+    const action = String(payload.action ?? "");
+    const text = payload.text;
+    return {
+      requestId: command.requestId,
+      sessionId: command.sessionId,
+      platform: command.platform,
+      action,
+      text,
+      payload
+    };
+  }
+  if (command.platform === "web") {
+    return {
+      requestId: command.requestId,
+      sessionId: command.sessionId,
+      command: command.command,
+      payload
+    };
+  }
+  return {
+    requestId: command.requestId,
+    sessionId: command.sessionId,
+    platform: command.platform,
+    command: command.command,
+    payload
+  };
+}
+
 class TransportExecutor implements RuntimeTransport {
   constructor(private readonly transport: ITransport, private readonly mode: TransportMode) {}
 
   async execute(command: CommandEnvelope): Promise<CommandResult> {
+    const action = remoteToolAction(command);
     const response = await this.transport.sendRequest({
       requestId: command.requestId,
       sessionId: command.sessionId,
-      action: "ada_execute",
-      payload: { command }
+      action,
+      payload: remoteToolPayload(command)
     });
     const result = toCommandResult(command, response);
     log("info", {
       event: "transport.command.executed",
       details: {
         mode: this.mode,
+        action,
+        platform: command.platform,
+        command: command.command,
         requestId: command.requestId,
         success: result.success,
         errorCode: result.errorCode

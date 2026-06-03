@@ -27,8 +27,10 @@ const commandEnum = [
   "getText",
   "back",
   "home",
+  "pressHome",
   "launchApp",
-  "terminateApp",
+  "exitApp",
+  "recipe",
   "custom",
   "invoke"
 ];

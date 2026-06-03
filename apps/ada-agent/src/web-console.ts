@@ -105,8 +105,8 @@ export function getConsoleHtml(port: number): string {
 
     <section class="card">
       <h2>安装依赖</h2>
-      <p class="hint">分组安装：完整安装等价于 CLI <code>--only=all</code>；否则按 Playwright / Appium 子项组合执行（与 GUI 一致）。</p>
-      <label><input type="checkbox" id="depFull" /> 完整安装（Playwright + Appium + 配置中的全部驱动）</label>
+      <p class="hint">分组安装：完整安装等价于 CLI <code>--only=all</code>；否则按 Playwright 子项组合执行。</p>
+      <label><input type="checkbox" id="depFull" /> 完整安装（Playwright + 移动驱动与 Harmony 工具）</label>
       <div id="depGroups">
         <fieldset class="subgr">
           <legend><label><input type="checkbox" id="grpPw" /> Playwright</label></legend>
@@ -119,14 +119,14 @@ export function getConsoleHtml(port: number): string {
             <label><input type="checkbox" id="pwMsedge" /> msedge</label>
             <label><input type="checkbox" id="pwAll" /> 全部浏览器（all）</label>
           </div>
-        </fieldset>
+          </fieldset>
         <fieldset class="subgr">
-          <legend><label><input type="checkbox" id="grpAp" /> Appium</label></legend>
-          <p class="hint">先确保 Appium 包；再按勾选安装对应驱动。若不勾选任何平台，则仅安装 Appium 主包（不装驱动）。</p>
+          <legend><label><input type="checkbox" id="grpMob" /> 移动驱动</label></legend>
+          <p class="hint">不勾选具体平台则安装全部移动端依赖（hypium + hdc + 环境检查）。</p>
           <div class="deps-grid">
-            <label><input type="checkbox" id="apAndroid" /> Android（UiAutomator2）</label>
-            <label><input type="checkbox" id="apIos" /> iOS（XCUITest）</label>
-            <label><input type="checkbox" id="apHarmony" /> Harmony（harmonyos）</label>
+            <label><input type="checkbox" id="mobAndroid" /> Android（adb + UIA2）</label>
+            <label><input type="checkbox" id="mobIos" /> iOS（WDA）</label>
+            <label><input type="checkbox" id="mobHarmony" /> Harmony（hdc + hypium）</label>
           </div>
         </fieldset>
       </div>
@@ -302,21 +302,52 @@ export function getConsoleHtml(port: number): string {
           }
           body.playwright = { enabled: true, targets: targets };
         }
-        if (document.getElementById("grpAp").checked) {
-          body.appium = {
-            enabled: true,
-            android: document.getElementById("apAndroid").checked,
-            ios: document.getElementById("apIos").checked,
-            harmony: document.getElementById("apHarmony").checked
-          };
+        if (document.getElementById("grpMob").checked) {
+          var platforms = [];
+          if (document.getElementById("mobAndroid").checked) { platforms.push("android"); }
+          if (document.getElementById("mobIos").checked) { platforms.push("ios"); }
+          if (document.getElementById("mobHarmony").checked) { platforms.push("harmony"); }
+          body.mobile = { enabled: true, platforms: platforms };
         }
       }
-      if (!body.full && !body.playwright && !body.appium) {
-        add("请勾选「完整安装」或至少一类组件（Playwright / Appium）");
+      if (!body.full && !body.playwright && !body.mobile) {
+        add("请勾选「完整安装」或至少一类组件（Playwright / 移动驱动）");
         return;
       }
       var res = await post("/api/install-deps", body);
-      add("/api/install-deps\\n" + res.text);
+      add("/api/install-deps");
+      if (res.ok) {
+        try {
+          var parsed = JSON.parse(res.text);
+          var merged = parsed.merged;
+          var lines = [];
+          if (merged && Array.isArray(merged.summaryLines)) {
+            lines = merged.summaryLines;
+          }
+          if (lines.length === 0 && Array.isArray(parsed.installDeps)) {
+            parsed.installDeps.forEach(function (part) {
+              if (part.summary && Array.isArray(part.summary.summaryLines)) {
+                lines = lines.concat(part.summary.summaryLines);
+              }
+            });
+          }
+          if (lines.length > 0) {
+            add("【安装摘要】");
+            lines.forEach(function (line) { add("- " + line); });
+          }
+          var pkgs = merged || (parsed.installDeps && parsed.installDeps[0] && parsed.installDeps[0].summary);
+          if (pkgs) {
+            var inst = (pkgs.installedPackages || []).join(", ") || "—";
+            var skip = (pkgs.skippedPackages || []).join(", ") || "—";
+            add("npm 包 · 新装: " + inst + " · 已就绪: " + skip);
+            var failed = pkgs.failedDrivers || [];
+            if (failed.length > 0) {
+              add("未就绪组件: " + failed.join(", "));
+            }
+          }
+        } catch (e) { /* fall through */ }
+      }
+      add(res.text);
     });
     document.getElementById("btnStart").addEventListener("click", async function () {
       saveStore();

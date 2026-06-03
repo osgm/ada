@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
-import { getBuiltInPlugins, getDoctorSnapshot, getHealthSnapshot } from "@ada/agent-core";
-import type { CommandEnvelope } from "@ada/contracts";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Request, RequestHandler, Response } from "express";
-import { closeAllSessions, closeSession, listActiveSessions, runCommand } from "./executor.js";
+import { listActiveSessions } from "./executor.js";
 import { createAdaMcpProtocolServer } from "./main.js";
+import { callLegacyTool } from "./mcp-legacy-remote.js";
 
 export interface RemoteServerOptions {
   host: string;
@@ -39,105 +38,6 @@ function isAuthorizedHeaders(headers: IncomingHttpHeaders, apiKey: string): bool
     return auth.slice(7).trim() === apiKey;
   }
   return false;
-}
-
-function normalizePlatform(v: unknown): "web" | "android" | "ios" | "harmony" {
-  return v === "android" || v === "ios" || v === "harmony" ? v : "web";
-}
-
-function normalizeCommand(v: unknown): CommandEnvelope["command"] {
-  const all: CommandEnvelope["command"][] = [
-    "click",
-    "type",
-    "swipe",
-    "assertVisible",
-    "screenshot",
-    "navigate",
-    "hover",
-    "press",
-    "select",
-    "scroll",
-    "forward",
-    "newTab",
-    "switchTab",
-    "uploadFile",
-    "dragDrop",
-    "wait",
-    "assertText",
-    "getText",
-    "back",
-    "reload",
-    "closeTab",
-    "home",
-    "launchApp",
-    "terminateApp",
-    "custom"
-  ];
-  if (!all.includes(v as CommandEnvelope["command"])) {
-    throw new Error(`unsupported command: ${String(v ?? "")}`);
-  }
-  return v as CommandEnvelope["command"];
-}
-
-function isRisky(command: string): boolean {
-  return ["custom", "launchApp", "terminateApp"].includes(command);
-}
-
-function normalizeRiskyCommandName(command: string): string {
-  return String(command ?? "").trim();
-}
-
-function canRunRiskyCommand(command: string, options: RemoteServerOptions): boolean {
-  if (!isRisky(command)) return true;
-  if (!options.allowRisky) return false;
-  const riskySet = new Set(options.riskyCommands.map(normalizeRiskyCommandName).filter((x) => x.length > 0));
-  if (options.riskyMode === "blacklist") {
-    return !riskySet.has(command);
-  }
-  return riskySet.has(command);
-}
-
-async function callLegacyTool(name: string, args: Record<string, unknown>, options: RemoteServerOptions): Promise<unknown> {
-  if (name === "ada_health") return getHealthSnapshot();
-  if (name === "ada_diagnostics") return getDoctorSnapshot();
-  if (name === "ada_plugins") return getBuiltInPlugins();
-  if (name === "ada_sessions") return { sessions: listActiveSessions() };
-  if (name === "ada_close_all_sessions") return { closed: await closeAllSessions() };
-  if (name === "ada_close_session") {
-    const platform = normalizePlatform(args.platform);
-    const sessionId = String(args.sessionId ?? "");
-    const payload = (args.payload as Record<string, unknown> | undefined) ?? {};
-    if (args.engine !== undefined && payload.engine === undefined) {
-      payload.engine = args.engine;
-    }
-    const engine =
-      platform === "web" && typeof payload.engine === "string"
-        ? (payload.engine as "playwright" | "selenium")
-        : undefined;
-    return { closed: await closeSession(platform, sessionId, { engine, payload }) };
-  }
-  if (name === "ada_execute" || name === "ada_web_action" || name === "ada_mobile_action") {
-    const platform = name === "ada_web_action" ? "web" : normalizePlatform(args.platform);
-    const command = normalizeCommand(args.command);
-    if (!canRunRiskyCommand(command, options)) {
-      throw new Error(
-        `risky command blocked: ${command} (allowRisky=${options.allowRisky}, riskyMode=${options.riskyMode})`
-      );
-    }
-    const payload = (args.payload as Record<string, unknown> | undefined) ?? {};
-    if (platform === "web" && args.engine !== undefined && payload.engine === undefined) {
-      payload.engine = args.engine;
-    }
-    const envelope: CommandEnvelope = {
-      requestId: String(args.requestId ?? `remote-${Date.now()}`),
-      sessionId: String(args.sessionId ?? "remote-session"),
-      platform,
-      command,
-      payload
-    };
-    return runCommand(envelope);
-  }
-  throw new Error(`unsupported tool: ${name}`);
 }
 
 function requireApiKey(apiKey: string, stats: RemoteRuntimeStats): RequestHandler {

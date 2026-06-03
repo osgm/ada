@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "ada-mcp": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "apps/ada-mcp-server/src/cli.ts",
+        "--skip-install-deps"
+      ],
+      "cwd": "D:/WORKSPACE/PLAN/ada",
+      "env": {
+        "ADA_MCP_SKIP_INSTALL_DEPS": "1",
+        "ADA_PLUGIN_DIR": "D:/WORKSPACE/PLAN/ada/apps/ada-mcp-server/plugins",
+        "ADA_PLAYWRIGHT_HEADLESS": "false"
+      }
+    }
+  }
+}

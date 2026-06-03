@@ -1,11 +1,11 @@
 # @ada/driver-harmony
 
-HarmonyOS 原生驱动插件（与 `driver-appium` 同级），基于 `hypium-driver + hdc`。
+HarmonyOS 原生驱动插件，基于 `hypium-driver + hdc`。
 
 ## 能力范围
 
 - 平台：`harmony`
-- 语义命令：`click/tap`、`type`、`swipe`、`assertVisible`、`screenshot`、`wait`、`getText`、`assertText`、`back`、`home`、`launchApp`、`terminateApp`、`custom`
+- 语义命令：`click/tap`、`type`、`swipe`、`assertVisible`、`screenshot`、`wait`、`getText`、`assertText`、`back`、`home`、`launchApp`、`exitApp`、`custom`
 - 原生透传：`invoke`（method）
 
 ## 使用说明

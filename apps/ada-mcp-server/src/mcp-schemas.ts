@@ -9,6 +9,81 @@ function field(
   return { type, title, description, ...extra };
 }
 
+export function locatorField(): Record<string, unknown> {
+  return {
+    type: "object",
+    title: "locator",
+    description:
+      "Element locator 元素定位。Use strategy+value for mobile, or Playwright-style keys for web.",
+    oneOf: [
+      {
+        type: "object",
+        title: "strategy_locator",
+        description: "Mobile / generic strategy locator",
+        properties: {
+          strategy: field("string", "strategy", "css | xpath | text | accessibility id | uiautomator", {
+            enum: ["css", "xpath", "text", "id", "name", "class", "uiautomator", "accessibility id"]
+          }),
+          value: field("string", "value", "Locator value / selector string")
+        },
+        required: ["strategy", "value"],
+        additionalProperties: false
+      },
+      {
+        type: "object",
+        title: "playwright_locator",
+        description: "Playwright locator options",
+        properties: {
+          role: field("string", "role", "ARIA role e.g. button, textbox"),
+          name: field("string", "name", "Accessible name"),
+          text: field("string", "text", "Visible text match"),
+          css: field("string", "css", "CSS selector"),
+          xpath: field("string", "xpath", "XPath expression"),
+          testId: field("string", "testId", "data-testid value")
+        },
+        additionalProperties: false
+      },
+      {
+        type: "string",
+        title: "selector_string",
+        description: "Shorthand CSS/XPath selector string"
+      }
+    ]
+  };
+}
+
+export function batchCommandField(): Record<string, unknown> {
+  return field("string", "command", "Semantic command for this batch step", {
+    enum: [
+      "click",
+      "type",
+      "swipe",
+      "assertVisible",
+      "screenshot",
+      "navigate",
+      "hover",
+      "press",
+      "select",
+      "scroll",
+      "forward",
+      "newTab",
+      "switchTab",
+      "uploadFile",
+      "dragDrop",
+      "wait",
+      "assertText",
+      "getText",
+      "back",
+      "reload",
+      "closeTab",
+      "home",
+      "launchApp",
+      "exitApp",
+      "custom"
+    ]
+  });
+}
+
 /** Nested payload object schema (fields inside payload.*) */
 export function invokePayloadSchema(): Record<string, unknown> {
   return {
@@ -20,13 +95,12 @@ export function invokePayloadSchema(): Record<string, unknown> {
       engine: field(
         "string",
         "engine",
-        "Inside payload: override web engine 覆盖 Web 引擎。playwright | selenium.",
-        { enum: ["playwright", "selenium"] }
+        "Inside payload: override web engine 覆盖 Web 引擎。playwright.",
+        { enum: ["playwright"] }
       ),
-      browserName: field("string", "browserName", "Selenium: firefox | chrome | MicrosoftEdge"),
-      browserBinary: field("string", "browserBinary", "Selenium: path to browser executable 浏览器可执行文件路径"),
-      profile: field("string", "profile", "Selenium: profile or user-data-dir 用户配置目录（保留登录态）"),
-      seleniumServerUrl: field("string", "seleniumServerUrl", "Selenium Grid / remote server URL"),
+      browserName: field("string", "browserName", "Local browser name for web plugin 本地浏览器名称"),
+      browserBinary: field("string", "browserBinary", "Browser executable path 浏览器可执行文件路径"),
+      profile: field("string", "profile", "Browser profile or user-data-dir 用户配置目录（保留登录态）"),
       mode: field("string", "mode", "invoke only: method | http", { enum: ["method", "http"] }),
       target: field(
         "string",
@@ -38,7 +112,7 @@ export function invokePayloadSchema(): Record<string, unknown> {
       http: {
         type: "object",
         title: "http",
-        description: "Appium WebDriver HTTP { method, path, body }",
+        description: "Driver adapter HTTP { method, path, body }",
         properties: {
           method: field("string", "method", "HTTP verb GET|POST|…"),
           path: field("string", "path", "WebDriver path e.g. /session/.../element"),
@@ -46,20 +120,36 @@ export function invokePayloadSchema(): Record<string, unknown> {
         },
         required: ["method", "path"]
       },
-      locator: field(
-        "object",
-        "locator",
-        "Element locator 元素定位: { strategy: css|xpath|text|role|..., value } or Playwright locator options"
-      ),
+      locator: locatorField(),
       options: { type: "object", title: "options", description: "Extra driver options", additionalProperties: true },
-      custom: field("object", "custom", "Legacy Appium HTTP block or custom action body"),
+      custom: field("object", "custom", "Adapter custom action body"),
       browser: field("string", "browser", "Playwright browser", { enum: ["chromium", "firefox", "webkit"] }),
-      headless: field("boolean", "headless", "Headless browser 无头模式"),
+      headless: field(
+        "boolean",
+        "headless",
+        "Headless browser 无头模式；默认 false（有头可见）。仅 true 或 ADA_PLAYWRIGHT_HEADLESS=true 时无头"
+      ),
+      bringToFront: field(
+        "boolean",
+        "bringToFront",
+        "Bring browser window to front when headed 有头时将窗口置前；默认 true"
+      ),
       userDataDir: field("string", "userDataDir", "Persistent profile dir 持久化用户目录（Cookie/登录）"),
       cdpEndpoint: field(
         "string",
         "cdpEndpoint",
-        "Attach via CDP 附着已开浏览器，如 http://127.0.0.1:9222 (alias browserURL)"
+        "CDP URL or port 调试地址，如 http://127.0.0.1:9222 或 9222 (alias browserURL)"
+      ),
+      cdpAutoLaunch: field(
+        "boolean",
+        "cdpAutoLaunch",
+        "Auto-start browser with remote debugging when CDP unreachable 端口不可达时自动拉起浏览器"
+      ),
+      cdpPort: field("number", "cdpPort", "CDP port when cdpEndpoint omitted 仅指定端口（Chrome 默认 9222，Firefox 9223）"),
+      cdpLaunchArgs: field(
+        "array",
+        "cdpLaunchArgs",
+        "Extra browser CLI args for cdpAutoLaunch 自动拉起时附加参数"
       ),
       browserURL: field("string", "browserURL", "Alias of cdpEndpoint"),
       executablePath: field("string", "executablePath", "Browser binary path 浏览器路径"),
@@ -67,8 +157,8 @@ export function invokePayloadSchema(): Record<string, unknown> {
       channel: field("string", "channel", "Playwright channel: chrome | msedge | chrome-beta | msedge-beta"),
       storageStatePath: field("string", "storageStatePath", "Playwright auth storage JSON path"),
       real: field("boolean", "real", "Force real execution 强制真实驱动"),
-      serverUrl: field("string", "serverUrl", "Appium server URL e.g. http://127.0.0.1:4723"),
-      capabilities: field("object", "capabilities", "Appium capabilities 能力项 app/deviceName/platformName"),
+      serverUrl: field("string", "serverUrl", "Driver endpoint URL 连接地址"),
+      capabilities: field("object", "capabilities", "Driver capabilities 能力项"),
       keepSession: field("boolean", "keepSession", "Keep session after step 保持会话（多步默认 true）"),
       url: field("string", "url", "Target URL for navigate 导航地址"),
       text: field("string", "text", "Input or expected text 输入或期望文本"),
@@ -107,6 +197,31 @@ export function monitorProperty(): Record<string, unknown> {
   return monitorSchema();
 }
 
+export function retryActionFields(): Record<string, unknown> {
+  return {
+    retry: field("number", "retry", "Auto-retry count on transient failure (default 0)", { minimum: 0 }),
+    retryDelayMs: field("number", "retryDelayMs", "Delay between retries in ms (default 500)", { minimum: 0 }),
+    timeoutMs: field("number", "timeoutMs", "Per-attempt timeout in ms (0=use driver default)", { minimum: 0 })
+  };
+}
+
+export function bestEffortField(): Record<string, unknown> {
+  return field(
+    "boolean",
+    "bestEffort",
+    "When true, locator-not-found returns ok with businessCode LOCATOR_NOT_FOUND (no MCP isError). " +
+      "Use for optional UI (e.g. try-close popup). Prefer ada_*_dismiss_popups for dismiss flows."
+  );
+}
+
+export function dismissTimeoutField(): Record<string, unknown> {
+  return field(
+    "number",
+    "timeoutMs",
+    "Dismiss scan timeout in ms (default 10000). No popup found → businessCode POPUP_NOT_FOUND, still ok."
+  );
+}
+
 export const WEB_COMMAND_ENUM = [
   "click",
   "type",
@@ -140,19 +255,19 @@ export const WEB_COMMAND_DESCRIPTION =
 
 export function webEngineField(): Record<string, unknown> {
   return field("string", "engine", WEB_ENGINE_DESCRIPTION, {
-    enum: ["playwright", "selenium"]
+    enum: ["playwright"]
   });
 }
 
 export const WEB_ENGINE_DESCRIPTION =
-  "Web automation backend Web 自动化引擎。playwright=default bundled Chromium 默认内置浏览器; selenium=system Firefox/Chrome/Edge 本机浏览器+驱动.";
+  "Web automation backend Web 自动化引擎。playwright=default bundled Chromium 默认内置浏览器.";
 
 export function sessionIdField(context: "web" | "mobile" | "any"): Record<string, unknown> {
   const hint =
     context === "web"
       ? "Reuse web session from prior ada_web_action 复用已有浏览器会话；省略则按 payload 新建"
       : context === "mobile"
-        ? "Reuse Appium/Harmony session 复用移动会话"
+        ? "Reuse mobile driver session 复用移动会话"
         : "Reuse session from prior action 复用会话 ID";
   return field("string", "sessionId", hint);
 }
@@ -200,9 +315,11 @@ export const MOBILE_COMMAND_ENUM = [
   "assertText",
   "getText",
   "back",
+  "pressHome",
   "home",
   "launchApp",
-  "terminateApp",
+  "exitApp",
+  "recipe",
   "custom"
 ] as const;
 
@@ -211,4 +328,4 @@ export function mobileCommandField(): Record<string, unknown> {
 }
 
 export const MOBILE_COMMAND_DESCRIPTION =
-  "Required mobile action 必填移动语义命令。click|type|swipe; launchApp|terminateApp; screenshot; back|home; assertText|getText|assertVisible|wait; custom=扩展.";
+  "Required mobile action 必填移动语义命令。click|type(fill 别名)|swipe; launchApp|exitApp; pressHome(系统 Home，home 为别名); recipe|ada_mobile_recipe; screenshot; back; assertText|getText|assertVisible|wait; custom=扩展.";

@@ -38,6 +38,22 @@ export interface AgentConfig {
     fallbackOnSemanticFailure: boolean;
     minConfidence: number;
   };
+  viewControl?: {
+    enabled: boolean;
+    defaultControlMode: "semantic" | "visual" | "auto";
+    snapshot: {
+      maxNodes: number;
+      includeScreenshot: boolean;
+      cacheTtlMs: number;
+    };
+    visual: {
+      adapter: "noop" | "ocr" | "template" | "vlm";
+      requireRiskApproved: boolean;
+    };
+    registry: {
+      maxViewsPerSession: number;
+    };
+  };
   monitoring: {
     enabled: boolean;
     platforms: Array<"web" | "android" | "ios" | "harmony">;
@@ -59,6 +75,12 @@ export interface AgentConfig {
     pollIntervalMs: number;
     maxFileRetryAttempts: number;
   };
+  devices?: {
+    /** 引导完成（凭据落盘）后自动扫描 USB/已连接设备 */
+    autoScanOnSetup?: boolean;
+    /** Agent 启动且凭据就绪后自动扫描 */
+    autoScanOnStart?: boolean;
+  };
   dependencies: {
     autoInstallOnStart: boolean;
     playwrightBrowser: "chromium" | "firefox" | "webkit" | "all";
@@ -66,20 +88,10 @@ export interface AgentConfig {
     playwrightDownloadHost: string;
     npmRegistryCandidates: string[];
     playwrightHostCandidates: string[];
-    /** 原生 WebDriver 存放目录，默认 `dirver` */
-    nativeDriversDir?: string;
-    /** geckodriver 版本：如 `0.36.0`、`latest` */
-    geckodriverVersion?: string;
-    /** chromedriver 主版本：如 `137`、`135`、`latest`、`match-chrome` */
-    chromedriverVersion?: string;
     /** HarmonyOS 工具目录（含 hdc），相对工作区，默认 `tools` */
     toolsDir?: string;
     /** 可选：自动下载 hdc 的候选 URL（仅 harmony/all 依赖安装时使用） */
     harmonyHdcDownloadUrls?: string[];
-  };
-  appium: {
-    serverUrl: string;
-    requiredDrivers: Array<"uiautomator2" | "xcuitest">;
   };
 }
 
@@ -92,10 +104,8 @@ export interface BootstrapDependencyFields {
   playwrightDownloadHost?: string;
   /** 保存向导后立即执行依赖安装并在页面显示日志 */
   runDependencyInstallNow?: boolean;
-  /** Appium Server 地址（可选覆盖） */
-  appiumServerUrl?: string;
-  /** 依赖安装范围：all/playwright/mobile/android/ios/harmony/appium/drivers */
-  dependencyInstallScope?: "all" | "playwright" | "mobile" | "android" | "ios" | "harmony" | "appium" | "drivers";
+  /** 依赖安装范围：all/playwright/mobile/android/ios/harmony/drivers */
+  dependencyInstallScope?: "all" | "playwright" | "mobile" | "android" | "ios" | "harmony" | "drivers";
   /** 连接控制面请求超时（毫秒，写入 transport.requestTimeoutMs） */
   requestTimeoutMs?: number;
   /** 可选：启用语义截图回退（graphics.enabled） */

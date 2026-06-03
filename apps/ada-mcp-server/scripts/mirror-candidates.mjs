@@ -1,10 +1,10 @@
 /**
  * 内联 @ada/download-probe 镜像候选（零 npm 依赖）
- * 同步：node ../../scripts/sync-download-probe-vendor.mjs
+ * 同步：node ../../scripts/build/sync-download-probe-vendor.mjs
  */
 
 /**
- * 常用下载源候选（npm registry / Playwright CDN / geckodriver 镜像）
+ * 常用下载源候选（npm registry / Playwright CDN）
  */
 /** 国内优先 npmmirror；测速相同时列表靠前者优先 */
 /** 国内优先 npmmirror，其次官方；测速相同时列表靠前者优先 */
@@ -35,11 +35,6 @@ export const DEFAULT_PLAYWRIGHT_HOST_CANDIDATES = [
 export const CHINA_PLAYWRIGHT_HOST_PRIORITY = [
     "https://cdn.npmmirror.com/binaries/playwright",
     "https://npmmirror.com/mirrors/playwright"
-];
-export const DEFAULT_GECKODRIVER_MIRROR_CANDIDATES = [
-    "https://cdn.npmmirror.com/binaries/geckodriver",
-    "https://npmmirror.com/mirrors/geckodriver",
-    "https://mirrors.huaweicloud.com/geckodriver"
 ];
 export function isChinaFriendlyNpmRegistry(registry) {
     const r = registry.toLowerCase();

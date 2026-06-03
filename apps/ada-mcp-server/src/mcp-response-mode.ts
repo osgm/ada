@@ -1,0 +1,162 @@
+import type { CommandResult } from "@ada/contracts";
+
+/** Runtime overrides (from config/default.yaml `mcp:` or applyMcpRuntimeConfigFromRecord). */
+let configVerboseResult: boolean | undefined;
+let configExtractRaw: boolean | undefined;
+let configJsonPretty: boolean | undefined;
+
+function envTruthy(name: string): boolean {
+  const v = process.env[name];
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/**
+ * Full CommandResult in MCP tool responses (default: slim).
+ * - `ADA_MCP_VERBOSE_RESULT=1` → verbose
+ * - `ADA_MCP_SLIM_RESULT=0` → verbose (explicit opt-out of slim)
+ * - `config mcp.verboseResult: true` → verbose (after applyMcpRuntimeConfigFromRecord)
+ */
+export function isMcpVerboseResult(): boolean {
+  if (envTruthy("ADA_MCP_VERBOSE_RESULT")) {
+    return true;
+  }
+  if (process.env.ADA_MCP_SLIM_RESULT === "0") {
+    return true;
+  }
+  if (configVerboseResult === true) {
+    return true;
+  }
+  if (configVerboseResult === false) {
+    return false;
+  }
+  return false;
+}
+
+/** Include raw CommandResult on ada_extract (default: false). */
+export function isMcpExtractRaw(): boolean {
+  if (envTruthy("ADA_MCP_EXTRACT_RAW")) {
+    return true;
+  }
+  if (configExtractRaw === true) {
+    return true;
+  }
+  return false;
+}
+
+export function isMcpJsonPretty(): boolean {
+  if (envTruthy("ADA_MCP_JSON_PRETTY")) {
+    return true;
+  }
+  if (configJsonPretty === true) {
+    return true;
+  }
+  return false;
+}
+
+export function applyMcpRuntimeConfigFromRecord(config: Record<string, unknown>): void {
+  const mcp = config.mcp;
+  if (!mcp || typeof mcp !== "object") {
+    return;
+  }
+  const section = mcp as Record<string, unknown>;
+  if (typeof section.verboseResult === "boolean") {
+    configVerboseResult = section.verboseResult;
+  }
+  if (typeof section.extractRaw === "boolean") {
+    configExtractRaw = section.extractRaw;
+  }
+  if (typeof section.jsonPretty === "boolean") {
+    configJsonPretty = section.jsonPretty;
+  }
+}
+
+const LARGE_PAYLOAD_KEYS = new Set([
+  "pageSource",
+  "source",
+  "hierarchy",
+  "dump",
+  "xml",
+  "html",
+  "innerText",
+  "bodyText"
+]);
+
+const MAX_PREVIEW_CHARS = 400;
+const MAX_INLINE_STRING = 1200;
+
+function slimStringValue(key: string, value: string): unknown {
+  const forceOmit = LARGE_PAYLOAD_KEYS.has(key) || /source|hierarchy|xml$/i.test(key);
+  if (forceOmit && value.length > MAX_PREVIEW_CHARS) {
+    return {
+      _slim: true,
+      length: value.length,
+      preview: value.slice(0, MAX_PREVIEW_CHARS)
+    };
+  }
+  if (value.length > MAX_INLINE_STRING) {
+    return {
+      _slim: true,
+      length: value.length,
+      preview: value.slice(0, MAX_PREVIEW_CHARS)
+    };
+  }
+  return value;
+}
+
+function slimValue(key: string, value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return slimStringValue(key, value);
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 30) {
+      return { _slim: true, length: value.length, preview: value.slice(0, 10) };
+    }
+    return value.map((item, idx) => slimValue(`${key}[${idx}]`, item));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = slimValue(k, v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Shallow-truncate large fields in CommandResult.data; keeps errors and small metadata. */
+export function slimCommandResult(result: CommandResult): CommandResult {
+  const out: CommandResult = {
+    requestId: result.requestId,
+    success: result.success
+  };
+  if (result.errorCode) {
+    out.errorCode = result.errorCode;
+  }
+  if (result.errorMessage) {
+    out.errorMessage = result.errorMessage;
+  }
+  if (result.data && typeof result.data === "object") {
+    const slimmed: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(result.data as Record<string, unknown>)) {
+      slimmed[k] = slimValue(k, v);
+    }
+    out.data = slimmed;
+  }
+  return out;
+}
+
+export function resolveResultForMcp(result: CommandResult): {
+  result: CommandResult;
+  resultMode: "verbose" | "slim";
+} {
+  if (isMcpVerboseResult()) {
+    return { result, resultMode: "verbose" };
+  }
+  return { result: slimCommandResult(result), resultMode: "slim" };
+}
+
+export const MCP_VERBOSE_RESULT_HINT =
+  "Set ADA_MCP_VERBOSE_RESULT=1 or mcp.verboseResult=true in config for full CommandResult payload.";

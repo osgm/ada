@@ -1,0 +1,20 @@
+[
+  {
+    "requestId": "android-uia2-invoke-real-status",
+    "sessionId": "session-android-uia2-real",
+    "platform": "android",
+    "command": "invoke",
+    "payload": {
+      "serverUrl": "http://127.0.0.1:8200",
+      "capabilities": {
+        "platformName": "Android",
+        "automationName": "UiAutomator2"
+      },
+      "mode": "http",
+      "http": {
+        "method": "GET",
+        "path": "/status"
+      }
+    }
+  }
+]

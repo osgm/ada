@@ -13,7 +13,6 @@ node_modules/
 
 # Downloaded / local runtime (not source)
 dirver/
-APPIUM_HOME/
 ANDROID_HOME/
 release/
 artifacts/
@@ -21,6 +20,7 @@ artifacts/
 # Build outputs
 build/
 dist/
+scripts/lib/ada-executor.cjs
 *.tgz
 out/
 target/

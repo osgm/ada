@@ -70,11 +70,6 @@ export class PluginHost {
       const engine = parseWebEngineFromPayload(command.payload);
       const plugin = this.webEngines.get(engine);
       if (!plugin) {
-        if (engine === "selenium") {
-          throw new Error(
-            "WEB_ENGINE_SELENIUM_NOT_INSTALLED: register @ada/driver-selenium and ensure GeckoDriver/ChromeDriver is on PATH"
-          );
-        }
         throw new Error(`WEB_ENGINE_UNKNOWN: ${engine}`);
       }
       return plugin;
@@ -139,12 +134,37 @@ export class PluginHost {
     }
     return items;
   }
+
+  /** 释放所有已注册驱动插件（E2E/脚本退出前调用，避免 hypium/playwright 句柄拖住进程） */
+  async disposeAll(timeoutMs = 12_000, force = false): Promise<void> {
+    const plugins = Array.from(this.pluginById.values());
+    if (force) {
+      for (const plugin of plugins) {
+        try {
+          plugin.forceDispose?.();
+        } catch {
+          // ignore
+        }
+      }
+      this.initializedPluginIds.clear();
+      return;
+    }
+    await Promise.allSettled(
+      plugins.map((plugin) =>
+        Promise.race([
+          plugin.dispose(),
+          new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
+        ])
+      )
+    );
+    this.initializedPluginIds.clear();
+  }
 }
 
 const DEFAULT_PLUGIN_MODULE_IDS = [
   "@ada/driver-playwright",
-  "@ada/driver-appium",
-  "@ada/driver-selenium",
+  "@ada/driver-android",
+  "@ada/driver-ios",
   "@ada/driver-harmony"
 ];
 
@@ -260,12 +280,20 @@ function registerPluginsFromDirectory(host: PluginHost, pluginDir: string): Driv
   return loaded;
 }
 
-function registerPluginsFromModuleIds(host: PluginHost, moduleIds: string[]): DriverPlugin["manifest"][] {
-  const req = createRequire(typeof __filename === "string" ? __filename : process.cwd());
+function registerPluginsFromModuleIds(
+  host: PluginHost,
+  moduleIds: string[],
+  requireFrom?: string
+): DriverPlugin["manifest"][] {
+  const anchor = requireFrom?.trim() || (typeof __filename === "string" ? __filename : process.cwd());
+  const req = createRequire(anchor);
   const loaded: DriverPlugin["manifest"][] = [];
   for (const moduleId of moduleIds) {
     const plugin = loadPluginFromModule(req, moduleId);
     if (!plugin) {
+      continue;
+    }
+    if (host.listManifests().some((m) => m.id === plugin.manifest.id)) {
       continue;
     }
     host.register(plugin);
@@ -277,6 +305,8 @@ function registerPluginsFromModuleIds(host: PluginHost, moduleIds: string[]): Dr
 export interface RegisterRuntimePluginsOptions {
   pluginDir?: string;
   moduleIds?: string[];
+  /** createRequire 锚点（建议传 @ada/agent/plugin-registry，以便解析 @ada/driver-*） */
+  requireFrom?: string;
 }
 
 export function registerRuntimePlugins(host: PluginHost, options?: RegisterRuntimePluginsOptions): DriverPlugin["manifest"][] {
@@ -284,13 +314,11 @@ export function registerRuntimePlugins(host: PluginHost, options?: RegisterRunti
     if (!pluginDirHasModules(pluginDir)) {
       continue;
     }
-    const loaded = registerPluginsFromDirectory(host, pluginDir);
-    if (loaded.length > 0) {
-      return loaded;
-    }
+    registerPluginsFromDirectory(host, pluginDir);
   }
   const fallbackModuleIds = options?.moduleIds?.length ? options.moduleIds : DEFAULT_PLUGIN_MODULE_IDS;
-  return registerPluginsFromModuleIds(host, fallbackModuleIds);
+  registerPluginsFromModuleIds(host, fallbackModuleIds, options?.requireFrom);
+  return host.listManifests();
 }
 
-export { resolvePackagePluginDir } from "./resolve-plugin-dir.js";
+export { resolvePackagePluginDir, pluginDirectoryHasModules } from "./resolve-plugin-dir.js";

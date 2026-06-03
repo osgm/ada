@@ -1,0 +1,37 @@
+[
+  {
+    "requestId": "ios-invoke-mock-wda-status",
+    "sessionId": "session-ios-invoke",
+    "platform": "ios",
+    "command": "invoke",
+    "payload": {
+      "mock": true,
+      "mode": "http",
+      "http": {
+        "method": "GET",
+        "path": "/status"
+      }
+    }
+  },
+  {
+    "requestId": "ios-mock-swipe",
+    "sessionId": "session-ios-invoke",
+    "platform": "ios",
+    "command": "swipe",
+    "payload": {
+      "mock": true,
+      "from": [200, 600],
+      "to": [200, 200]
+    }
+  },
+  {
+    "requestId": "ios-mock-tap",
+    "sessionId": "session-ios-invoke",
+    "platform": "ios",
+    "command": "click",
+    "payload": {
+      "mock": true,
+      "point": [180, 400]
+    }
+  }
+]

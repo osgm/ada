@@ -1,6 +1,16 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+
+/** 目录内是否有可加载的插件 bundle（.cjs / .js） */
+export function pluginDirectoryHasModules(pluginDir: string): boolean {
+  if (!existsSync(pluginDir)) {
+    return false;
+  }
+  return readdirSync(pluginDir, { withFileTypes: true }).some(
+    (ent) => ent.isFile() && (ent.name.endsWith(".cjs") || ent.name.endsWith(".js"))
+  );
+}
 
 /** 解析 @ada-mcp/mcp-server 包内 plugins/（dlx / 本仓库 dev / 打包 cli.cjs） */
 export function resolvePackagePluginDir(): string | undefined {
@@ -54,7 +64,7 @@ export function resolvePackagePluginDir(): string | undefined {
 
   const seen = new Set<string>();
   for (const dir of candidates) {
-    if (seen.has(dir) || !existsSync(dir)) {
+    if (seen.has(dir) || !pluginDirectoryHasModules(dir)) {
       continue;
     }
     seen.add(dir);

@@ -31,9 +31,31 @@ graphics:
   fallbackOnSemanticFailure: false
   minConfidence: 0.8
 
+viewControl:
+  enabled: true
+  defaultControlMode: semantic
+  snapshot:
+    maxNodes: 500
+    includeScreenshot: true
+    cacheTtlMs: 3000
+  visual:
+    adapter: noop
+    requireRiskApproved: true
+  registry:
+    maxViewsPerSession: 200
+
+# MCP 工具返回体（Host / 大模型可见）
+mcp:
+  # false（默认）= 精简 result，省 token；true = 完整 CommandResult，便于人工调试
+  verboseResult: false
+  # extract 是否附带 rawResult（也可用 ADA_MCP_EXTRACT_RAW=1）
+  extractRaw: false
+  # JSON 是否 pretty-print（也可用 ADA_MCP_JSON_PRETTY=1）
+  jsonPretty: false
+
 monitoring:
   enabled: false
-  platforms: ["web", "android", "ios", "harmony"] # 可选子集
+  platforms: ["web"] # 可选子集；启用 Android/iOS/Harmony 时追加对应平台（doctor 与运行时检查据此判定）
   sampleEvery: 1 # 每 N 条操作采样一次，1 表示全量
   outputDir: "artifacts/monitoring"
   onFailureOnly: false # true 时仅失败操作抓图，性能更优
@@ -44,12 +66,22 @@ monitoring:
     maxHeight: 720
     keepAspectRatio: true # 保持比例，避免监控图像变形
 
+# 移动设备：引导/启动后自动 adb/hdc/xcrun 扫描并写入 .ada-agent/devices.json
+devices:
+  autoScanOnSetup: true
+  autoScanOnStart: true
+
 queue:
   inboxDir: "tasks/inbox"
   processedDir: "tasks/processed"
   failedDir: "tasks/failed"
   pollIntervalMs: 3000
   maxFileRetryAttempts: 2
+
+# Web / Playwright 默认：有头、窗口置前（测试/调试可见）；CI 可设 ADA_PLAYWRIGHT_HEADLESS=true
+playwright:
+  headless: false
+  bringToFront: true
 
 dependencies:
   autoInstallOnStart: true
@@ -70,16 +102,19 @@ dependencies:
     - "https://playwright.azureedge.net"
     - "https://cdn.npmmirror.com/binaries/playwright"
     - "https://npmmirror.com/mirrors/playwright"
-  # 原生 WebDriver（geckodriver / chromedriver）统一放在项目 dirver 目录
-  nativeDriversDir: "dirver"
-  geckodriverVersion: "latest" # 如 0.36.0；install-deps --only=selenium 时下载到此目录
-  chromedriverVersion: "latest" # 如 137、135、match-chrome（匹配本机 Chrome 主版本）
   # 纯血鸿蒙工具（hdc 等），相对工作区根目录；也可用环境变量 ADA_TOOLS_DIR 覆盖
   toolsDir: "tools"
   # install-deps --only=harmony / --only=all 时自动下载 hdc（支持 .zip 或直链；GitHub blob 链接会自动转 raw）
   harmonyHdcDownloadUrls:
     - "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
 
-appium:
-  serverUrl: "http://127.0.0.1:4723"
-  requiredDrivers: ["uiautomator2", "xcuitest"]
+# 可选：命名 app profile（E2E / MCP 通过 ADA_APP_PROFILE 引用；勿在此内置业务 App）
+# appProfiles:
+#   example:
+#     harmony:
+#       appId: "com.example.app"
+#       abilityId: "EntryAbility"
+#     android:
+#       appId: "com.example.app"
+
+# 旧移动驱动配置段已弃用（driver-android / driver-ios / driver-harmony 直连通道）

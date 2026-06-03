@@ -5,6 +5,7 @@
     "platform": "web",
     "command": "click",
     "payload": {
+      "mock": true,
       "locator": {
         "testId": "signup-btn"
       }
@@ -16,6 +17,7 @@
     "platform": "android",
     "command": "swipe",
     "payload": {
+      "mock": true,
       "from": [0.5, 0.8],
       "to": [0.5, 0.3]
     }

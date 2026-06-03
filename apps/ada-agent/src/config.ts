@@ -44,6 +44,22 @@ export const defaultConfig: AgentConfig = {
     fallbackOnSemanticFailure: false,
     minConfidence: 0.8
   },
+  viewControl: {
+    enabled: true,
+    defaultControlMode: "semantic" as const,
+    snapshot: {
+      maxNodes: 500,
+      includeScreenshot: true,
+      cacheTtlMs: 3000
+    },
+    visual: {
+      adapter: "noop" as const,
+      requireRiskApproved: true
+    },
+    registry: {
+      maxViewsPerSession: 200
+    }
+  },
   monitoring: {
     enabled: false,
     platforms: ["web", "android", "ios", "harmony"],
@@ -65,6 +81,10 @@ export const defaultConfig: AgentConfig = {
     pollIntervalMs: 3000,
     maxFileRetryAttempts: 2
   },
+  devices: {
+    autoScanOnSetup: true,
+    autoScanOnStart: true
+  },
   dependencies: {
     autoInstallOnStart: true,
     playwrightBrowser: "chromium",
@@ -84,21 +104,33 @@ export const defaultConfig: AgentConfig = {
       "https://cdn.npmmirror.com/binaries/playwright",
       "https://npmmirror.com/mirrors/playwright"
     ],
-    nativeDriversDir: "dirver",
-    geckodriverVersion: "latest",
-    chromedriverVersion: "match-chrome",
     toolsDir: "tools",
     harmonyHdcDownloadUrls: [
       "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
     ]
-  },
-  appium: {
-    serverUrl: "http://127.0.0.1:4723",
-    requiredDrivers: ["uiautomator2", "xcuitest"]
   }
 };
 
 function mergeConfig(base: AgentConfig, overrides: Partial<AgentConfig>): AgentConfig {
+  const viewControlOverrides = overrides.viewControl;
+  const mergedViewControl = base.viewControl
+    ? {
+        ...base.viewControl,
+        ...(viewControlOverrides ?? {}),
+        snapshot: {
+          ...base.viewControl.snapshot,
+          ...(viewControlOverrides?.snapshot ?? {})
+        },
+        visual: {
+          ...base.viewControl.visual,
+          ...(viewControlOverrides?.visual ?? {})
+        },
+        registry: {
+          ...base.viewControl.registry,
+          ...(viewControlOverrides?.registry ?? {})
+        }
+      }
+    : undefined;
   return {
     ...base,
     ...overrides,
@@ -106,14 +138,15 @@ function mergeConfig(base: AgentConfig, overrides: Partial<AgentConfig>): AgentC
     bootstrapUI: { ...base.bootstrapUI, ...overrides.bootstrapUI },
     transport: { ...base.transport, ...overrides.transport },
     graphics: { ...base.graphics, ...overrides.graphics },
+    ...(mergedViewControl ? { viewControl: mergedViewControl } : {}),
     monitoring: {
       ...base.monitoring,
       ...overrides.monitoring,
       resolution: { ...base.monitoring.resolution, ...overrides.monitoring?.resolution }
     },
     queue: { ...base.queue, ...overrides.queue },
-    dependencies: { ...base.dependencies, ...overrides.dependencies },
-    appium: { ...base.appium, ...overrides.appium }
+    devices: { ...base.devices, ...overrides.devices },
+    dependencies: { ...base.dependencies, ...overrides.dependencies }
   };
 }
 

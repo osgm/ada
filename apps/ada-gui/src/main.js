@@ -8,7 +8,6 @@ const LS = {
   remoteUrl: "ada.console.remoteUrl",
   apiKey: "ada.console.apiKey",
   androidHome: "ada.console.androidHome",
-  appiumHome: "ada.console.appiumHome",
   mcpRemoteHost: "ada.console.mcpRemoteHost",
   mcpRemotePort: "ada.console.mcpRemotePort",
   mcpRemoteApiKey: "ada.console.mcpRemoteApiKey",
@@ -91,7 +90,6 @@ function loadStore() {
     const u = localStorage.getItem(LS.remoteUrl);
     const k = localStorage.getItem(LS.apiKey);
     const a = localStorage.getItem(LS.androidHome);
-    const p = localStorage.getItem(LS.appiumHome);
     const mrh = localStorage.getItem(LS.mcpRemoteHost);
     const mrp = localStorage.getItem(LS.mcpRemotePort);
     const mrk = localStorage.getItem(LS.mcpRemoteApiKey);
@@ -101,7 +99,6 @@ function loadStore() {
     if (u) document.querySelector("#remoteUrl").value = u;
     if (k) document.querySelector("#apiKey").value = k;
     if (a) document.querySelector("#androidHome").value = a;
-    if (p) document.querySelector("#appiumHome").value = p;
     if (mrh) document.querySelector("#mcpRemoteHost").value = mrh;
     if (mrp) document.querySelector("#mcpRemotePort").value = mrp;
     if (mrk) document.querySelector("#mcpRemoteApiKey").value = mrk;
@@ -118,7 +115,6 @@ function saveStore() {
     localStorage.setItem(LS.remoteUrl, document.querySelector("#remoteUrl").value.trim());
     localStorage.setItem(LS.apiKey, document.querySelector("#apiKey").value);
     localStorage.setItem(LS.androidHome, document.querySelector("#androidHome").value.trim());
-    localStorage.setItem(LS.appiumHome, document.querySelector("#appiumHome").value.trim());
     localStorage.setItem(LS.mcpRemoteHost, document.querySelector("#mcpRemoteHost").value.trim());
     localStorage.setItem(LS.mcpRemotePort, document.querySelector("#mcpRemotePort").value.trim());
     localStorage.setItem(LS.mcpRemoteApiKey, document.querySelector("#mcpRemoteApiKey").value);
@@ -278,32 +274,20 @@ document.querySelector("#btnMcpRemoteCopyConfig").addEventListener("click", asyn
 async function refreshHomeDirs({ overrideExisting = false, applyEnv = false } = {}) {
   const detected = await invoke("detect_home_dirs");
   const androidInput = document.querySelector("#androidHome");
-  const appiumInput = document.querySelector("#appiumHome");
   const androidDetected = String(detected?.androidHome ?? "").trim();
-  const appiumDetected = String(detected?.appiumHome ?? "").trim();
 
   const canSetAndroid = overrideExisting || !androidInput.value.trim();
-  const canSetAppium = overrideExisting || !appiumInput.value.trim();
 
   if (canSetAndroid && androidDetected) {
     androidInput.value = androidDetected;
     addLog(`已探测 ANDROID_HOME: ${androidDetected}`);
   }
-  if (canSetAppium && appiumDetected) {
-    appiumInput.value = appiumDetected;
-    addLog(`已探测 APPIUM_HOME: ${appiumDetected}`);
+
+  if (applyEnv && androidInput.value.trim()) {
+    await invoke("apply_android_home", { androidHome: androidInput.value.trim() });
   }
 
-  if (applyEnv) {
-    if (androidInput.value.trim()) {
-      await invoke("apply_android_home", { androidHome: androidInput.value.trim() });
-    }
-    if (appiumInput.value.trim()) {
-      await invoke("apply_appium_home", { appiumHome: appiumInput.value.trim() });
-    }
-  }
-
-  if (androidInput.value.trim() || appiumInput.value.trim()) {
+  if (androidInput.value.trim()) {
     saveStore();
   }
 }
@@ -341,15 +325,17 @@ function gatherInstallSteps() {
     }
     steps.push(step);
   }
-  if (document.querySelector("#grpAp").checked) {
-    const drivers = [];
-    if (document.querySelector("#apAndroid").checked) drivers.push("android");
-    if (document.querySelector("#apIos").checked) drivers.push("ios");
-    if (document.querySelector("#apHarmony").checked) drivers.push("harmony");
-    if (drivers.length > 0) {
-      steps.push({ only: "drivers", appiumDrivers: drivers });
+  if (document.querySelector("#grpMob").checked) {
+    const platforms = [];
+    if (document.querySelector("#mobAndroid").checked) platforms.push("android");
+    if (document.querySelector("#mobIos").checked) platforms.push("ios");
+    if (document.querySelector("#mobHarmony").checked) platforms.push("harmony");
+    if (platforms.length === 0) {
+      steps.push({ only: "mobile" });
     } else {
-      steps.push({ only: "appium" });
+      for (const only of platforms) {
+        steps.push({ only });
+      }
     }
   }
   return steps;
@@ -396,6 +382,106 @@ document.querySelector("#btnHealth").addEventListener("click", async () => {
   await withAgent(async () => {
     const output = await invoke("run_health", { agentPath: null, controlUrl: null });
     addLog(`health:\n${output}`);
+  });
+});
+
+const deviceMetaEl = document.querySelector("#deviceMeta");
+const deviceTableBody = document.querySelector("#deviceTableBody");
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatDeviceMeta(data) {
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const parts = [];
+  if (data?.lastScanAt) {
+    parts.push(`最近扫描: ${new Date(data.lastScanAt).toLocaleString()}`);
+  }
+  parts.push(`共 ${rows.length} 台`);
+  const authorized = rows.filter((r) => r.authorized).length;
+  if (authorized !== rows.length) {
+    parts.push(`可用 ${authorized} 台`);
+  }
+  if (data?.file) {
+    parts.push(data.file);
+  }
+  return parts.join(" · ") || "尚未扫描";
+}
+
+function renderDeviceRows(rows) {
+  deviceTableBody.replaceChildren();
+  if (!rows?.length) {
+    const tr = document.createElement("tr");
+    tr.className = "empty-row";
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.textContent = "未发现设备，请连接手机并开启 USB 调试后点击「扫描设备」";
+    tr.append(td);
+    deviceTableBody.append(tr);
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    if (row.isDefault) tr.classList.add("is-default");
+    const status = row.authorized
+      ? row.isDefault
+        ? "默认 · 已授权"
+        : "已授权"
+      : `未授权 (${row.connectionState})`;
+    const cells = [
+      row.deviceName,
+      row.deviceId,
+      row.resolution,
+      row.systemCategory,
+      row.sdkInfo,
+      status
+    ];
+    for (const text of cells) {
+      const td = document.createElement("td");
+      td.textContent = text ?? "";
+      if (text === row.deviceId) td.classList.add("mono");
+      tr.append(td);
+    }
+    deviceTableBody.append(tr);
+  }
+}
+
+function parseDeviceListPayload(raw) {
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("设备列表返回为空");
+  }
+  return JSON.parse(raw);
+}
+
+async function loadDeviceList(scan) {
+  const cmd = scan ? "scan_devices" : "list_devices";
+  const raw = await invoke(cmd, { agentPath: null });
+  const data = parseDeviceListPayload(raw);
+  if (Array.isArray(data.scanErrors) && data.scanErrors.length > 0) {
+    for (const err of data.scanErrors) {
+      addLog(`设备扫描 [${err.platform}]: ${err.message}`);
+    }
+  }
+  renderDeviceRows(data.rows);
+  deviceMetaEl.textContent = formatDeviceMeta(data);
+  addLog(scan ? `设备扫描完成，${data.rows?.length ?? 0} 台` : `已加载设备列表，${data.rows?.length ?? 0} 台`);
+  return data;
+}
+
+document.querySelector("#btnRefreshDevices").addEventListener("click", async () => {
+  await withAgent(async () => {
+    await loadDeviceList(false);
+  });
+});
+
+document.querySelector("#btnScanDevices").addEventListener("click", async () => {
+  await withAgent(async () => {
+    await loadDeviceList(true);
   });
 });
 
@@ -447,31 +533,6 @@ document.querySelector("#btnSaveAndroidHome").addEventListener("click", async ()
     const output = await invoke("apply_android_home", { androidHome });
     saveStore();
     addLog(`ANDROID_HOME 已配置:\n${output}`);
-  });
-});
-
-document.querySelector("#btnPickAppiumHome").addEventListener("click", async () => {
-  await withAgent(async () => {
-    const picked = await invoke("pick_appium_home_dir");
-    if (picked && String(picked).trim()) {
-      document.querySelector("#appiumHome").value = String(picked).trim();
-      addLog(`已选择 APPIUM_HOME: ${picked}`);
-    } else {
-      addLog("未选择目录");
-    }
-  });
-});
-
-document.querySelector("#btnSaveAppiumHome").addEventListener("click", async () => {
-  await withAgent(async () => {
-    const appiumHome = document.querySelector("#appiumHome").value.trim();
-    if (!appiumHome) {
-      addLog("保存失败：请先填写或选择 APPIUM_HOME 目录");
-      return;
-    }
-    const output = await invoke("apply_appium_home", { appiumHome });
-    saveStore();
-    addLog(`APPIUM_HOME 已配置:\n${output}`);
   });
 });
 
@@ -536,7 +597,7 @@ btnInstall.addEventListener("click", async () => {
     }
     const steps = gatherInstallSteps();
     if (steps.length === 0) {
-      addLog("请勾选「完整安装」或至少一类组件（Playwright / Appium）");
+      addLog("请勾选「完整安装」或至少一类组件（Playwright / 移动驱动）");
       return;
     }
     const force = document.querySelector("#depForce").checked;
@@ -605,9 +666,7 @@ if (document.querySelector("#androidHome").value.trim()) {
     androidHome: document.querySelector("#androidHome").value.trim()
   }).catch((error) => addLog(`应用已保存 ANDROID_HOME 失败: ${String(error)}`));
 }
-if (document.querySelector("#appiumHome").value.trim()) {
-  void invoke("apply_appium_home", {
-    appiumHome: document.querySelector("#appiumHome").value.trim()
-  }).catch((error) => addLog(`应用已保存 APPIUM_HOME 失败: ${String(error)}`));
-}
 void logGuiStartupHint();
+void withAgent(async () => {
+  await loadDeviceList(false);
+}).catch((error) => addLog(`加载设备列表失败: ${String(error)}`));

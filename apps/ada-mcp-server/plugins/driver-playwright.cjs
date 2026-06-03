@@ -1,3 +1,4 @@
+var __ada_import_meta_url=require("url").pathToFileURL(__filename).href;
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -34,6 +35,313 @@ __export(index_exports, {
 });
 module.exports = __toCommonJS(index_exports);
 
+// ../../packages/driver-rpc/src/playwright-defaults.ts
+function asRecord(value) {
+  return typeof value === "object" && value !== null ? value : {};
+}
+function pickBool(p, options, key) {
+  if (typeof p[key] === "boolean") {
+    return p[key];
+  }
+  if (typeof options[key] === "boolean") {
+    return options[key];
+  }
+  return void 0;
+}
+function resolvePlaywrightHeadless(payload) {
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const explicit = pickBool(p, options, "headless");
+  if (explicit !== void 0) {
+    return explicit;
+  }
+  const env = process.env.ADA_PLAYWRIGHT_HEADLESS?.trim().toLowerCase();
+  if (env === "true" || env === "1") {
+    return true;
+  }
+  if (env === "false" || env === "0") {
+    return false;
+  }
+  return false;
+}
+function resolvePlaywrightBringToFront(payload) {
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const explicit = pickBool(p, options, "bringToFront");
+  if (explicit !== void 0) {
+    return explicit;
+  }
+  const env = process.env.ADA_PLAYWRIGHT_BRING_TO_FRONT?.trim().toLowerCase();
+  if (env === "false" || env === "0") {
+    return false;
+  }
+  return true;
+}
+
+// ../../packages/driver-rpc/src/cdp-auto-launch.ts
+var import_node_child_process = require("node:child_process");
+var import_node_fs = __toESM(require("node:fs"), 1);
+var import_node_os = __toESM(require("node:os"), 1);
+var import_node_path = __toESM(require("node:path"), 1);
+function asRecord2(value) {
+  return typeof value === "object" && value !== null ? value : {};
+}
+function getString(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+var spawnRegistry = /* @__PURE__ */ new Map();
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function pickBool2(payload, options, key, envKey) {
+  if (typeof payload[key] === "boolean") return payload[key];
+  if (typeof options[key] === "boolean") return options[key];
+  if (envKey && process.env[envKey] === "true") return true;
+  if (envKey && process.env[envKey] === "false") return false;
+  return void 0;
+}
+function pickString(payload, options, key, envKey) {
+  const top = getString(payload[key]);
+  if (top) return top;
+  const nested = getString(options[key]);
+  if (nested) return nested;
+  if (envKey && process.env[envKey]?.trim()) return process.env[envKey].trim();
+  return "";
+}
+function parseCdpEndpoint(input, defaultPort = 9222) {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    const port2 = defaultPort;
+    return { url: `http://127.0.0.1:${port2}`, host: "127.0.0.1", port: port2 };
+  }
+  if (/^\d+$/.test(trimmed)) {
+    const port2 = Number(trimmed);
+    return { url: `http://127.0.0.1:${port2}`, host: "127.0.0.1", port: port2 };
+  }
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  const url = new URL(withScheme);
+  const port = url.port ? Number(url.port) : defaultPort;
+  return { url: `http://${url.hostname}:${port}`, host: url.hostname, port };
+}
+function resolveCdpBrowserFamily(payload) {
+  const p = asRecord2(payload);
+  const options = asRecord2(p.options);
+  const raw = (getString(p.browser) ?? getString(options.browser) ?? process.env.ADA_PLAYWRIGHT_CDP_BROWSER ?? "chromium").toLowerCase();
+  return raw === "firefox" ? "firefox" : "chromium";
+}
+function defaultCdpPort(browser) {
+  if (browser === "firefox") {
+    const n2 = Number(process.env.ADA_PLAYWRIGHT_CDP_PORT_FIREFOX ?? 9223);
+    return Number.isFinite(n2) && n2 > 0 ? n2 : 9223;
+  }
+  const n = Number(process.env.ADA_PLAYWRIGHT_CDP_PORT ?? 9222);
+  return Number.isFinite(n) && n > 0 ? n : 9222;
+}
+function resolveCdpAutoLaunchPlan(payload) {
+  const p = asRecord2(payload);
+  const options = asRecord2(p.options);
+  const browser = resolveCdpBrowserFamily(p);
+  const autoLaunch = pickBool2(p, options, "cdpAutoLaunch", "ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH") ?? false;
+  const endpointRaw = pickString(p, options, "cdpEndpoint", "ADA_PLAYWRIGHT_CDP_ENDPOINT");
+  const cdpPortRaw = pickString(p, options, "cdpPort", "ADA_PLAYWRIGHT_CDP_PORT");
+  if (!autoLaunch && !endpointRaw) {
+    return null;
+  }
+  const portDefault = cdpPortRaw ? Number(cdpPortRaw) : defaultCdpPort(browser);
+  const parts = parseCdpEndpoint(endpointRaw || String(portDefault), portDefault);
+  const headless = resolvePlaywrightHeadless(p);
+  const cdpLaunchArgs = Array.isArray(p.cdpLaunchArgs) ? p.cdpLaunchArgs.map(String) : Array.isArray(options.cdpLaunchArgs) ? options.cdpLaunchArgs.map(String) : [];
+  const launchOptions = asRecord2(p.launchOptions);
+  const launchOptionsArgs = Array.isArray(launchOptions.args) ? launchOptions.args.map(String) : [];
+  const extraArgs = [...launchOptionsArgs, ...cdpLaunchArgs];
+  return {
+    url: parts.url,
+    port: parts.port,
+    browser,
+    autoLaunch,
+    executablePath: pickString(p, options, "executablePath", "ADA_PLAYWRIGHT_EXECUTABLE_PATH"),
+    channel: pickString(p, options, "channel", "ADA_PLAYWRIGHT_CHANNEL"),
+    userDataDir: pickString(p, options, "userDataDir", "ADA_PLAYWRIGHT_USER_DATA_DIR"),
+    headless,
+    extraArgs
+  };
+}
+async function probeCdpEndpoint(url, timeoutMs = 3e3) {
+  const base = url.replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+function pathExists(filePath) {
+  try {
+    return import_node_fs.default.existsSync(filePath);
+  } catch {
+    return false;
+  }
+}
+function firstExisting(paths) {
+  for (const p of paths) {
+    if (p && pathExists(p)) return p;
+  }
+  return void 0;
+}
+function resolveChromiumExecutable(channel, executablePath) {
+  if (executablePath?.trim()) return executablePath.trim();
+  const ch = (channel || process.env.ADA_PLAYWRIGHT_CHANNEL || "chrome").toLowerCase();
+  if (ch === "msedge" || ch === "edge") {
+    const edge = firstExisting([
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
+    ]);
+    if (edge) return edge;
+  }
+  const chrome = firstExisting([
+    process.env.ADA_CHROME_PATH,
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium"
+  ].filter((x) => Boolean(x)));
+  if (chrome) return chrome;
+  throw new Error(
+    "cdpAutoLaunch: Chrome/Edge not found. Set executablePath, channel=msedge, or ADA_CHROME_PATH"
+  );
+}
+function resolveFirefoxExecutable(executablePath) {
+  if (executablePath?.trim()) return executablePath.trim();
+  const ff = firstExisting([
+    process.env.ADA_FIREFOX_PATH,
+    "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+    "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
+    "/Applications/Firefox.app/Contents/MacOS/firefox",
+    "/usr/bin/firefox"
+  ].filter((x) => Boolean(x)));
+  if (ff) return ff;
+  throw new Error("cdpAutoLaunch: Firefox not found. Set executablePath or ADA_FIREFOX_PATH");
+}
+function resolveChromiumCdpUserDataDir(plan) {
+  if (plan.userDataDir?.trim()) {
+    const dir = plan.userDataDir.trim();
+    import_node_fs.default.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  return import_node_fs.default.mkdtempSync(import_node_path.default.join(import_node_os.default.tmpdir(), "ada-cdp-chromium-"));
+}
+function buildChromiumLaunchArgs(plan, userDataDir) {
+  const args = [
+    `--remote-debugging-port=${plan.port}`,
+    `--user-data-dir=${userDataDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking"
+  ];
+  if (plan.headless) {
+    args.push("--headless=new");
+  }
+  return [...args, ...plan.extraArgs];
+}
+function buildFirefoxLaunchArgs(plan) {
+  const args = ["-no-remote", "-remote-debugging-port", String(plan.port)];
+  if (plan.userDataDir) {
+    import_node_fs.default.mkdirSync(plan.userDataDir, { recursive: true });
+    args.push("-profile", plan.userDataDir);
+  }
+  if (plan.headless) {
+    args.push("-headless");
+  }
+  return [...args, ...plan.extraArgs];
+}
+function spawnCdpBrowser(plan) {
+  const executable = plan.browser === "firefox" ? resolveFirefoxExecutable(plan.executablePath) : resolveChromiumExecutable(plan.channel, plan.executablePath);
+  const chromiumProfile = plan.browser === "firefox" ? "" : resolveChromiumCdpUserDataDir(plan);
+  const args = plan.browser === "firefox" ? buildFirefoxLaunchArgs(plan) : buildChromiumLaunchArgs(plan, chromiumProfile);
+  const child = (0, import_node_child_process.spawn)(executable, args, {
+    detached: true,
+    stdio: "ignore",
+    shell: false,
+    ...process.platform === "win32" ? { windowsHide: true } : {}
+  });
+  if (!child.pid) {
+    throw new Error(`cdpAutoLaunch: failed to spawn ${plan.browser} (${executable})`);
+  }
+  const handle = {
+    pid: child.pid,
+    browser: plan.browser,
+    port: plan.port,
+    url: plan.url,
+    executablePath: executable,
+    ...chromiumProfile ? { userDataDir: chromiumProfile } : {}
+  };
+  child.unref();
+  spawnRegistry.set(child.pid, handle);
+  return handle;
+}
+async function forceKillProcessTree(pid) {
+  forceKillProcessTreeDetached(pid);
+}
+function forceKillProcessTreeDetached(pid) {
+  if (!pid || pid <= 0) return;
+  if (process.platform === "win32") {
+    const killer = (0, import_node_child_process.spawn)("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      shell: false,
+      windowsHide: true,
+      detached: true,
+      stdio: "ignore"
+    });
+    killer.unref();
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+    }
+  }
+}
+async function stopCdpSpawn(handle) {
+  if (!handle?.pid) return;
+  spawnRegistry.delete(handle.pid);
+  await forceKillProcessTree(handle.pid);
+}
+function cleanupAllCdpSpawnsDetached() {
+  const handles = [...spawnRegistry.values()];
+  spawnRegistry.clear();
+  for (const h of handles) {
+    forceKillProcessTreeDetached(h.pid);
+  }
+  return handles.length;
+}
+async function ensureCdpEndpointReady(plan, opts) {
+  const timeoutMs = opts?.waitTimeoutMs ?? 45e3;
+  if (await probeCdpEndpoint(plan.url)) {
+    return { url: plan.url, spawned: null };
+  }
+  if (!plan.autoLaunch) {
+    throw new Error(
+      `CDP endpoint not reachable at ${plan.url}. Start browser with remote debugging or set cdpAutoLaunch=true`
+    );
+  }
+  const spawned = spawnCdpBrowser(plan);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await probeCdpEndpoint(plan.url)) {
+      return { url: plan.url, spawned };
+    }
+    await sleep(500);
+  }
+  await stopCdpSpawn(spawned).catch(() => void 0);
+  throw new Error(
+    `cdpAutoLaunch: ${plan.browser} did not expose CDP at ${plan.url} within ${timeoutMs}ms`
+  );
+}
+
 // ../../packages/driver-rpc/src/index.ts
 var PLAYWRIGHT_OBJECT_TYPES = /* @__PURE__ */ new Set([
   "Page",
@@ -50,23 +358,23 @@ var PLAYWRIGHT_OBJECT_TYPES = /* @__PURE__ */ new Set([
   "Route",
   "WebSocket"
 ]);
-function asRecord(value) {
+function asRecord3(value) {
   return typeof value === "object" && value !== null ? value : {};
 }
-function getString(value) {
+function getString2(value) {
   return typeof value === "string" && value.length > 0 ? value : void 0;
 }
 function normalizeInvokePayload(raw, defaultMode) {
-  const payload = asRecord(raw);
-  const legacyCustom = asRecord(payload.custom);
-  const httpBlock = asRecord(payload.http);
-  const httpMethod = getString(httpBlock.method) ?? getString(legacyCustom.method);
-  const httpPath = getString(httpBlock.path) ?? getString(legacyCustom.path);
+  const payload = asRecord3(raw);
+  const legacyCustom = asRecord3(payload.custom);
+  const httpBlock = asRecord3(payload.http);
+  const httpMethod = getString2(httpBlock.method) ?? getString2(legacyCustom.method);
+  const httpPath = getString2(httpBlock.path) ?? getString2(legacyCustom.path);
   const hasHttp = Boolean(httpMethod && httpPath);
-  const method = getString(payload.method);
-  const target = getString(payload.target);
+  const method = getString2(payload.method);
+  const target = getString2(payload.target);
   const hasMethod = Boolean(method);
-  let mode = getString(payload.mode);
+  let mode = getString2(payload.mode);
   if (mode !== "method" && mode !== "http") {
     mode = hasHttp ? "http" : hasMethod ? "method" : defaultMode;
   }
@@ -87,7 +395,7 @@ function normalizeInvokePayload(raw, defaultMode) {
         path: httpPath,
         body: httpBlock.body ?? legacyCustom.body
       },
-      options: asRecord(payload.options)
+      options: asRecord3(payload.options)
     };
   }
   if (!method) {
@@ -98,18 +406,18 @@ function normalizeInvokePayload(raw, defaultMode) {
     target: target ?? "page",
     method,
     args: Array.isArray(payload.args) ? payload.args : [],
-    locator: asRecord(payload.locator),
-    options: asRecord(payload.options)
+    locator: asRecord3(payload.locator),
+    options: asRecord3(payload.options)
   };
 }
 function pickPayloadString(payload, options, key, aliases = [], envKey) {
   const keys = [key, ...aliases];
   for (const k of keys) {
-    const top = getString(payload[k]);
+    const top = getString2(payload[k]);
     if (top) {
       return top;
     }
-    const nested = getString(options[k]);
+    const nested = getString2(options[k]);
     if (nested) {
       return nested;
     }
@@ -120,8 +428,8 @@ function pickPayloadString(payload, options, key, aliases = [], envKey) {
   return "";
 }
 function resolveLocalBrowserFields(payload) {
-  const p = asRecord(payload);
-  const options = asRecord(p.options);
+  const p = asRecord3(payload);
+  const options = asRecord3(p.options);
   return {
     cdpEndpoint: pickPayloadString(p, options, "cdpEndpoint", ["browserURL", "cdpUrl"], "ADA_PLAYWRIGHT_CDP_ENDPOINT"),
     executablePath: pickPayloadString(
@@ -136,15 +444,17 @@ function resolveLocalBrowserFields(payload) {
   };
 }
 function buildSessionKey(payload) {
-  const p = asRecord(payload);
-  const options = asRecord(p.options);
+  const p = asRecord3(payload);
+  const options = asRecord3(p.options);
   const local = resolveLocalBrowserFields(p);
-  const browser = getString(p.browser) ?? getString(options.browser) ?? "chromium";
-  const headless = typeof p.headless === "boolean" ? p.headless : typeof options.headless === "boolean" ? options.headless : "env";
-  const storageStatePath = getString(p.storageStatePath) ?? getString(options.storageStatePath) ?? "";
+  const browser = getString2(p.browser) ?? getString2(options.browser) ?? "chromium";
+  const headless = resolvePlaywrightHeadless(p);
+  const storageStatePath = getString2(p.storageStatePath) ?? getString2(options.storageStatePath) ?? "";
   const storageState = p.storageState ?? options.storageState;
   const storageKey = storageStatePath || (storageState !== void 0 ? JSON.stringify(storageState) : "");
-  return `${browser}|${headless}|${local.cdpEndpoint}|${local.executablePath}|${local.channel}|${local.userDataDir}|${storageKey}`;
+  const cdpAutoLaunch = typeof p.cdpAutoLaunch === "boolean" ? p.cdpAutoLaunch : typeof options.cdpAutoLaunch === "boolean" ? options.cdpAutoLaunch : process.env.ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH === "true";
+  const cdpPort = getString2(p.cdpPort) ?? getString2(options.cdpPort) ?? "";
+  return `${browser}|${headless}|${local.cdpEndpoint}|${cdpAutoLaunch}|${cdpPort}|${local.executablePath}|${local.channel}|${local.userDataDir}|${storageKey}`;
 }
 function serializeRpcResult(value, depth = 0) {
   if (depth > 10) {
@@ -191,17 +501,21 @@ function serializeRpcResult(value, depth = 0) {
   }
 }
 function mergeOptionsIntoPayload(payload) {
-  const p = { ...asRecord(payload) };
-  const options = asRecord(p.options);
+  const p = { ...asRecord3(payload) };
+  const options = asRecord3(p.options);
   for (const key of [
     "browser",
     "headless",
+    "bringToFront",
     "userDataDir",
     "storageStatePath",
     "storageState",
     "launchOptions",
     "contextOptions",
     "cdpEndpoint",
+    "cdpAutoLaunch",
+    "cdpPort",
+    "cdpLaunchArgs",
     "browserURL",
     "cdpUrl",
     "executablePath",
@@ -211,10 +525,7 @@ function mergeOptionsIntoPayload(payload) {
     "engine",
     "browserName",
     "browserBinary",
-    "profile",
-    "seleniumServerUrl",
-    "geckodriverVersion",
-    "chromedriverVersion"
+    "profile"
   ]) {
     if (p[key] === void 0 && options[key] !== void 0) {
       p[key] = options[key];
@@ -226,7 +537,101 @@ function mergeOptionsIntoPayload(payload) {
 // ../../plugins/driver-playwright/src/index.ts
 var import_node_module = require("node:module");
 var import_promises = __toESM(require("node:fs/promises"), 1);
-var import_node_path = __toESM(require("node:path"), 1);
+var import_node_path2 = __toESM(require("node:path"), 1);
+
+// ../../plugins/driver-playwright/src/playwright-locator.ts
+function asRecord4(value) {
+  return typeof value === "object" && value !== null ? value : {};
+}
+function getString3(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : void 0;
+}
+function parseLocator(raw) {
+  if (!raw) return void 0;
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "object") return raw;
+  return void 0;
+}
+function summarizeLocator(raw) {
+  const locator = parseLocator(raw);
+  if (!locator) return "(none)";
+  if (typeof locator === "string") return locator;
+  const l = locator;
+  if (typeof l.kind === "string") {
+    if (typeof l.value === "string") return `${l.kind}:${l.value}`;
+    if (typeof l.role === "string") return `role:${l.role}${l.name ? `(${String(l.name)})` : ""}`;
+    if (typeof l.query === "string") return `visual:${l.query}`;
+  }
+  if (l.role) return `role:${String(l.role)}${l.name ? `(${String(l.name)})` : ""}`;
+  if (l.testId) return `testId:${String(l.testId)}`;
+  if (l.css) return `css:${String(l.css)}`;
+  if (l.xpath) return `xpath:${String(l.xpath)}`;
+  if (l.text) return `text:${String(l.text)}`;
+  if (l.accessibilityId) return `a11y:${String(l.accessibilityId)}`;
+  if (l.id) return `id:${String(l.id)}`;
+  return JSON.stringify(l);
+}
+function resolveAutoWaitMs(payload) {
+  const p = asRecord4(payload);
+  const options = asRecord4(p.options);
+  const fromPayload = typeof p.waitTimeoutMs === "number" ? p.waitTimeoutMs : typeof p.timeoutMs === "number" ? p.timeoutMs : typeof p.locatorTimeoutMs === "number" ? p.locatorTimeoutMs : void 0;
+  const fromOptions = typeof options.waitTimeoutMs === "number" ? options.waitTimeoutMs : void 0;
+  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "5000");
+  const raw = fromPayload ?? fromOptions ?? env;
+  if (!Number.isFinite(raw) || raw <= 0) return 5e3;
+  return Math.floor(raw);
+}
+async function autoWaitLocator(locator, timeoutMs) {
+  await locator.waitFor({ state: "visible", timeout: timeoutMs });
+}
+async function autoWaitEnabled(locator, timeoutMs) {
+  await autoWaitLocator(locator, timeoutMs);
+  if (typeof locator.isEnabled === "function") {
+    const enabled = await locator.isEnabled({ timeout: timeoutMs });
+    if (!enabled) {
+      throw new Error("locator is not enabled");
+    }
+  }
+}
+function locatorFromPayload(page, payload) {
+  const p = asRecord4(payload);
+  const locator = parseLocator(p.locator);
+  if (!locator) {
+    const selector = getString3(p.selector);
+    return selector ? page.locator(selector) : null;
+  }
+  if (typeof locator === "string") {
+    return page.locator(locator);
+  }
+  const l = locator;
+  const kind = getString3(l.kind) ?? getString3(l.strategy);
+  if (kind === "role" && page.getByRole) {
+    const role = getString3(l.role);
+    if (role) return page.getByRole(role, l.name ? { name: String(l.name) } : void 0);
+  }
+  if (kind === "testId" && page.getByTestId) {
+    const value = getString3(l.value);
+    if (value) return page.getByTestId(value);
+  }
+  if (kind === "css" || kind === "xpath" || kind === "text" || kind === "resourceId" || kind === "accessibilityId") {
+    const value = getString3(l.value);
+    if (value) {
+      if (kind === "text" && page.getByText) return page.getByText(value);
+      if (kind === "xpath") return page.locator(`xpath=${value}`);
+      return page.locator(value);
+    }
+  }
+  if (l.role && page.getByRole) return page.getByRole(String(l.role), l.name ? { name: String(l.name) } : void 0);
+  if (l.testId && page.getByTestId) return page.getByTestId(String(l.testId));
+  if (l.text && page.getByText) return page.getByText(String(l.text));
+  if (l.css) return page.locator(String(l.css));
+  if (l.xpath) return page.locator(`xpath=${String(l.xpath)}`);
+  if (l.id) return page.locator(`#${String(l.id)}`);
+  if (l.accessibilityId) return page.locator(`[aria-label="${String(l.accessibilityId)}"]`);
+  return null;
+}
+
+// ../../plugins/driver-playwright/src/index.ts
 var sessions = /* @__PURE__ */ new Map();
 var localRequire = (0, import_node_module.createRequire)(typeof __filename === "string" ? __filename : process.cwd());
 var SEMANTIC_COMMANDS = [
@@ -255,8 +660,8 @@ var SEMANTIC_COMMANDS = [
 async function loadPlaywrightModule() {
   const cwd = process.cwd();
   const candidates = [
-    import_node_path.default.join(cwd, "..", "package.json"),
-    import_node_path.default.join(cwd, "package.json"),
+    import_node_path2.default.join(cwd, "..", "package.json"),
+    import_node_path2.default.join(cwd, "package.json"),
     typeof __filename === "string" ? __filename : void 0
   ].filter((x) => Boolean(x));
   for (const base of candidates) {
@@ -272,46 +677,74 @@ async function loadPlaywrightModule() {
   }
   return await new Function('return import("playwright")')();
 }
-function asRecord2(value) {
+function asRecord5(value) {
   return typeof value === "object" && value !== null ? value : {};
 }
-function locatorFromPayload(page, payload) {
-  const locatorObj = asRecord2(payload?.locator);
-  if (Object.keys(locatorObj).length === 0) {
-    return void 0;
-  }
-  const testId = getString(locatorObj.testId);
-  if (testId) {
-    return page.getByTestId(testId);
-  }
-  const text = getString(locatorObj.text);
-  if (text) {
-    return page.getByText(text);
-  }
-  const role = getString(locatorObj.role);
-  if (role) {
-    return page.getByRole(role);
-  }
-  const css = getString(locatorObj.css);
-  if (css) {
-    return page.locator(css);
-  }
-  const xpath = getString(locatorObj.xpath);
-  if (xpath) {
-    return page.locator(xpath);
-  }
-  return void 0;
-}
 function parseHeadless(payload) {
-  const merged = mergeOptionsIntoPayload(payload);
-  if (typeof merged.headless === "boolean") {
-    return merged.headless;
+  return resolvePlaywrightHeadless(payload);
+}
+function shouldForceMaximize(payload) {
+  const p = asRecord5(payload);
+  const options = asRecord5(p.options);
+  const direct = p.maximize;
+  const fromOptions = options.maximize;
+  if (typeof direct === "boolean") return direct;
+  if (typeof fromOptions === "boolean") return fromOptions;
+  const state = String(p.windowState ?? options.windowState ?? "").toLowerCase();
+  return state === "maximized";
+}
+function shouldCreateCdpContext(contextOptions) {
+  const keys = Object.keys(contextOptions);
+  if (keys.length === 0) return false;
+  if (keys.length === 1 && "viewport" in contextOptions && contextOptions.viewport === null) {
+    return false;
   }
-  return process.env.ADA_PLAYWRIGHT_HEADLESS !== "false";
+  return true;
+}
+async function forceMaximizeWindowIfNeeded(pw, payload) {
+  if (pw.headless || pw.browserKind !== "chromium" || !shouldForceMaximize(payload)) {
+    return;
+  }
+  try {
+    const cdp = await pw.context.newCDPSession(pw.page);
+    const info = await cdp.send("Browser.getWindowForTarget");
+    const windowId = Number(info.windowId ?? 0);
+    if (windowId > 0) {
+      await cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "maximized" } });
+    }
+    if (typeof cdp.detach === "function") {
+      await cdp.detach().catch(() => void 0);
+    }
+  } catch {
+  }
+}
+async function focusVisibleBrowser(pw, payload) {
+  if (pw.headless || !resolvePlaywrightBringToFront(payload)) {
+    return;
+  }
+  const bringOnce = async () => {
+    await pw.page.bringToFront().catch(() => void 0);
+    try {
+      const browser = pw.browser ?? (typeof pw.context?.browser === "function" ? pw.context.browser() : null);
+      if (browser && typeof browser.bringToFront === "function") {
+        await browser.bringToFront();
+      }
+    } catch {
+    }
+    await pw.page.evaluate(() => window.focus()).catch(() => void 0);
+  };
+  await bringOnce();
+  if (process.platform === "win32") {
+    await sleepMs(200);
+    await bringOnce();
+  }
+}
+function defaultCdpPortForPayload(payload) {
+  return defaultCdpPort(resolveCdpBrowserFamily(payload));
 }
 function parseBrowserKind(payload) {
   const merged = mergeOptionsIntoPayload(payload);
-  const raw = (getString(merged.browser) ?? process.env.ADA_PLAYWRIGHT_BROWSER ?? "chromium").toLowerCase();
+  const raw = (getString2(merged.browser) ?? process.env.ADA_PLAYWRIGHT_BROWSER ?? "chromium").toLowerCase();
   if (raw === "firefox" || raw === "webkit") {
     return raw;
   }
@@ -319,7 +752,7 @@ function parseBrowserKind(payload) {
 }
 async function resolveStorageState(payload) {
   const merged = mergeOptionsIntoPayload(payload);
-  const pathStr = getString(merged.storageStatePath);
+  const pathStr = getString2(merged.storageStatePath);
   if (pathStr) {
     const raw = await import_promises.default.readFile(pathStr, "utf8");
     return JSON.parse(raw);
@@ -329,15 +762,76 @@ async function resolveStorageState(payload) {
   }
   return void 0;
 }
-async function closePlaywrightSession(pw) {
+var CLOSE_SESSION_MS = Number(process.env.ADA_PLAYWRIGHT_CLOSE_TIMEOUT_MS ?? 15e3);
+var forceShutdown = false;
+function sleepMs(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function forceKillPlaywrightProcessDetached(pw) {
+  try {
+    const browser = pw.browser ?? (typeof pw.context?.browser === "function" ? pw.context.browser() : null);
+    const proc = browser && typeof browser.process === "function" ? browser.process() : void 0;
+    if (proc?.pid) {
+      forceKillProcessTreeDetached(proc.pid);
+    }
+  } catch {
+  }
+  if (pw.cdpSpawn?.pid) {
+    forceKillProcessTreeDetached(pw.cdpSpawn.pid);
+    pw.cdpSpawn = null;
+  }
+}
+async function closePlaywrightSessionBody(pw) {
   if (pw.connectedOverCdp) {
+    const connected = pw.browser && typeof pw.browser.isConnected === "function" ? pw.browser.isConnected() : true;
+    if (!connected) {
+      if (pw.cdpSpawn) {
+        await stopCdpSpawn(pw.cdpSpawn);
+        pw.cdpSpawn = null;
+      }
+      return;
+    }
     await pw.browser?.close().catch(() => void 0);
+    if (pw.cdpSpawn) {
+      await stopCdpSpawn(pw.cdpSpawn);
+      pw.cdpSpawn = null;
+    }
     return;
   }
   await pw.context.close().catch(() => void 0);
   if (!pw.persistent && pw.browser) {
     await pw.browser.close().catch(() => void 0);
   }
+}
+async function closePlaywrightSession(pw) {
+  if (forceShutdown) {
+    forceKillPlaywrightProcessDetached(pw);
+    return;
+  }
+  try {
+    await Promise.race([
+      closePlaywrightSessionBody(pw),
+      sleepMs(CLOSE_SESSION_MS).then(() => {
+        throw new Error(`PLAYWRIGHT_CLOSE_TIMEOUT after ${CLOSE_SESSION_MS}ms`);
+      })
+    ]);
+  } catch {
+    forceKillPlaywrightProcessDetached(pw);
+  }
+}
+async function releasePlaywrightDriverSession(driverSessionId) {
+  const pw = sessions.get(driverSessionId);
+  if (!pw) {
+    return;
+  }
+  sessions.delete(driverSessionId);
+  await closePlaywrightSession(pw);
+}
+function isRecoverableInteractionError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|locator|not found|not visible|not enabled|strict mode violation|intercepts pointer events/i.test(
+    message
+  );
 }
 function applyLocalLaunchOverrides(baseLaunch, local, browserKind) {
   if (local.executablePath) {
@@ -352,8 +846,8 @@ async function createPlaywrightSession(playwrightModule, payload) {
   const local = resolveLocalBrowserFields(merged);
   const browserKind = parseBrowserKind(merged);
   const headless = parseHeadless(merged);
-  const launchOptions = asRecord2(merged.launchOptions);
-  const contextOptions = { ...asRecord2(merged.contextOptions) };
+  const launchOptions = asRecord5(merged.launchOptions);
+  const contextOptions = { ...asRecord5(merged.contextOptions) };
   const storageState = await resolveStorageState(merged);
   if (storageState !== void 0) {
     contextOptions.storageState = storageState;
@@ -365,91 +859,129 @@ async function createPlaywrightSession(playwrightModule, payload) {
     channel: local.channel || void 0,
     userDataDir: local.userDataDir || void 0
   };
-  if (local.cdpEndpoint) {
-    const chromium = playwrightModule.chromium;
-    if (!chromium?.connectOverCDP) {
-      throw new Error("connectOverCDP requires playwright chromium (set browser=chromium or use Chrome CDP URL)");
+  const cdpPlan = resolveCdpAutoLaunchPlan(merged);
+  let cdpUrl = local.cdpEndpoint ? parseCdpEndpoint(local.cdpEndpoint, defaultCdpPortForPayload(merged)).url : "";
+  let cdpSpawn = null;
+  try {
+    if (cdpPlan) {
+      const ready = await ensureCdpEndpointReady(cdpPlan);
+      cdpUrl = ready.url;
+      cdpSpawn = ready.spawned;
+    } else if (cdpUrl) {
+      if (!await probeCdpEndpoint(cdpUrl)) {
+        throw new Error(
+          `CDP endpoint not reachable at ${cdpUrl}. Set cdpAutoLaunch=true to start ${resolveCdpBrowserFamily(merged)} automatically`
+        );
+      }
     }
-    const connectOptions = asRecord2(merged.connectOptions);
-    const browser2 = await chromium.connectOverCDP(local.cdpEndpoint, connectOptions);
-    const contexts = browser2.contexts();
-    const context2 = contexts[0] ?? await browser2.newContext(contextOptions);
-    const pages = context2.pages();
-    const page2 = pages[0] ?? await context2.newPage();
-    return {
-      browser: browser2,
-      context: context2,
-      page: page2,
-      headless,
-      browserKind: "chromium",
-      persistent: false,
-      connectedOverCdp: true,
-      sessionKey,
-      playwrightModule,
-      localBrowser: { ...localBrowser, cdpEndpoint: local.cdpEndpoint }
-    };
-  }
-  const userDataDir = local.userDataDir;
-  const launcher = playwrightModule[browserKind];
-  const baseLaunch = { headless, ...launchOptions };
-  applyLocalLaunchOverrides(baseLaunch, local, browserKind);
-  if (userDataDir) {
-    if (!launcher?.launchPersistentContext) {
-      throw new Error(`launchPersistentContext not available for ${browserKind}`);
+    if (cdpUrl) {
+      const chromium = playwrightModule.chromium;
+      if (!chromium?.connectOverCDP) {
+        throw new Error("connectOverCDP requires playwright chromium module (Chrome/Edge/Firefox CDP)");
+      }
+      const connectOptions = asRecord5(merged.connectOptions);
+      const browser2 = await chromium.connectOverCDP(cdpUrl, connectOptions);
+      const contexts = browser2.contexts();
+      const createNewContext = shouldCreateCdpContext(contextOptions);
+      const context2 = createNewContext ? await browser2.newContext(contextOptions) : contexts[0] ?? await browser2.newContext(contextOptions);
+      const pages = context2.pages();
+      const page2 = pages[0] ?? await context2.newPage();
+      const cdpBrowser = cdpPlan?.browser ?? resolveCdpBrowserFamily(merged);
+      const reportedKind = cdpBrowser === "firefox" ? "firefox" : "chromium";
+      return {
+        browser: browser2,
+        context: context2,
+        page: page2,
+        headless,
+        browserKind: reportedKind,
+        persistent: false,
+        connectedOverCdp: true,
+        sessionKey,
+        launchPayload: merged,
+        playwrightModule,
+        cdpSpawn,
+        localBrowser: {
+          ...localBrowser,
+          cdpEndpoint: cdpUrl,
+          cdpAutoLaunch: cdpPlan?.autoLaunch ?? false
+        }
+      };
     }
-    const context2 = await launcher.launchPersistentContext(userDataDir, {
-      ...baseLaunch,
-      ...contextOptions
-    });
-    const pages = context2.pages();
-    const page2 = pages[0] ?? await context2.newPage();
+    const userDataDir = local.userDataDir;
+    const launcher = playwrightModule[browserKind];
+    const baseLaunch = { headless, ...launchOptions };
+    applyLocalLaunchOverrides(baseLaunch, local, browserKind);
+    if (userDataDir) {
+      if (!launcher?.launchPersistentContext) {
+        throw new Error(`launchPersistentContext not available for ${browserKind}`);
+      }
+      const context2 = await launcher.launchPersistentContext(userDataDir, {
+        ...baseLaunch,
+        ...contextOptions
+      });
+      const pages = context2.pages();
+      const page2 = pages[0] ?? await context2.newPage();
+      return {
+        browser: typeof context2.browser === "function" ? context2.browser() : null,
+        context: context2,
+        page: page2,
+        headless,
+        browserKind,
+        persistent: true,
+        connectedOverCdp: false,
+        sessionKey,
+        launchPayload: merged,
+        playwrightModule,
+        localBrowser
+      };
+    }
+    if (!launcher?.launch) {
+      throw new Error(`playwright browser not available: ${browserKind}`);
+    }
+    const browser = await launcher.launch(baseLaunch);
+    const context = await browser.newContext(contextOptions);
+    const page = await context.newPage();
     return {
-      browser: typeof context2.browser === "function" ? context2.browser() : null,
-      context: context2,
-      page: page2,
+      browser,
+      context,
+      page,
       headless,
       browserKind,
-      persistent: true,
+      persistent: false,
       connectedOverCdp: false,
       sessionKey,
+      launchPayload: merged,
       playwrightModule,
       localBrowser
     };
+  } catch (error) {
+    if (cdpSpawn) {
+      await stopCdpSpawn(cdpSpawn).catch(() => void 0);
+    }
+    throw error;
   }
-  if (!launcher?.launch) {
-    throw new Error(`playwright browser not available: ${browserKind}`);
-  }
-  const browser = await launcher.launch(baseLaunch);
-  const context = await browser.newContext(contextOptions);
-  const page = await context.newPage();
-  return {
-    browser,
-    context,
-    page,
-    headless,
-    browserKind,
-    persistent: false,
-    connectedOverCdp: false,
-    sessionKey,
-    playwrightModule,
-    localBrowser
-  };
+}
+function mergeWithLaunchDefaults(pw, payload) {
+  return mergeOptionsIntoPayload({ ...pw.launchPayload, ...payload });
 }
 async function ensurePlaywrightSession(session, payload) {
-  const merged = mergeOptionsIntoPayload(payload);
-  const sessionKey = buildSessionKey(merged);
   const existed = sessions.get(session.id);
-  if (existed && existed.sessionKey === sessionKey) {
+  if (existed) {
     return existed;
   }
-  if (existed) {
-    await closePlaywrightSession(existed);
-    sessions.delete(session.id);
-  }
+  const merged = mergeOptionsIntoPayload(payload);
+  const sessionKey = buildSessionKey(merged);
   const playwrightModule = await loadPlaywrightModule();
-  const pwSession = await createPlaywrightSession(playwrightModule, merged);
-  sessions.set(session.id, pwSession);
-  return pwSession;
+  try {
+    const pwSession = await createPlaywrightSession(playwrightModule, merged);
+    sessions.set(session.id, pwSession);
+    await forceMaximizeWindowIfNeeded(pwSession, merged);
+    await focusVisibleBrowser(pwSession, merged);
+    return pwSession;
+  } catch (error) {
+    sessions.delete(session.id);
+    throw error;
+  }
 }
 function resolvePlaywrightTarget(pw, invoke) {
   const target = (invoke.target ?? "page").toLowerCase();
@@ -533,16 +1065,52 @@ async function runMock(command, reason) {
     }
   };
 }
-function failResult(command, code, message) {
+function failResult(command, code, message, data) {
   return {
     requestId: command.requestId,
     success: false,
     errorCode: code,
-    errorMessage: message
+    errorMessage: message,
+    ...data ? { data } : {}
   };
+}
+var LOCATOR_FORMAT_HINT = 'Use payload.locator.css, payload.selector, or locator: { kind: "css", value: "#id" } (strategy aliases kind).';
+async function enrichFailureData(page, data) {
+  if (!page || typeof page !== "object") {
+    return data;
+  }
+  const p = page;
+  const base = { ...data ?? {} };
+  try {
+    if (typeof p.url === "function") {
+      base.url = p.url();
+    }
+    if (typeof p.title === "function") {
+      base.title = await p.title().catch(() => void 0);
+    }
+    if (typeof p.evaluate === "function") {
+      const preview = await p.evaluate(() => {
+        const text = (document.body?.innerText ?? "").replace(/\s+/g, " ").trim();
+        return text.slice(0, 800);
+      }).catch(() => void 0);
+      if (typeof preview === "string" && preview.length > 0) {
+        base.pageTextPreview = preview;
+      }
+    }
+  } catch {
+  }
+  return Object.keys(base).length > 0 ? base : void 0;
+}
+async function failWithPage(command, page, code, message, data) {
+  const enriched = await enrichFailureData(page, data);
+  return failResult(command, code, message, enriched);
 }
 function getNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function isTypeClearOp(payload) {
+  if (!payload) return false;
+  return payload.inputOp === "clear" || payload.webInputOp === "clear";
 }
 function getStringArray(value) {
   if (!Array.isArray(value)) {
@@ -561,7 +1129,8 @@ var playwrightPlugin = {
     invoke: {
       modes: ["method"],
       targets: ["page", "context", "browser", "playwright", "locator"]
-    }
+    },
+    viewCapabilities: ["observeSnapshot", "resolveLocator"]
   },
   async init() {
   },
@@ -578,39 +1147,63 @@ var playwrightPlugin = {
     if (cmd === "invoke") {
       try {
         const pw = await ensurePlaywrightSession(session, payload);
+        await focusVisibleBrowser(pw, payload);
         return await executePlaywrightInvoke(command, pw, payload);
       } catch (error) {
+        if (!isRecoverableInteractionError(error)) {
+          await releasePlaywrightDriverSession(session.id);
+        }
         return failResult(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
       }
     }
     try {
       const pw = await ensurePlaywrightSession(session, payload);
+      const effective = mergeWithLaunchDefaults(pw, payload);
+      await focusVisibleBrowser(pw, effective);
       const page = pw.page;
-      const url = getString(payload?.url);
-      const locator = locatorFromPayload(page, payload);
+      const url = getString2(effective?.url);
+      const locator = locatorFromPayload(page, effective);
+      const waitMs = resolveAutoWaitMs(effective);
       if (cmd === "navigate") {
         if (!url) {
           return failResult(command, "INVALID_PAYLOAD", "navigate requires url");
         }
         await page.goto(url);
+        await focusVisibleBrowser(pw, effective);
       } else if (command.command === "click") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `click requires locator. ${LOCATOR_FORMAT_HINT}`, {
+            locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
+            locatorHint: LOCATOR_FORMAT_HINT
+          });
         }
-        await locator.click();
+        await autoWaitEnabled(locator, waitMs);
+        await locator.click({ timeout: waitMs });
       } else if (command.command === "hover") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `hover requires locator. ${LOCATOR_FORMAT_HINT}`, {
+            locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
+            locatorHint: LOCATOR_FORMAT_HINT
+          });
         }
-        await locator.hover();
+        await autoWaitEnabled(locator, waitMs);
+        await locator.hover({ timeout: waitMs });
       } else if (command.command === "type") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `type requires locator. ${LOCATOR_FORMAT_HINT}`, {
+            locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
+            locatorHint: LOCATOR_FORMAT_HINT
+          });
         }
-        const text = getString(payload?.text) ?? "";
-        await locator.fill(text);
+        await autoWaitEnabled(locator, waitMs);
+        if (isTypeClearOp(payload)) {
+          await locator.clear({ timeout: waitMs });
+        } else {
+          const text = getString2(payload?.text) ?? "";
+          await locator.fill(text, { timeout: waitMs });
+        }
       } else if (command.command === "press") {
-        const key = getString(payload?.key);
+        const key = getString2(payload?.key);
         if (!key) {
           return failResult(command, "INVALID_PAYLOAD", "press requires key");
         }
@@ -623,8 +1216,8 @@ var playwrightPlugin = {
         if (!locator) {
           return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
-        const value = getString(payload?.value);
-        const label = getString(payload?.label);
+        const value = getString2(payload?.value);
+        const label = getString2(payload?.label);
         const index = getNumber(payload?.index);
         if (value) {
           await locator.selectOption({ value });
@@ -650,6 +1243,7 @@ var playwrightPlugin = {
         if (url) {
           await newPage.goto(url);
         }
+        await focusVisibleBrowser(pw, effective);
       } else if (command.command === "switchTab") {
         const pages = pw.context.pages();
         const tabIndex = getNumber(payload?.tabIndex) ?? 0;
@@ -659,12 +1253,12 @@ var playwrightPlugin = {
           return failResult(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
         }
         pw.page = selected;
-        await selected.bringToFront();
+        await focusVisibleBrowser(pw, effective);
       } else if (command.command === "uploadFile") {
         if (!locator) {
           return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
-        const filePath = getString(payload?.filePath);
+        const filePath = getString2(payload?.filePath);
         const filePaths = getStringArray(payload?.filePaths);
         const targetPaths = filePaths.length > 0 ? filePaths : filePath ? [filePath] : [];
         if (targetPaths.length === 0) {
@@ -672,8 +1266,8 @@ var playwrightPlugin = {
         }
         await locator.setInputFiles(targetPaths);
       } else if (command.command === "dragDrop") {
-        const sourceLocatorObj = asRecord2(payload?.sourceLocator ?? payload?.fromLocator);
-        const targetLocatorObj = asRecord2(payload?.targetLocator ?? payload?.toLocator);
+        const sourceLocatorObj = asRecord5(payload?.sourceLocator ?? payload?.fromLocator);
+        const targetLocatorObj = asRecord5(payload?.targetLocator ?? payload?.toLocator);
         const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
         const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
         if (!source || !target) {
@@ -692,23 +1286,54 @@ var playwrightPlugin = {
         pw.page = await pw.context.newPage();
       } else if (command.command === "assertVisible") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "assertVisible requires locator", {
+            locatorUsed: summarizeLocator(payload?.locator)
+          });
         }
-        const visible = await locator.isVisible();
-        if (!visible) {
-          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.");
+        try {
+          await autoWaitLocator(locator, waitMs);
+        } catch {
+          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.", {
+            assertionDiff: {
+              type: "visible",
+              expected: true,
+              actual: false,
+              locatorUsed: summarizeLocator(payload?.locator)
+            }
+          });
         }
       } else if (command.command === "assertText") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return failResult(command, "LOCATOR_NOT_FOUND", "assertText requires locator", {
+            locatorUsed: summarizeLocator(payload?.locator)
+          });
         }
-        const expected = getString(payload?.expectedText);
+        const expected = getString2(payload?.expectedText);
         if (!expected) {
           return failResult(command, "INVALID_PAYLOAD", "assertText requires expectedText");
         }
+        try {
+          await autoWaitLocator(locator, waitMs);
+        } catch {
+          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible before text assert.", {
+            assertionDiff: {
+              type: "text",
+              expected,
+              actual: null,
+              locatorUsed: summarizeLocator(payload?.locator)
+            }
+          });
+        }
         const actual = await locator.textContent() ?? "";
         if (!actual.includes(expected)) {
-          return failResult(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`);
+          return failResult(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`, {
+            assertionDiff: {
+              type: "text",
+              expected,
+              actual,
+              locatorUsed: summarizeLocator(payload?.locator)
+            }
+          });
         }
       } else if (command.command === "getText") {
         if (!locator) {
@@ -721,9 +1346,9 @@ var playwrightPlugin = {
           data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
         };
       } else if (command.command === "screenshot") {
-        const dir = import_node_path.default.join(process.cwd(), "artifacts");
+        const dir = import_node_path2.default.join(process.cwd(), "artifacts");
         await import_promises.default.mkdir(dir, { recursive: true });
-        const target = import_node_path.default.join(dir, `${command.requestId}.png`);
+        const target = import_node_path2.default.join(dir, `${command.requestId}.png`);
         const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : true;
         await page.screenshot({ path: target, fullPage });
         return {
@@ -739,12 +1364,12 @@ var playwrightPlugin = {
           }
         };
       } else if (command.command === "custom") {
-        const action = getString(payload?.action)?.toLowerCase();
+        const action = getString2(payload?.action)?.toLowerCase();
         if (action === "invoke" || payload?.method && !action) {
           return executePlaywrightInvoke(command, pw, payload);
         }
         if (action === "evaluate") {
-          const script = getString(payload?.script);
+          const script = getString2(payload?.script);
           if (!script) {
             return failResult(command, "INVALID_PAYLOAD", "evaluate requires script");
           }
@@ -785,10 +1410,17 @@ var playwrightPlugin = {
         }
       };
     } catch (error) {
-      if (cmd === "custom") {
-        return failResult(command, "COMMAND_FAILED", error instanceof Error ? error.message : String(error));
+      if (!isRecoverableInteractionError(error)) {
+        await releasePlaywrightDriverSession(session.id);
       }
-      return failResult(command, "COMMAND_FAILED", error instanceof Error ? error.message : String(error));
+      const pw = sessions.get(session.id);
+      return await failWithPage(
+        command,
+        pw?.page,
+        "COMMAND_FAILED",
+        error instanceof Error ? error.message : String(error),
+        { locatorUsed: summarizeLocator(payload?.locator ?? payload?.selector) }
+      );
     }
   },
   async destroySession(session) {
@@ -804,6 +1436,14 @@ var playwrightPlugin = {
       await closePlaywrightSession(pw);
     }
     sessions.clear();
+  },
+  forceDispose() {
+    forceShutdown = true;
+    for (const [, pw] of sessions) {
+      forceKillPlaywrightProcessDetached(pw);
+    }
+    sessions.clear();
+    cleanupAllCdpSpawnsDetached();
   }
 };
 var index_default = playwrightPlugin;

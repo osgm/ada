@@ -1,0 +1,34 @@
+{
+  "name": "@ada/e2e-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Generic E2E harness for ADA mobile/web drivers (no bundled app profiles)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": ["src", "dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ada/contracts": "0.1.0",
+    "@ada/driver-rpc": "0.1.0",
+    "@ada/runtime-probe": "0.1.0"
+  },
+  "optionalDependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "peerDependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "peerDependenciesMeta": {
+    "js-yaml": { "optional": true }
+  }
+}

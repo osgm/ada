@@ -3,7 +3,7 @@
 将华为 DevEco / Command Line Tools 中的 **`hdc`** 等可执行文件放在本目录，ADA 会在启动、`install-deps` 与 `doctor` 时自动：
 
 1. 设置 `ADA_TOOLS_DIR` / `HDC_HOME`
-2. 将本目录 **prepend 到 PATH**（Appium `appium-harmonyos-driver` 可找到 `hdc`）
+2. 将本目录 **prepend 到 PATH**（`driver-harmony` 可找到 `hdc`）
 
 ## 最低要求
 
@@ -62,21 +62,4 @@ dependencies:
     - "https://your-internal-mirror/harmony-tools-win.zip"
 ```
 
-## Appium `harmonyos` 驱动（社区包）
-
-`appium-harmonyos-driver` **不在 npm 官方 registry**，Appium 3 内置列表也没有 `harmonyos`。`install-deps=harmony` 会：
-
-1. 从 Git 拉取 [zhihu/appium-harmonyos-driver](https://github.com/zhihu/appium-harmonyos-driver) 到 `~/.ada/appium-drivers/appium-harmonyos-driver`
-2. 在该目录 `npm install` + `npm run build`
-3. 执行 `appium driver install --source=local <上述目录>`
-
-可选环境变量：
-
-| 变量 | 说明 |
-|------|------|
-| `ADA_APPIUM_HARMONYOS_DRIVER_LOCAL` | 已 clone 的驱动目录（跳过 Git 拉取） |
-| `ADA_APPIUM_HARMONYOS_DRIVER_GIT` | Git URL，默认知乎社区仓库 |
-| `ADA_APPIUM_HARMONYOS_DRIVER_REF` | 分支/标签，默认 `main` |
-| `ADA_APPIUM_HARMONYOS_DRIVER_REBUILD` | `1` 时强制重新 `npm run build` |
-
-需要本机 **git** 或 **npx degit** 可用，且能访问 GitHub。
+Harmony 自动化依赖 **`hypium-driver`**（npm）与本目录 **`hdc`**，由 `driver-harmony` 插件直连，无需额外中心化 Server。

@@ -39,19 +39,17 @@ npx -y @ada-mcp/mcp-server@0.1.50
 |------|------|
 | （未配置） | 仅安装 **Playwright + 浏览器** |
 | `playwright` | 装 Playwright（显式写法，与默认相同） |
-| `selenium` | 装 Selenium 原生驱动（GeckoDriver/ChromeDriver） |
-| `appium` | 装 Appium 包 + 移动端驱动 |
-| `harmony` | 装 hypium-driver + hdc 工具 |
-| `playwright,selenium` | 组合（逗号连接多类） |
-| `all` | 上述全部 |
+| `mobile` | 装移动驱动依赖（Android/iOS 运行时检查 + Harmony 工具链） |
+| `android` / `ios` / `harmony` | 按平台安装 |
+| `playwright,mobile` | 组合（逗号连接多类） |
+| `all` | Playwright + 移动驱动 + Harmony |
 | `none` / `skip` | 不自动安装 |
 
 **环境变量**
 
-- `ADA_MCP_INSTALL_DEPS`：范围，如 `playwright`、`playwright,selenium`、`all`、`none`
+- `ADA_MCP_INSTALL_DEPS`：范围，如 `playwright`、`playwright,mobile`、`all`、`none`
 - `ADA_MCP_SKIP_INSTALL_DEPS=1`：跳过自动安装
 - `ADA_MCP_INSTALL_DEPS_FORCE=1`：强制重装
-- `ADA_MCP_GECKODRIVER_VERSION` / `ADA_MCP_CHROMEDRIVER_VERSION`：Selenium 驱动版本
 - `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`：每个 CDN 镜像的 `playwright install` 超时（默认 60 分钟）
 - `ADA_INSTALL_STRATEGY_TIMEOUT_MS`：npm 装包超时（默认 2 分钟）
 
@@ -78,11 +76,9 @@ npx -y @ada-mcp/mcp-server@0.1.50
 
 **CLI 参数**（写在 MCP `args` 末尾）：
 
-- `--install-deps=playwright,selenium`
+- `--install-deps=playwright,mobile`
 - `--skip-install-deps`
 - `--install-deps-force`
-- `--geckodriver-version=latest` `--chromedriver-version=match-chrome`
-
 在标准 `args` 后追加，例如安装全部依赖：
 
 ```json

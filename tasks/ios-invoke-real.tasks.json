@@ -1,0 +1,15 @@
+[
+  {
+    "requestId": "ios-invoke-real-wda-status",
+    "sessionId": "session-ios-real",
+    "platform": "ios",
+    "command": "invoke",
+    "payload": {
+      "mode": "http",
+      "http": {
+        "method": "GET",
+        "path": "/status"
+      }
+    }
+  }
+]

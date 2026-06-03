@@ -25,20 +25,12 @@
           <button type="button" id="btnSaveRemote">保存到本机密钥</button>
         </div>
         <hr />
-        <p class="hint">Android SDK 路径（用于 Appium/adb 环境变量）</p>
+        <p class="hint">Android SDK 路径（用于 adb 等移动端环境变量）</p>
         <label class="lbl" for="androidHome">ANDROID_HOME</label>
         <input type="text" id="androidHome" placeholder="例如：D:\Android\Sdk" autocomplete="off" />
         <div class="row">
           <button type="button" id="btnPickAndroidHome" class="secondary">选择目录</button>
           <button type="button" id="btnSaveAndroidHome">保存 ANDROID_HOME</button>
-        </div>
-        <hr />
-        <p class="hint">Appium Home 路径（用于统一 driver 安装与读取）</p>
-        <label class="lbl" for="appiumHome">APPIUM_HOME</label>
-        <input type="text" id="appiumHome" placeholder="例如：C:\Users\你的用户名" autocomplete="off" />
-        <div class="row">
-          <button type="button" id="btnPickAppiumHome" class="secondary">选择目录</button>
-          <button type="button" id="btnSaveAppiumHome">保存 APPIUM_HOME</button>
         </div>
       </details>
 
@@ -48,6 +40,36 @@
           <button type="button" id="btnDetect">自动探测本地 Agent</button>
           <button type="button" id="btnHealth">健康检查</button>
           <button type="button" id="btnSetup" class="secondary">打开配置向导</button>
+        </div>
+      </section>
+
+      <section class="card" id="deviceCard">
+        <div class="device-head">
+          <h2>已连接设备</h2>
+          <p class="hint device-meta" id="deviceMeta">尚未扫描</p>
+        </div>
+        <div class="row">
+          <button type="button" id="btnRefreshDevices">刷新列表</button>
+          <button type="button" id="btnScanDevices" class="secondary">扫描设备</button>
+        </div>
+        <div class="device-table-wrap">
+          <table class="device-table" id="deviceTable">
+            <thead>
+              <tr>
+                <th>设备名</th>
+                <th>设备 ID</th>
+                <th>分辨率</th>
+                <th>系统类别</th>
+                <th>SDK 信息</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody id="deviceTableBody">
+              <tr class="empty-row">
+                <td colspan="6">暂无设备，请点击「扫描设备」</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -80,7 +102,7 @@
       <details class="card">
         <summary>安装依赖</summary>
         <p class="hint">分组安装，与 Web 控制台一致；完整安装等价于 <code>--only=all</code>。</p>
-        <label><input type="checkbox" id="depFull" /> 完整安装（Playwright + Appium + 配置中的全部驱动）</label>
+        <label><input type="checkbox" id="depFull" /> 完整安装（Playwright + 移动驱动与 Harmony 工具）</label>
         <div id="depGroups">
           <fieldset class="subgr">
             <legend><label><input type="checkbox" id="grpPw" /> Playwright</label></legend>
@@ -95,12 +117,12 @@
             </div>
           </fieldset>
           <fieldset class="subgr">
-            <legend><label><input type="checkbox" id="grpAp" /> Appium</label></legend>
-            <p class="hint">不勾选任何平台则仅安装 Appium 主包。</p>
+            <legend><label><input type="checkbox" id="grpMob" /> 移动驱动</label></legend>
+            <p class="hint">不勾选具体平台则安装全部移动端依赖（android + ios + harmony）。</p>
             <div class="deps-grid">
-              <label><input type="checkbox" id="apAndroid" /> Android（UiAutomator2）</label>
-              <label><input type="checkbox" id="apIos" /> iOS（XCUITest）</label>
-              <label><input type="checkbox" id="apHarmony" /> Harmony（harmonyos）</label>
+              <label><input type="checkbox" id="mobAndroid" /> Android（adb + UIA2）</label>
+              <label><input type="checkbox" id="mobIos" /> iOS（WDA）</label>
+              <label><input type="checkbox" id="mobHarmony" /> Harmony（hdc + hypium）</label>
             </div>
           </fieldset>
         </div>

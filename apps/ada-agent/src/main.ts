@@ -5,8 +5,10 @@ import { log } from "./logger.js";
 import { runWeb } from "./web.js";
 import {
   applyRemoteCredentials,
+  getDeviceListForDisplay,
   getHealthSnapshot,
   getDoctorSnapshot,
+  scanDevicesAndListForDisplay,
   installDependencies,
   type InstallDependencyExtras,
   runDemoFlow,
@@ -14,7 +16,7 @@ import {
   runStartFlow,
   runTaskFileFlow
 } from "@ada/agent-core";
-import type { InstallScope } from "@ada/agent/dependency-installer";
+import type { InstallScope } from "@ada/install-deps";
 
 type Command =
   | "start"
@@ -74,25 +76,11 @@ function readCommaList(argv: string[], name: string): string[] | undefined {
 
 function installDepsExtras(argv: string[]): InstallDependencyExtras | undefined {
   const pwTargets = readCommaList(argv, "playwright-targets");
-  const appiumDrivers = readCommaList(argv, "appium-drivers");
-  const geckodriverVersion = readArg(argv, "geckodriver-version");
-  const chromedriverVersion = readArg(argv, "chromedriver-version");
-  const nativeDriversDir = readArg(argv, "drivers-dir");
-  if (
-    pwTargets === undefined &&
-    appiumDrivers === undefined &&
-    geckodriverVersion === undefined &&
-    chromedriverVersion === undefined &&
-    nativeDriversDir === undefined
-  ) {
+  if (pwTargets === undefined) {
     return undefined;
   }
   return {
-    ...(pwTargets !== undefined ? { playwrightInstallTargetsOverride: pwTargets } : {}),
-    ...(appiumDrivers !== undefined ? { appiumRequiredDriversOverride: appiumDrivers } : {}),
-    ...(geckodriverVersion !== undefined ? { geckodriverVersion } : {}),
-    ...(chromedriverVersion !== undefined ? { chromedriverVersion } : {}),
-    ...(nativeDriversDir !== undefined ? { nativeDriversDir } : {})
+    playwrightInstallTargetsOverride: pwTargets
   };
 }
 
@@ -100,8 +88,6 @@ function parseInstallScope(value?: string): InstallScope {
   if (
     value === "all" ||
     value === "playwright" ||
-    value === "selenium" ||
-    value === "appium" ||
     value === "drivers" ||
     value === "mobile" ||
     value === "android" ||
@@ -125,11 +111,11 @@ function printHelp(): void {
       "  plugins                   Print built-in plugin manifests",
       "  health                    Print runtime health snapshot",
       "  doctor                    Print diagnostics report",
-      "  install-deps [--only=selenium] [--geckodriver-version=0.36.0|latest] [--chromedriver-version=137|match-chrome|latest]",
-      "              [--drivers-dir=dirver] [--playwright-targets=...] [--appium-drivers=...] [--force]",
+      "  install-deps [--only=playwright|mobile|android|ios|harmony|drivers|all]",
+      "              [--playwright-targets=...] [--force]",
       "  reset                     Clear local credentials",
       "mcp                       Run MCP (stdio) for MCP Host / IDE — same binary as packaged exe",
-      "  core --action=...         Unified core bridge for GUI/Web/MCP adapters (health|doctor|setup|install-deps|patch-remote|start)",
+      "  core --action=...         Unified core bridge for GUI/Web/MCP (health|doctor|devices|setup|install-deps|patch-remote|start)",
       "  gui                       Alias of web mode (backward compatibility)",
       "  web                       Run local web console UI (single-file web mode)"
     ].join("\n")
@@ -186,7 +172,7 @@ async function main(): Promise<void> {
       });
       return;
     }
-    throw new Error("Unknown core action. Use --action=health|doctor|setup|install-deps|patch-remote|start");
+    throw new Error("Unknown core action. Use --action=health|doctor|devices|setup|install-deps|patch-remote|start");
   }
 
   const config = await loadConfig();

@@ -1,5 +1,14 @@
 import type { CommandEnvelope, CommandResult, WebEngine } from "@ada/contracts";
-import { parseWebEngineFromPayload } from "@ada/driver-rpc";
+import {
+  buildKernelSessionKey,
+  CommandTimeoutError,
+  isTransientMobileErrorCode,
+  MOBILE_TRANSIENT_ERROR_CODES,
+  parseKernelSessionKey,
+  parseWebEngineFromPayload,
+  raceCommandTimeout,
+  resolveCommandTimeoutMs
+} from "@ada/driver-rpc";
 import { PluginHost } from "@ada/plugin-host";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
 
@@ -17,11 +26,7 @@ export class DriverSessionManager {
   private readonly sessions = new Map<string, DriverSession>();
 
   private sessionKey(command: Pick<CommandEnvelope, "platform" | "sessionId" | "payload">): string {
-    if (command.platform === "web") {
-      const engine = parseWebEngineFromPayload(command.payload);
-      return `web:${engine}:${command.sessionId}`;
-    }
-    return `${command.platform}:${command.sessionId}`;
+    return buildKernelSessionKey(command.platform, command.sessionId, command.payload);
   }
 
   async getOrCreate(plugin: DriverPlugin, command: CommandEnvelope): Promise<DriverSession> {
@@ -40,26 +45,36 @@ export class DriverSessionManager {
     return this.sessions.get(key);
   }
 
-  list(): Array<{ platform: string; sessionId: string; engine?: WebEngine; driverSessionId: string }> {
-    const items: Array<{ platform: string; sessionId: string; engine?: WebEngine; driverSessionId: string }> = [];
+  list(): Array<{
+    platform: string;
+    sessionId: string;
+    engine?: WebEngine;
+    deviceId?: string;
+    driverSessionId: string;
+  }> {
+    const items: Array<{
+      platform: string;
+      sessionId: string;
+      engine?: WebEngine;
+      deviceId?: string;
+      driverSessionId: string;
+    }> = [];
     for (const [key, session] of this.sessions.entries()) {
-      const parts = key.split(":");
-      if (parts[0] === "web" && parts.length >= 3) {
+      const parsed = parseKernelSessionKey(key);
+      if (!parsed) continue;
+      if (parsed.platform === "web") {
         items.push({
           platform: "web",
-          engine: parts[1] as WebEngine,
-          sessionId: parts.slice(2).join(":"),
+          engine: parsed.engine as WebEngine | undefined,
+          sessionId: parsed.sessionId,
           driverSessionId: session.id
         });
         continue;
       }
-      const idx = key.indexOf(":");
-      if (idx <= 0) {
-        continue;
-      }
       items.push({
-        platform: key.slice(0, idx),
-        sessionId: key.slice(idx + 1),
+        platform: parsed.platform,
+        sessionId: parsed.sessionId,
+        deviceId: parsed.deviceId,
         driverSessionId: session.id
       });
     }
@@ -78,21 +93,31 @@ export class DriverSessionManager {
     sessionId: string,
     options?: { engine?: WebEngine; payload?: Record<string, unknown> }
   ): DriverSession | undefined {
-    if (platform === "web") {
-      const engine = options?.engine ?? parseWebEngineFromPayload(options?.payload);
-      const key = `web:${engine}:${sessionId}`;
-      const existed = this.sessions.get(key);
+    const key = buildKernelSessionKey(platform, sessionId, options?.payload);
+    const direct = this.sessions.get(key);
+    if (direct) {
       this.sessions.delete(key);
-      return existed;
+      return direct;
     }
-    const key = `${platform}:${sessionId}`;
-    const existed = this.sessions.get(key);
-    this.sessions.delete(key);
-    return existed;
+    const legacyKey = `${platform}:${sessionId}`;
+    const legacy = this.sessions.get(legacyKey);
+    if (legacy) {
+      this.sessions.delete(legacyKey);
+      return legacy;
+    }
+    let closed: DriverSession | undefined;
+    for (const k of Array.from(this.sessions.keys())) {
+      const parsed = parseKernelSessionKey(k);
+      if (parsed?.platform === platform && parsed.sessionId === sessionId) {
+        closed = this.sessions.get(k);
+        this.sessions.delete(k);
+      }
+    }
+    return closed;
   }
 
   clearWebSession(sessionId: string, engine: WebEngine): DriverSession | undefined {
-    const key = `web:${engine}:${sessionId}`;
+    const key = buildKernelSessionKey("web", sessionId, { engine });
     const existed = this.sessions.get(key);
     this.sessions.delete(key);
     return existed;
@@ -192,9 +217,38 @@ export class TaskExecutor {
     this.maxAttempts = Math.max(1, options.maxAttempts ?? 2);
     this.retry = new RetryPolicyEngine(
       this.maxAttempts,
-      new Set(options.retryableErrorCodes ?? ["TRANSIENT_DRIVER_ERROR", "NETWORK_TIMEOUT"])
+      new Set(options.retryableErrorCodes ?? MOBILE_TRANSIENT_ERROR_CODES)
     );
   }
+
+  private shouldRetryCommand(result: CommandResult, attempt: number, platform: CommandEnvelope["platform"]): boolean {
+    if (result.errorCode === "COMMAND_TIMEOUT") {
+      return false;
+    }
+    if (!this.retry.shouldRetry(result, attempt)) {
+      return false;
+    }
+    if (platform === "web") {
+      return true;
+    }
+    return isTransientMobileErrorCode(result.errorCode) || !result.errorCode;
+  }
+
+  private async runPluginExecute(context: ExecuteContext, command: CommandEnvelope): Promise<CommandResult> {
+    const timeoutMs = resolveCommandTimeoutMs(command.payload);
+    const work = context.plugin.execute(context.session, command);
+    try {
+      return await raceCommandTimeout(work, timeoutMs, `${command.platform}:${command.command}`);
+    } catch (error) {
+      if (error instanceof CommandTimeoutError) {
+        await this.teardownSession(command, context.plugin, context.session);
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  private static readonly DESTROY_SESSION_MS = 20_000;
 
   private async resolveContext(command: CommandEnvelope): Promise<ExecuteContext> {
     const plugin = this.pluginHost.resolve(command);
@@ -203,30 +257,65 @@ export class TaskExecutor {
     return { plugin, session };
   }
 
+  /** 从内核注销并销毁驱动会话，避免超时/失败后浏览器进程泄漏 */
+  private async teardownSession(command: CommandEnvelope, plugin: DriverPlugin, session: DriverSession): Promise<void> {
+    this.sessions.clear(command);
+    if (!plugin.destroySession) {
+      return;
+    }
+    await Promise.race([
+      plugin.destroySession(session),
+      new Promise<void>((resolve) => setTimeout(resolve, TaskExecutor.DESTROY_SESSION_MS))
+    ]).catch(() => undefined);
+  }
+
   async execute(command: CommandEnvelope): Promise<CommandResult> {
     let attempt = 0;
     let lastFailure = this.resultAssembler.failure(command.requestId, "KERNEL_EXECUTION_FAILED", "unknown error");
     while (attempt < this.maxAttempts) {
       attempt += 1;
+      const t0 = Date.now();
+      let context: ExecuteContext | undefined;
       try {
-        const context = await this.resolveContext(command);
+        context = await this.resolveContext(command);
         const feature = this.featureNegotiator.check(context.plugin, command);
         if (!feature.ok) {
           return this.resultAssembler.failure(command.requestId, feature.code, feature.message);
         }
-        const result = await context.plugin.execute(context.session, command);
-        const normalized = this.resultAssembler.normalize(command.requestId, result);
-        if (this.retry.shouldRetry(normalized, attempt)) {
-          this.sessions.clear(command);
+        const result = await this.runPluginExecute(context, command);
+        const normalized = this.resultAssembler.normalize(command.requestId, {
+          ...result,
+          data: {
+            ...(result.data ?? {}),
+            timingMs: Date.now() - t0,
+            attempt
+          }
+        });
+        if (this.shouldRetryCommand(normalized, attempt, command.platform)) {
+          await this.teardownSession(command, context.plugin, context.session);
           lastFailure = normalized;
           continue;
         }
         return normalized;
       } catch (error) {
+        if (error instanceof CommandTimeoutError) {
+          return this.resultAssembler.failure(command.requestId, "COMMAND_TIMEOUT", error.message);
+        }
         const message = error instanceof Error ? error.message : String(error);
         const failed = this.resultAssembler.failure(command.requestId, "KERNEL_EXECUTION_FAILED", message);
-        if (this.retry.shouldRetry(failed, attempt)) {
-          this.sessions.clear(command);
+        if (context) {
+          await this.teardownSession(command, context.plugin, context.session);
+        } else {
+          const plugin = this.pluginHost.resolve(command);
+          const orphaned = this.sessions.clear(command);
+          if (orphaned && plugin.destroySession) {
+            await Promise.race([
+              plugin.destroySession(orphaned),
+              new Promise<void>((resolve) => setTimeout(resolve, TaskExecutor.DESTROY_SESSION_MS))
+            ]).catch(() => undefined);
+          }
+        }
+        if (this.shouldRetryCommand(failed, attempt, command.platform)) {
           lastFailure = failed;
           continue;
         }
@@ -236,7 +325,12 @@ export class TaskExecutor {
     return lastFailure;
   }
 
-  listSessions(): Array<{ platform: string; sessionId: string; driverSessionId: string }> {
+  listSessions(): Array<{
+    platform: string;
+    sessionId: string;
+    deviceId?: string;
+    driverSessionId: string;
+  }> {
     return this.sessions.list();
   }
 
@@ -261,7 +355,8 @@ export class TaskExecutor {
             requestId: "",
             sessionId,
             platform: plat,
-            command: "navigate"
+            command: "navigate",
+            payload: options?.payload
           });
     const session = this.sessions.clearByPlatformSession(platform, sessionId, {
       engine,
@@ -271,18 +366,24 @@ export class TaskExecutor {
       return false;
     }
     if (plugin.destroySession) {
-      await plugin.destroySession(session);
+      await Promise.race([
+        plugin.destroySession(session),
+        new Promise<void>((resolve) => setTimeout(resolve, TaskExecutor.DESTROY_SESSION_MS))
+      ]).catch(() => undefined);
     }
     return true;
   }
 
-  async closeAllSessions(): Promise<number> {
+  async closeAllSessions(shouldAbort?: () => boolean): Promise<number> {
     const all = this.sessions.list();
     let closed = 0;
     for (const item of all) {
+      if (shouldAbort?.()) {
+        break;
+      }
       const ok = await this.closeSession(item.platform, item.sessionId, {
         engine: item.engine,
-        payload: item.engine ? { engine: item.engine } : undefined
+        payload: item.engine ? { engine: item.engine } : item.deviceId ? { capabilities: { udid: item.deviceId } } : undefined
       });
       if (ok) {
         closed += 1;
