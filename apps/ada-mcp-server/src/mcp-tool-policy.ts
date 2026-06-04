@@ -37,3 +37,6 @@ export const DEVICE_ADMIN_ACTION_ENUM = [
 
 export const DEVICE_ADMIN_HINT =
   "deviceAdmin: set command=deviceAdmin and payload.action (enum). Common: shell, currentApp, installApp, pushFile, hdc.";
+
+export const HARMONY_LAUNCH_HINT =
+  "Harmony launchApp: payload.appId (bundle) + payload.abilityId (e.g. EntryAbility); bundleId alias; copy deviceParams.harmonyLaunchApp.args; riskApproved=true.";

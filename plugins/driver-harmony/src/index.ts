@@ -1049,12 +1049,17 @@ const harmonyPlugin: DriverPlugin = {
         if (!bundleName) {
           return failResult(command, "HARMONY_LAUNCH_APP_MISSING_BUNDLE", "launchApp requires payload.appId or payload.bundleId");
         }
+        const abilityId = String(payload.abilityId ?? payload.ability ?? "").trim() || "EntryAbility";
         await raceCommandTimeout(
-          driver.startApp(bundleName, payload.abilityId),
+          driver.startApp(bundleName, abilityId),
           opTimeoutMs(payload, 60_000),
           "harmony.startApp"
         );
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "launchApp", bundleName } };
+        return {
+          requestId: command.requestId,
+          success: true,
+          data: { driver: "harmony", mode: "real", command: "launchApp", bundleName, abilityId }
+        };
       }
       if (command.command === "exitApp") {
         const bundleName = String(payload.appId ?? payload.bundleId ?? "");

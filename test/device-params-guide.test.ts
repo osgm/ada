@@ -48,6 +48,10 @@ test("buildDeviceParamsGuide: harmony uses deviceSn", () => {
   assert.equal(guide.recommended?.platform, "harmony");
   assert.equal(guide.recommended?.adaMobileAction.payload.capabilities.deviceSn, "2QS0224716026324");
   assert.equal(guide.recommended?.adaMobileAction.payload.capabilities.udid, undefined);
+  assert.ok(guide.harmonyLaunchApp);
+  assert.equal(guide.harmonyLaunchApp?.args.payload.abilityId, "EntryAbility");
+  assert.equal(guide.harmonyLaunchApp?.args.command, "launchApp");
+  assert.ok(guide.rules.some((r) => r.includes("abilityId")));
 });
 
 test("buildDeviceParamsGuide: prefers default android over harmony", () => {

@@ -59,7 +59,9 @@ export {
 } from "./device-display.js";
 export {
   buildDeviceParamsGuide,
+  HARMONY_DEFAULT_ABILITY_ID,
   type DeviceMobileActionParams,
   type DeviceParamGuideEntry,
-  type DeviceParamsGuide
+  type DeviceParamsGuide,
+  type HarmonyLaunchAppTemplate
 } from "./device-params-guide.js";

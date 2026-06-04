@@ -21,8 +21,8 @@ ${MCP_GLOBAL_POLICY}
 
 ## Default flow
 1. ada_health scope=web|mobile
-2. ada_devices action=scan (mobile) → deviceParams.recommended.adaMobileAction
-3. ada_web_action / ada_mobile_action (reuse sessionId)
+2. ada_devices action=scan (mobile) → deviceParams.recommended + harmonyLaunchApp (Harmony)
+3. ada_web_action / ada_mobile_action (reuse sessionId). Harmony launchApp: payload.appId + payload.abilityId (EntryAbility)
 4. On gap: L2 batch/recipe → L3 invoke/execute
 5. ada_extract / ada_assertions / ada_mobile_* for verify
 6. ada_close_session when done
@@ -30,6 +30,7 @@ ${MCP_GLOBAL_POLICY}
 ## Escalation
 - Web: semantic insufficient → ada_invoke (method mode); multi-step → ada_batch_actions
 - Mobile: search UI → ada_mobile_recipe; shell/hdc/tree → ada_invoke (http); device ops → deviceAdmin
+- Harmony launch: never appId-only — use deviceParams.harmonyLaunchApp.args or payload.abilityId
 - invoke vs execute: invoke = driver RPC; execute = generic runner schema
 
 ## ListTools order
@@ -38,6 +39,7 @@ Tools are grouped: env → web (action, invoke, execute) → mobile → orchestr
 ## Env
 - ADA_MCP_HIDE_ADVANCED: keep unset/false to expose invoke/execute (recommended for advanced use)
 - ADA_MCP_DESC_MODE=advanced: longer L3 descriptions in ListTools
+- ADA_HARMONY_APP_ID / ADA_HARMONY_ABILITY_ID: optional defaults for deviceParams.harmonyLaunchApp template
 
 ## Anti-patterns
 - Do not change sessionId every step

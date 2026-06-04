@@ -21,6 +21,7 @@ import {
 } from "./mcp-schemas.js";
 import {
   DEVICE_ADMIN_HINT,
+  HARMONY_LAUNCH_HINT,
   MCP_GLOBAL_POLICY,
   MCP_WORKFLOW_L0_L4,
   UPGRADE_L2_L3_MOBILE,
@@ -113,8 +114,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_devices",
       description:
-        "MOBILE PREREQUISITE: scan/list Android/iOS/Harmony devices. Returns rows + deviceParams.recommended.adaMobileAction. " +
-        "Copy platform, sessionId, capabilities into ada_mobile_action / ada_invoke (reuse sessionId). " +
+        "MOBILE PREREQUISITE: scan/list Android/iOS/Harmony devices. Returns rows + deviceParams.recommended + harmonyLaunchApp (Harmony launch template). " +
+        "Copy platform, sessionId, capabilities into ada_mobile_action (reuse sessionId). " +
         "ARGS: action=scan|list (default scan). Optional deviceTags on scan.",
       inputSchema: {
         type: "object",
@@ -226,8 +227,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
       description:
         "Mobile UI step (android|ios|harmony). Requires ada_devices(scan) → deviceParams.recommended (platform, sessionId, capabilities). " +
         "Common: click, type, launchApp, screenshot, back, deviceAdmin. " +
+        `${HARMONY_LAUNCH_HINT} ` +
         `${DEVICE_ADMIN_HINT} ` +
-        `ARGS: platform, command, sessionId, payload (real, keepSession, capabilities, locator). ` +
+        `ARGS: platform, command, sessionId, payload (real, keepSession, capabilities, appId, abilityId, locator). ` +
         `${UPGRADE_L2_L3_MOBILE} Popups → ada_mobile_dismiss_popups.`,
       inputSchema: {
         type: "object",
@@ -246,7 +248,34 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           ...retryActionFields()
         },
         required: ["platform", "command"],
-        additionalProperties: false
+        additionalProperties: false,
+        examples: [
+          {
+            platform: "android",
+            command: "launchApp",
+            sessionId: "ada-android-demo",
+            riskApproved: true,
+            payload: {
+              appId: "com.jingdong.app.mall",
+              real: true,
+              keepSession: true,
+              capabilities: { udid: "R28M30T7HFV" }
+            }
+          },
+          {
+            platform: "harmony",
+            command: "launchApp",
+            sessionId: "ada-harmony-demo",
+            riskApproved: true,
+            payload: {
+              appId: "com.jd.hm.mall",
+              abilityId: "EntryAbility",
+              real: true,
+              keepSession: true,
+              capabilities: { deviceSn: "2QS0224716026324" }
+            }
+          }
+        ]
       }
     },
     {

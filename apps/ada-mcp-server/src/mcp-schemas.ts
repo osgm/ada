@@ -92,7 +92,7 @@ export function invokePayloadSchema(): Record<string, unknown> {
     type: "object",
     title: "payload",
     description:
-      "Command-specific options 命令参数体。Common keys 常用键: url (navigate), locator/selector (click/type), text, headless, userDataDir/profile, cdpEndpoint, channel, serverUrl, capabilities (mobile).",
+      "Command options. Web: url, locator. Mobile: capabilities, appId+abilityId (Harmony launchApp), locator, text.",
     properties: {
       engine: field(
         "string",
@@ -167,7 +167,19 @@ export function invokePayloadSchema(): Record<string, unknown> {
       keepSession: field("boolean", "keepSession", "Keep session after step (default true for multi-step flows)"),
       url: field("string", "url", "Target URL for navigate 导航地址"),
       text: field("string", "text", "Input or expected text 输入或期望文本"),
-      selector: field("string", "selector", "CSS/XPath selector when locator omitted")
+      selector: field("string", "selector", "CSS/XPath selector when locator omitted"),
+      appId: field(
+        "string",
+        "appId",
+        "App bundle id for launchApp/exitApp. Harmony: bundle name (required with abilityId)."
+      ),
+      bundleId: field("string", "bundleId", "Alias of appId for launchApp/exitApp"),
+      abilityId: field(
+        "string",
+        "abilityId",
+        "Harmony launchApp only: UI Ability name (e.g. EntryAbility). Driver defaults to EntryAbility if omitted."
+      ),
+      ability: field("string", "ability", "Alias of abilityId (Harmony)")
     },
     additionalProperties: true
   };
@@ -332,4 +344,4 @@ export function mobileCommandField(): Record<string, unknown> {
 }
 
 export const MOBILE_COMMAND_DESCRIPTION =
-  "Semantic mobile command. Common: click, type, launchApp, screenshot, back, deviceAdmin, custom. fill_search: prefer ada_mobile_recipe. Full list: enum.";
+  "Semantic mobile command. launchApp: Android/iOS payload.appId; Harmony also needs payload.abilityId (e.g. EntryAbility). Full list: enum.";
