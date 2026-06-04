@@ -45,6 +45,30 @@ export function mcpNeedsRisk(platform, command, extra = {}) {
  * @param {string} [options.root] 仓库根目录
  * @param {string} [options.name] MCP 客户端名
  */
+/** 脚本自建 connectMcp 句柄，供 {@link releaseMcpTransport} 在 exit() 时释放 */
+let scriptOwnedMcp = null;
+
+/**
+ * 断开脚本侧 MCP 客户端（不结束 MCP Server 进程；Host 配置的 server 不受影响）
+ */
+export async function releaseMcpTransport() {
+  const target = scriptOwnedMcp;
+  scriptOwnedMcp = null;
+  if (!target) {
+    return;
+  }
+  try {
+    await target.client.callTool({ name: "ada_close_all_sessions", arguments: {} });
+  } catch {
+    // ignore
+  }
+  try {
+    await target.close();
+  } catch {
+    // ignore
+  }
+}
+
 export async function connectMcp(options = {}) {
   const root = options.root ?? repoRoot;
   const cli = path.join(root, "apps", "ada-mcp-server", "src", "cli.ts");
@@ -86,6 +110,7 @@ export async function ensureMcpClient(second = {}) {
   const client = second.client ?? second.mcp?.client;
   if (client) return { client, owned: null };
   const owned = await connectMcp(second.mcpOptions ?? {});
+  scriptOwnedMcp = owned;
   return { client: owned.client, owned };
 }
 

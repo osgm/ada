@@ -106,19 +106,15 @@ function applyPreinstallPlaywrightHostFile(): void {
             ? "https://cdn.npmmirror.com/binaries/playwright"
             : host;
         if (normalized !== host) {
-          console.error(
-            `[ADA-MCP] preinstall CDN ${host} 映射为 ${normalized}（binaries 路径更稳定）`
-          );
+          bootstrapLog(`[ADA-MCP] preinstall CDN mapped to ${normalized}`);
         }
         process.env.PLAYWRIGHT_DOWNLOAD_HOST = normalized;
         process.env.ADA_PLAYWRIGHT_HOST_FROM_PREINSTALL = "1";
-        console.error(`[ADA-MCP] using playwright CDN from ${file}: ${normalized} (install-deps 将重新测速排序)`);
+        bootstrapLog(`[ADA-MCP] using playwright CDN from ${file}: ${normalized}`);
         return;
       }
       if (host.length > 0) {
-        console.error(
-          `[ADA-MCP] ignore preinstall playwright CDN (runtime will re-probe): ${host}`
-        );
+        bootstrapLog(`[ADA-MCP] ignore preinstall playwright CDN (will re-probe): ${host}`);
         return;
       }
     } catch {
@@ -145,12 +141,33 @@ export type RunBootstrapInstallDepsOptions = {
   onLogLine?: (line: string) => void;
 };
 
+const MCP_LOG_RANK = { info: 10, warn: 20, error: 30 } as const;
+
+function resolveBootstrapLogLevel(): keyof typeof MCP_LOG_RANK {
+  if (isTruthy(process.env.ADA_MCP_QUIET)) return "error";
+  const raw = String(process.env.ADA_MCP_LOG_LEVEL ?? "").trim().toLowerCase();
+  if (raw === "info" || raw === "warn" || raw === "error") return raw;
+  if (isTruthy(process.env.ADA_MCP_VERBOSE)) return "info";
+  return "error";
+}
+
+function bootstrapLineLevel(line: string): keyof typeof MCP_LOG_RANK {
+  if (/\[error\]|依赖安装未完成|bootstrap failed/i.test(line)) return "error";
+  if (/\[warn\]|warn\]|probe-miss|未完成/i.test(line)) return "warn";
+  return "info";
+}
+
 function bootstrapLog(line: string, onLogLine?: (line: string) => void): void {
   if (onLogLine) {
     onLogLine(line);
     return;
   }
-  console.error(line);
+  const level = bootstrapLineLevel(line);
+  if (MCP_LOG_RANK[level] < MCP_LOG_RANK[resolveBootstrapLogLevel()]) {
+    return;
+  }
+  const body = line.replace(/^\[ADA-MCP\](\[(?:info|warn|error)\])?\s*/i, "");
+  console.error(`[ADA-MCP][${level}] ${body}`);
 }
 
 export async function runBootstrapInstallDeps(
@@ -204,4 +221,15 @@ export async function runBootstrapInstallDeps(
   }
 
   logLine("[ADA-MCP] dependency bootstrap done");
+}
+
+/** MCP stdio：握手完成后再装依赖，避免阻塞 Host 初始化超时 */
+export function scheduleBootstrapInstallDeps(
+  argv: string[],
+  options?: RunBootstrapInstallDepsOptions
+): void {
+  void runBootstrapInstallDeps(argv, options).catch((error) => {
+    const msg = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
+    console.error(`[ADA-MCP][warn] background install incomplete: ${msg}`);
+  });
 }

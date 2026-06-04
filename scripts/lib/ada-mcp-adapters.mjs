@@ -217,16 +217,12 @@ export function webViaMcp(client, sessionIdOrOptions, options) {
 }
 
 /**
- * 包装 close：顺带关闭自建的 MCP 连接
+ * 绑定 MCP 句柄；`phone.close()` / `page.close()` 仅释放浏览器/真机会话（ada_close_session），
+ * 不断开 MCP 传输。脚本末尾请调 `exit()`（内部会 `releaseMcpTransport()`）释放客户端连接。
  * @param {object} handle phone / page
  * @param {{ client: import('@modelcontextprotocol/sdk/client/index.js').Client, owned: { close: () => Promise<void> } | null }} mcp
  */
 export function attachMcpLifecycle(handle, mcp) {
-  const userClose = handle.close.bind(handle);
-  handle.close = async (opts) => {
-    await userClose(opts);
-    if (mcp.owned) await mcp.owned.close();
-  };
   handle._mcp = mcp;
   return handle;
 }

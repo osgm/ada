@@ -138,6 +138,11 @@ class McpConnection:
         return raw.get("data") if isinstance(raw.get("data"), dict) else raw
 
     def close(self) -> None:
+        """释放 MCP 客户端连接（经 bridge 通知内层 disconnect），并结束 bridge 子进程；不结束 Host 侧 MCP Server。"""
+        try:
+            self.call_tool("ada_close_all_sessions", {})
+        except Exception:
+            pass
         try:
             self._request({"op": "shutdown"})
         except Exception:
@@ -181,6 +186,19 @@ def connect_mcp(*, root: Path | str | None = None, env: dict[str, str] | None = 
     return McpConnection(proc, owned=True)
 
 
+_SCRIPT_OWNED_MCP: McpConnection | None = None
+
+
+def release_mcp_transport() -> None:
+    """脚本 exit() 时释放自建 MCP 连接，不关 Host 配置的 MCP Server。"""
+    global _SCRIPT_OWNED_MCP
+    conn = _SCRIPT_OWNED_MCP
+    _SCRIPT_OWNED_MCP = None
+    if conn is None:
+        return
+    conn.close()
+
+
 def ensure_mcp_client(
     second: dict[str, Any] | None = None,
 ) -> tuple[McpConnection, McpConnection | None]:
@@ -198,4 +216,6 @@ def ensure_mcp_client(
     if opts.get("env") is not None:
         bridge_opts["env"] = {**(bridge_opts.get("env") or {}), **opts["env"]}
     owned = connect_mcp(root=bridge_opts.get("root"), env=bridge_opts.get("env"))
+    global _SCRIPT_OWNED_MCP
+    _SCRIPT_OWNED_MCP = owned
     return owned, owned

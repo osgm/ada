@@ -252,7 +252,7 @@ async function enrichDeviceConfig(platform, cfg) {
  * 超时：`browser` / `device` 上传 `timeoutMs`（或 `actionWaitMs`），控制 click/输入等 auto-wait，默认 20000ms。
  *
  * MCP 第二参（三选一）：
- *   `open(device({...}), { connect: "mcp" })` 或 `"mcp"` — 自动 connectMcp，`close()` 时断开
+ *   `open(device({...}), { connect: "mcp" })` 或 `"mcp"` — 自动 connectMcp；`close()` 仅关会话，脚本末尾 `exit()` 释放 MCP 客户端
  *   `open(device({...}), mcp)` / `{ mcp }` — 传入已有 connectMcp() 返回值（高级用法）
  */
 export async function open(target, second) {

@@ -88,8 +88,6 @@ rl.on("line", async (line) => {
     if (op === "shutdown") {
       await mcp.close();
       reply(id, { ok: true });
-      rl.close();
-      process.exit(0);
       return;
     }
     reply(id, { ok: false, error: `unknown op: ${op}` });
@@ -100,4 +98,5 @@ rl.on("line", async (line) => {
 
 rl.on("close", () => {
   mcp.close().catch(() => undefined);
+  process.exit(0);
 });

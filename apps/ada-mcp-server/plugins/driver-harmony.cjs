@@ -438,9 +438,9 @@ function findUiNode(nodes, options) {
 }
 
 // ../../packages/driver-rpc/src/fill-search-transition.ts
-var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 1200;
-var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 800;
-var FILL_SEARCH_DEFAULT_SETTLE_MS = 600;
+var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
+var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 500;
+var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
 function resourceIdFromLabel(label) {
   const m = label.match(/([\w.]+:id\/\w+)/i);
   return (m?.[1] ?? label).toLowerCase();
@@ -589,7 +589,7 @@ async function recipeSettleDelay(reader, payload, fallbackMs = 600) {
 async function dumpWithRetry(ctx, retries = 1) {
   let nodes = await safeDumpUi(ctx);
   if (nodes.length === 0 && retries > 0) {
-    await recipeSettleDelay(ctx, void 0, 1200);
+    await recipeSettleDelay(ctx, void 0, 800);
     nodes = await safeDumpUi(ctx);
   }
   return nodes;
@@ -729,7 +729,7 @@ async function recipeTapSearch(ctx, options) {
   }
   ctx.invalidateDumpCache?.();
   await ctx.clickPoint(entry.point);
-  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 1200);
+  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;
   return {
@@ -768,7 +768,8 @@ async function recipeFillSearch(ctx, text, options) {
       errorCode: tap.errorCode ?? RECIPE_ERROR_CODES.FILL_SEARCH_NO_ENTRY
     };
   }
-  await recipeSettleDelay(ctx, mergedOpts.payload, resolveFillSearchSettleMs(tap.detail, mergedOpts.settleMs));
+  const postTapSettleMs = typeof mergedOpts.settleMs === "number" && mergedOpts.settleMs > 0 && !isDirectInputTapDetail(tap.detail) ? FILL_SEARCH_DEFAULT_SETTLE_MS : resolveFillSearchSettleMs(tap.detail, mergedOpts.settleMs);
+  await recipeSettleDelay(ctx, mergedOpts.payload, postTapSettleMs);
   let nodes;
   let input = null;
   let mode = tap.data?.mode ?? "heuristic";
@@ -930,6 +931,13 @@ async function runMobileCustomAction(rawAction, ctx, options) {
   const recipeOpts = recipeOptionsFromPayload(options?.payload);
   if (typeof options?.maxBack === "number") {
     recipeOpts.maxBack = options.maxBack;
+  }
+  if (action === "smart_wait") {
+    const payload = options?.payload ?? {};
+    const waitBlock = payload.wait ?? payload.custom?.wait;
+    const fallbackMs = typeof waitBlock?.timeoutMs === "number" ? waitBlock.timeoutMs : typeof waitBlock?.maxMs === "number" ? waitBlock.maxMs : typeof payload.settleMs === "number" ? payload.settleMs : 8e3;
+    await recipeSettleDelay(ctx, payload, fallbackMs);
+    return { handled: true, value: "ok" };
   }
   if (action === "dump_ui") {
     const raw = ctx.getDumpRaw ? await ctx.getDumpRaw() : JSON.stringify(await ctx.dumpUi());
@@ -2143,7 +2151,7 @@ async function invokeWithPayload(driver, payload) {
 async function executeCustom(command, driver, payload) {
   const rawAction = String(payload.action ?? payload.custom?.action ?? payload.custom?.method ?? "");
   const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
-  if (["dump_ui", "tap_search", "fill_search"].includes(action)) {
+  if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
     const screen = await resolveDisplay(driver);
     const ctx = buildHarmonyRecipeContext(driver, payload, screen, parseUiHeuristicsFromPayload(payload));
     const outcome = await runMobileCustomAction(action, ctx, {

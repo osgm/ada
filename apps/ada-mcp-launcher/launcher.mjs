@@ -15,6 +15,13 @@ import {
   normalizeRegistryUrl,
   registryCandidateList
 } from "./registry-probe.mjs";
+import {
+  isSkipRegistryProbeEnv,
+  readRegistryProbeCache,
+  registryProbeCacheTtlMs,
+  writeRegistryProbeCache
+} from "./registry-probe-cache.mjs";
+import { mcpLog, mcpLogIfVerbose, shouldMcpLog } from "./mcp-log.mjs";
 
 const NPMJS_REGISTRY = "https://registry.npmjs.org";
 
@@ -62,8 +69,9 @@ function semverLessThan(a, b) {
 function applyMinMcpServerVersion(version, label) {
   if (!version || semverLessThan(version, MIN_MCP_SERVER_VERSION)) {
     if (version) {
-      console.error(
-        `[ada-mcp launcher][warn] ${label}@${version} 低于最低要求 ${MIN_MCP_SERVER_VERSION}，已改用 ${MIN_MCP_SERVER_VERSION}`
+      mcpLog(
+        "warn",
+        `${label}@${version} below min ${MIN_MCP_SERVER_VERSION}, using ${MIN_MCP_SERVER_VERSION}`
       );
     }
     return MIN_MCP_SERVER_VERSION;
@@ -94,9 +102,7 @@ async function resolveMcpServerSpec(registry) {
     };
   }
 
-  console.error(
-    `[ada-mcp launcher][warn] 无法从 registry 读取 ${MCP_SERVER_PKG} latest，使用 @latest 标签`
-  );
+  mcpLog("warn", `cannot read ${MCP_SERVER_PKG} latest from registry, using @latest`);
   return {
     spec: `${MCP_SERVER_PKG}@latest`,
     version: "latest",
@@ -142,12 +148,38 @@ async function resolveInstallRegistry(forcedRegistry) {
     return {
       best: forcedRegistry,
       probeResults: [],
-      forced: true
+      forced: true,
+      fromCache: false
     };
   }
   const candidates = registryCandidateList();
+  if (isSkipRegistryProbeEnv()) {
+    const best = normalizeRegistryUrl(candidates[0] ?? NPMJS_REGISTRY);
+    return {
+      best,
+      probeResults: [],
+      forced: false,
+      fromCache: false,
+      skippedProbe: true
+    };
+  }
+  const cached = readRegistryProbeCache(candidates);
+  if (cached) {
+    return {
+      best: cached.best,
+      candidates,
+      probeResults: cached.probeResults,
+      forced: false,
+      fromCache: true
+    };
+  }
   const probed = await detectBestRegistry(candidates);
-  return { ...probed, forced: false };
+  writeRegistryProbeCache({
+    best: probed.best,
+    candidates,
+    probeResults: probed.probeResults
+  });
+  return { ...probed, forced: false, fromCache: false };
 }
 
 /** 镜像 latest 滞后或缺包时，安装回退官方 npmjs */
@@ -169,13 +201,9 @@ async function registryForPinnedVersion(registry, packageName, version, registry
   }
   if (await fetchPackageVersionExists(packageName, version, NPMJS_REGISTRY)) {
     if (bumpedAboveMirrorLatest) {
-      console.error(
-        `[ada-mcp launcher][warn] 镜像 latest=${registryLatest}，安装 ${version} 改用 ${NPMJS_REGISTRY}（pnpm 索引可能未同步）`
-      );
+      mcpLog("warn", `mirror latest=${registryLatest}, install ${version} via ${NPMJS_REGISTRY}`);
     } else {
-      console.error(
-        `[ada-mcp launcher][warn] ${packageName}@${version} 在 ${reg} 不可用，安装改用 ${NPMJS_REGISTRY}`
-      );
+      mcpLog("warn", `${packageName}@${version} missing on ${reg}, install via ${NPMJS_REGISTRY}`);
     }
     return NPMJS_REGISTRY;
   }
@@ -243,13 +271,23 @@ function execRunnerSync(executable, args, options = {}) {
 
 function runnerArgs(runner, pkgSpec, extra) {
   if (runner === "pnpm") {
-    return ["dlx", pkgSpec, ...extra];
+    // --silent：不输出 Progress/resolved（pnpm 写 stderr，Cursor 会标成 error）
+    return ["--silent", "dlx", pkgSpec, ...extra];
   }
   // Windows npx 对 scoped 包默认执行裸命令 `mcp-server`，.cmd shim 常无法解析（见 spawnMcpServer）
   if (process.platform === "win32") {
-    return ["-y", "--package", pkgSpec, MCP_SERVER_BIN, ...extra];
+    return ["-y", "--quiet", "--package", pkgSpec, MCP_SERVER_BIN, ...extra];
   }
-  return ["-y", pkgSpec, ...extra];
+  return ["-y", "--quiet", pkgSpec, ...extra];
+}
+
+/** 压低 pnpm/npx 安装进度，避免 Host 把 stderr 当 MCP 错误 */
+function runnerChildEnv(base) {
+  return {
+    ...base,
+    npm_config_loglevel: base.npm_config_loglevel ?? "error",
+    PNPM_REPORTER: base.PNPM_REPORTER ?? "silent"
+  };
 }
 
 function runnerExecLabel(runner, args) {
@@ -326,7 +364,7 @@ async function resolvePackageRunner() {
   if (npxOk) {
     return "npx";
   }
-  console.error("[ada-mcp launcher] warn: pnpm/npx not found on PATH, trying npx");
+  mcpLog("warn", "pnpm/npx not found on PATH, trying npx");
   return "npx";
 }
 
@@ -336,11 +374,11 @@ async function resolvePackageRunner() {
 function spawnMcpServerViaNodeInstall(pkgSpec, extra, options) {
   const { cwd, env } = options;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ada-mcp-run-"));
-  console.error(`[ada-mcp launcher] Windows npx fallback: npm install ${pkgSpec} -> node cli.cjs`);
+  mcpLog("info", `Windows npx fallback: npm install ${pkgSpec} -> node cli.cjs`);
   execRunnerSync(
     "npm",
-    ["install", pkgSpec, "--omit=dev", "--no-fund", "--no-audit", "--loglevel=error"],
-    { cwd: tmpDir, env, stdio: "inherit" }
+    ["install", pkgSpec, "--omit=dev", "--no-fund", "--no-audit", "--loglevel=error", "--quiet"],
+    { cwd: tmpDir, env: runnerChildEnv(env), stdio: "inherit" }
   );
   const cli = path.join(tmpDir, "node_modules", "@ada-mcp", "mcp-server", "dist", "cli.cjs");
   if (!fs.existsSync(cli)) {
@@ -351,9 +389,7 @@ function spawnMcpServerViaNodeInstall(pkgSpec, extra, options) {
 
 function warnIfBadCwd(cwd) {
   if (process.platform === "win32" && /\\Windows\\System32$/i.test(path.normalize(cwd))) {
-    console.error(
-      "[ada-mcp launcher][warn] 当前目录为 C:\\Windows\\System32，建议在用户目录或项目目录下运行（见接入手册排障）"
-    );
+    mcpLog("warn", "cwd is C:\\Windows\\System32; run from user or project directory");
   }
 }
 
@@ -377,30 +413,39 @@ function writeProjectNpmrc(cwd, registry) {
 async function warnIfLauncherStale(registry) {
   const latest = await fetchPackageLatestVersion(LAUNCHER_PKG_NAME, registry);
   if (latest && semverLessThan(LAUNCHER_VERSION, latest)) {
-    console.error(
-      `[ada-mcp launcher][warn] 当前 launcher@${LAUNCHER_VERSION} 落后于 registry latest=${latest}（常见于 pnpm dlx 复用 @latest 缓存）。请执行: pnpm dlx ${LAUNCHER_PKG_NAME}@${latest} 或删除 pnpm-cache/dlx 下对应目录`
+    mcpLog(
+      "warn",
+      `launcher@${LAUNCHER_VERSION} behind registry latest=${latest}; try pnpm dlx ${LAUNCHER_PKG_NAME}@${latest}`
     );
   }
 }
 
 async function main() {
-  console.error(`[ada-mcp launcher] ${LAUNCHER_PKG_NAME}@${LAUNCHER_VERSION}`);
   const { forward: extra, forcedRegistry } = parseLauncherArgv();
   const runner = await resolvePackageRunner();
-  const { best: probedBest, probeResults, forced: registryForced } =
-    await resolveInstallRegistry(forcedRegistry);
+  const {
+    best: probedBest,
+    probeResults,
+    forced: registryForced,
+    fromCache: registryFromCache,
+    skippedProbe: registrySkippedProbe
+  } = await resolveInstallRegistry(forcedRegistry);
 
-  if (registryForced) {
-    console.error(`[ada-mcp launcher] registry forced (skip probe): ${probedBest}`);
-  } else {
-    console.error(`[ada-mcp launcher] registry probe selected: ${probedBest}`);
-    for (const { candidate, latency, speedKBps, bytesRead } of probeResults) {
-      if (speedKBps != null) {
-        console.error(
-          `[ada-mcp launcher]   ${candidate} -> ${speedKBps.toFixed(0)} KB/s (${bytesRead} bytes / ${latency}ms)`
-        );
-      } else {
-        console.error(`[ada-mcp launcher]   ${candidate} -> fail`);
+  if (shouldMcpLog("info")) {
+    if (registryForced) {
+      mcpLog("info", `registry forced: ${probedBest}`);
+    } else if (registrySkippedProbe) {
+      mcpLog("info", `registry probe skipped (ADA_MCP_SKIP_REGISTRY_PROBE): ${probedBest}`);
+    } else if (registryFromCache) {
+      mcpLog("info", `registry probe cache (${Math.round(registryProbeCacheTtlMs() / 60000)}m ttl): ${probedBest}`);
+    } else {
+      mcpLog("info", `registry probe: ${probedBest}`);
+      for (const { candidate, latency, speedKBps, bytesRead } of probeResults) {
+        if (speedKBps != null) {
+          mcpLog("info", `  ${candidate} -> ${speedKBps.toFixed(0)} KB/s (${bytesRead}B/${latency}ms)`);
+        } else {
+          mcpLog("info", `  ${candidate} -> unreachable`);
+        }
       }
     }
   }
@@ -419,8 +464,8 @@ async function main() {
     mcpVersion,
     registryLatest
   );
-  console.error(
-    `[ada-mcp launcher] ${LAUNCHER_PKG_NAME}@${LAUNCHER_VERSION} -> ${pkgSpec} (${mcpSource}${mcpVersion !== "latest" ? `, ${mcpVersion}` : ""})`
+  mcpLogIfVerbose(
+    `${LAUNCHER_PKG_NAME}@${LAUNCHER_VERSION} -> ${pkgSpec} (${mcpSource}${mcpVersion !== "latest" ? `, ${mcpVersion}` : ""})`
   );
 
   const cwd = process.cwd();
@@ -429,17 +474,15 @@ async function main() {
 
   const childArgs = runnerArgs(runner, pkgSpec, extra);
   const cmd = runnerCommand(runner);
-  const childEnv = {
+  const childEnv = runnerChildEnv({
     ...process.env,
     npm_config_registry: installRegistry,
     ADA_MCP_LAUNCHER_RAN: "1",
     ADA_MCP_PACKAGE_RUNNER: runner,
     ADA_MCP_LAUNCHER_VERSION: LAUNCHER_VERSION,
     ADA_MCP_SERVER_RESOLVED_VERSION: mcpVersion
-  };
-  console.error(
-    `[ada-mcp launcher] runner=${runner} exec: ${runnerExecLabel(runner, childArgs)} (registry=${installRegistry} via env/.npmrc)`
-  );
+  });
+  mcpLogIfVerbose(`runner=${runner} ${runnerExecLabel(runner, childArgs)} registry=${installRegistry}`);
 
   const useWinNpxFallback = process.platform === "win32" && runner === "npx";
   const child = useWinNpxFallback
@@ -458,12 +501,12 @@ async function main() {
     process.exit(code ?? 1);
   });
   child.on("error", (error) => {
-    console.error(`[ada-mcp launcher] failed to start ${runner}:`, error);
+    mcpLog("error", `failed to start ${runner}: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   });
 }
 
 main().catch((error) => {
-  console.error("[ada-mcp launcher]", error);
+  mcpLog("error", error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

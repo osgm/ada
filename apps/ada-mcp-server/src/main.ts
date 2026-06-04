@@ -24,7 +24,9 @@ import type { AgentConfig } from "@ada/agent/types";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { invalidateDependencyHealthCache, type InstallScope } from "@ada/install-deps";
 
+import { scheduleBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 import { loadAgentConfig } from "./config.js";
+import { mcpLog, mcpLogIfVerbose, shouldMcpLog } from "./mcp-log.js";
 import {
   closeAllSessions,
   closeSession,
@@ -355,7 +357,9 @@ async function withTiming<T>(label: string, fn: () => Promise<T>): Promise<T> {
   } finally {
     const elapsed = Date.now() - started;
     recordPerf(label, elapsed);
-    console.error(`[ADA-MCP] [perf] ${label} ${elapsed}ms`);
+    if (shouldMcpLog("info") || process.env.ADA_MCP_PERF?.trim() === "1") {
+      mcpLog("info", `perf ${label} ${elapsed}ms`);
+    }
   }
 }
 
@@ -432,17 +436,95 @@ async function loadTaskFile(taskFilePath: string): Promise<CommandEnvelope[]> {
 }
 
 let shuttingDown = false;
+let stdinDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isTruthyEnv(name: string): boolean {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/** 默认 false：stdio 客户端断开时不要结束 MCP 服务进程（仅释放会话，见 onStdinDisconnect） */
+function shouldExitProcessOnStdinClose(): boolean {
+  return isTruthyEnv("ADA_MCP_EXIT_ON_STDIN_CLOSE");
+}
+
+function resolveStdinDisconnectDebounceMs(): number {
+  const raw = Number(process.env.ADA_MCP_STDIN_SHUTDOWN_DEBOUNCE_MS ?? 2000);
+  if (!Number.isFinite(raw)) {
+    return 2000;
+  }
+  return Math.min(Math.max(Math.floor(raw), 0), 60_000);
+}
+
+function stdinLooksAlive(): boolean {
+  return Boolean(process.stdin.readable && !process.stdin.readableEnded && !process.stdin.destroyed);
+}
+
+async function releaseExecutorSessions(reason: string): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
+  mcpLog("info", `releasing sessions (${reason}), server stays up`);
+  try {
+    await shutdownExecutor({ timeoutMs: 10_000 });
+    await shutdownExecutor({ force: true });
+  } catch (error) {
+    mcpLog("warn", `releaseExecutorSessions: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function scheduleStdinDisconnect(reason: string): void {
+  if (stdinDisconnectTimer) {
+    clearTimeout(stdinDisconnectTimer);
+  } else {
+    const ms = resolveStdinDisconnectDebounceMs();
+    mcpLogIfVerbose(
+      `${reason}: debounce ${ms}ms (release sessions only; ADA_MCP_EXIT_ON_STDIN_CLOSE=1 to exit process)`
+    );
+  }
+  const ms = resolveStdinDisconnectDebounceMs();
+  if (ms <= 0) {
+    void onStdinDisconnect(reason);
+    return;
+  }
+  stdinDisconnectTimer = setTimeout(() => {
+    stdinDisconnectTimer = null;
+    void onStdinDisconnect(reason);
+  }, ms);
+}
+
+async function onStdinDisconnect(reason: string): Promise<void> {
+  if (stdinLooksAlive()) {
+    mcpLogIfVerbose(`${reason} recovered, server continues`);
+    return;
+  }
+  if (shouldExitProcessOnStdinClose()) {
+    await gracefulShutdown(reason);
+    return;
+  }
+  await releaseExecutorSessions(reason);
+}
+
+function wireStdinShutdownHandlers(): void {
+  process.stdin.on("end", () => scheduleStdinDisconnect("stdin-end"));
+  process.stdin.on("close", () => scheduleStdinDisconnect("stdin-close"));
+}
+
 async function gracefulShutdown(reason: string): Promise<void> {
+  if (stdinDisconnectTimer) {
+    clearTimeout(stdinDisconnectTimer);
+    stdinDisconnectTimer = null;
+  }
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
   try {
-    console.error(`[ADA-MCP] shutting down: ${reason}`);
+    mcpLog("warn", `shutting down: ${reason}`);
     await shutdownExecutor({ timeoutMs: 10_000 });
     await shutdownExecutor({ force: true });
   } catch (error) {
-    console.error("[ADA-MCP] shutdownExecutor failed:", error);
+    mcpLog("error", `shutdownExecutor: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     process.exit(0);
   }
@@ -748,36 +830,24 @@ export async function startMcpServer(): Promise<void> {
   const cwd = process.cwd();
   const passedArgs = process.argv.slice(2);
   if (passedArgs.includes("mcp")) {
-    console.error('[ADA-MCP] warning: standalone ada-mcp binary does not require "mcp" arg; it is safe to remove.');
+    mcpLog("warn", 'standalone binary does not need "mcp" arg; safe to remove');
   }
   const { launcherVersion, selfVersion, alignedLauncherVersion } = resolveStartPackageVersions();
-  const { configHint, binaryHint, npmDevHint } = buildStartHints({
-    binaryCommand,
-    cwd,
-    alignedLauncherVersion
-  });
-  console.error("[ADA-MCP] config hint (npm standard):");
-  console.error(JSON.stringify(configHint, null, 2));
-  if (selfVersion) {
-    console.error(`[ADA-MCP] package version: @ada-mcp/mcp-server@${selfVersion}`);
+  const versionLabel = selfVersion ? `@ada-mcp/mcp-server@${selfVersion}` : "@ada-mcp/mcp-server";
+  if (shouldMcpLog("info")) {
+    const { configHint, binaryHint, npmDevHint } = buildStartHints({
+      binaryCommand,
+      cwd,
+      alignedLauncherVersion
+    });
+    mcpLogIfVerbose(`config hint (npm): ${JSON.stringify(configHint)}`);
+    if (launcherVersion) {
+      mcpLogIfVerbose(`launcher @ada-mcp/launcher@${launcherVersion}`);
+    }
+    mcpLogIfVerbose(`config hint (binary): ${JSON.stringify(binaryHint)}`);
+    mcpLogIfVerbose(`config hint (npm dev): ${JSON.stringify(npmDevHint)}`);
   }
-  if (launcherVersion) {
-    console.error(`[ADA-MCP] launcher version detected: @ada-mcp/launcher@${launcherVersion}`);
-  } else {
-    console.error("[ADA-MCP] launcher version not detected (using tag without version).");
-  }
-  console.error("[ADA-MCP] config hint (local binary):");
-  console.error(JSON.stringify(binaryHint, null, 2));
-  console.error("[ADA-MCP] note: MCP tool names use ada_snake_case (e.g. ada_install_deps, ada_invoke, ada_web_action)");
-  console.error("[ADA-MCP] config hint (npm dev):");
-  console.error(JSON.stringify(npmDevHint, null, 2));
 
-  process.stdin.on("end", () => {
-    void gracefulShutdown("stdin-end");
-  });
-  process.stdin.on("close", () => {
-    void gracefulShutdown("stdin-close");
-  });
   process.once("SIGINT", () => {
     void gracefulShutdown("SIGINT");
   });
@@ -788,8 +858,10 @@ export async function startMcpServer(): Promise<void> {
     void gracefulShutdown("disconnect");
   });
 
-  console.error("[ADA-MCP] server starting (stdio mode)");
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[ADA-MCP] server connected");
+  mcpLogIfVerbose(`ready ${versionLabel} (stdio)`);
+  wireStdinShutdownHandlers();
+  scheduleBootstrapInstallDeps(passedArgs);
+  mcpLogIfVerbose("dependency bootstrap scheduled in background");
 }

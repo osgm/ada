@@ -58,7 +58,6 @@ if (isServerMode) {
   });
 } else {
   void (async () => {
-    await runBootstrapInstallDeps(argv);
     const { startMcpServer } = await import("./main.js");
     await startMcpServer();
   })().catch((error) => {

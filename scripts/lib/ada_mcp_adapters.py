@@ -265,8 +265,6 @@ class McpHarmonyDevice(HarmonyDevice):
             session_close=self._session_close,
             opts=opts,
         )
-        if self._owned_mcp:
-            self._owned_mcp.close()
 
 
 class McpAndroidDevice(AndroidDevice):
@@ -320,8 +318,6 @@ class McpAndroidDevice(AndroidDevice):
             session_close=self._session_close,
             opts=opts,
         )
-        if self._owned_mcp:
-            self._owned_mcp.close()
 
 
 class McpWebPage(WebPage):
@@ -362,8 +358,6 @@ class McpWebPage(WebPage):
             session_close=self._session_close,
             opts=opts,
         )
-        if self._owned_mcp:
-            self._owned_mcp.close()
 
 
 class McpIosDevice(IosDevice):
@@ -397,8 +391,6 @@ class McpIosDevice(IosDevice):
             session_close=self._session_close,
             opts=opts,
         )
-        if self._owned_mcp:
-            self._owned_mcp.close()
 
 
 def open_device_via_mcp(

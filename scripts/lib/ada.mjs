@@ -110,13 +110,20 @@ export async function quit(options = {}) {
 }
 
 /**
- * E2E 脚本末尾调用：先 quit 再 process.exit，避免 Playwright/MCP 残留句柄拖住 Node。
- * keepAlive 或 ADA_NO_HARD_EXIT=1 时不 exit。
+ * E2E 脚本末尾：释放 MCP 客户端 / 本地执行器会话，再退出当前脚本进程。
+ * 不结束 Host 侧 MCP Server（`page.close()` / `phone.exit()` 同理，仅关会话）。
+ * keepAlive 或 ADA_NO_HARD_EXIT=1 时不 exit 进程。
  */
-/** 结束脚本：关闭 ADA 执行器并退出 Node 进程（除非 keepAlive） */
+/** 结束脚本：释放连接并退出 Node 进程（除非 keepAlive） */
 export async function exit(code) {
   if (isKeepAlive() || process.env.ADA_NO_HARD_EXIT?.trim() === "1") {
     return;
+  }
+  try {
+    const { releaseMcpTransport } = await import("./ada-mcp.mjs");
+    await releaseMcpTransport();
+  } catch {
+    // ignore
   }
   await quit().catch(() => undefined);
   process.exit(code ?? process.exitCode ?? 0);

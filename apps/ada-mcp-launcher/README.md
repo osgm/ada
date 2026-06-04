@@ -60,7 +60,9 @@ npx -y @ada-mcp/launcher@0.1.50
 | `ADA_MCP_PACKAGE_RUNNER` | `pnpm` \| `npx` \| `auto`（默认）：拉取 mcp-server 用的包管理器；`auto` 时与外层一致 |
 | `ADA_MCP_REGISTRY` | 强制 npm registry（跳过测速），如 `https://registry.npmmirror.com/`；**勿**使用 `pnpm dlx --registry`（pnpm 不支持） |
 | `ADA_MCP_SERVER_VERSION` | 覆盖 mcp-server 版本；**未设置时**从所选 registry 读取 **`latest`**。低于 launcher 包版本会被抬高 |
-| `ADA_MCP_SKIP_REGISTRY_PROBE` | `1` 时跳过测速 |
+| `ADA_MCP_SKIP_REGISTRY_PROBE` | `1` 时跳过测速（用候选列表第一项） |
+| `ADA_MCP_REGISTRY_PROBE_TTL_MS` | 测速缓存有效期（默认 **3600000**，即 1 小时） |
+| `ADA_MCP_REGISTRY_PROBE_CACHE_FILE` | 覆盖缓存路径（默认 `~/.ada/launcher-registry-probe.json`） |
 | `ADA_MCP_INSTALL_DEPS` 等 | 写在 `args` 末尾，传给 mcp-server（见 `@ada-mcp/mcp-server` README） |
 
 ## 与直接 `dlx @ada-mcp/mcp-server` 的区别

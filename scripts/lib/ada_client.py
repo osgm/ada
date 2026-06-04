@@ -107,9 +107,15 @@ def init(example_or_root: str | Path | None = None) -> Path:
 
 
 def exit(code: int | None = None) -> None:
-    """结束脚本：关闭 ADA 执行器并退出进程（同 Node exit）。MCP 示例末尾务必调用。"""
+    """结束脚本：释放 MCP/本地连接后退出当前进程；不关 Host 侧 MCP Server。"""
     if is_keep_alive() or os.environ.get("ADA_NO_HARD_EXIT", "").strip() == "1":
         return
+    try:
+        from ada_mcp import release_mcp_transport
+
+        release_mcp_transport()
+    except Exception:
+        pass
     _shutdown_runtime()
     sys.exit(0 if code is None else code)
 
