@@ -30,12 +30,56 @@ FMR0223456001234    device
   assert.equal(rows[1].state, "device");
 });
 
+test("parseHdcTargetsOutput: skips hdc error noise", () => {
+  const rows = parseHdcTargetsOutput(`[Fail]Not match target founded, check connect-key please
+[Empty]
+2QS0224716026324    device
+`);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "2QS0224716026324");
+});
+
 test("pickDefaultDeviceId prefers authorized physical", () => {
   const id = pickDefaultDeviceId([
     { platform: "android", id: "emu", state: "device", authorized: true, kind: "emulator", source: "t" },
     { platform: "android", id: "phone", state: "device", authorized: true, kind: "physical", source: "t" }
   ]);
   assert.equal(id, "phone");
+});
+
+test("mergeDeviceScan prunes stale invalid harmony ids on rescan", () => {
+  const base = createEmptyDeviceRegistry();
+  base.devices.push({
+    platform: "harmony",
+    id: "[Empty]",
+    state: "device",
+    authorized: true,
+    kind: "physical",
+    source: "hdc",
+    firstSeenAt: "2020-01-01T00:00:00.000Z",
+    lastSeenAt: "2020-01-01T00:00:00.000Z"
+  });
+  base.defaults.harmony = "[Empty]";
+  const merged = mergeDeviceScan(base, {
+    scannedAt: "2026-01-02T00:00:00.000Z",
+    android: [
+      {
+        platform: "android",
+        id: "R28M30T7HFV",
+        state: "device",
+        authorized: true,
+        kind: "physical",
+        source: "adb devices"
+      }
+    ],
+    ios: [],
+    harmony: [],
+    errors: []
+  });
+  assert.equal(merged.devices.length, 1);
+  assert.equal(merged.devices[0]?.platform, "android");
+  assert.equal(merged.defaults.android, "R28M30T7HFV");
+  assert.equal(merged.defaults.harmony, undefined);
 });
 
 test("mergeDeviceScan sets defaults and preserves firstSeenAt", () => {

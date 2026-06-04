@@ -1,3 +1,5 @@
+import { DEVICE_ADMIN_ACTION_ENUM } from "./mcp-tool-policy.js";
+
 /** Shared JSON Schema fragments for MCP tool inputSchema (title + description for AI clients) */
 
 function field(
@@ -158,8 +160,11 @@ export function invokePayloadSchema(): Record<string, unknown> {
       storageStatePath: field("string", "storageStatePath", "Playwright auth storage JSON path"),
       real: field("boolean", "real", "Force real execution 强制真实驱动"),
       serverUrl: field("string", "serverUrl", "Driver endpoint URL 连接地址"),
-      capabilities: field("object", "capabilities", "Driver capabilities 能力项"),
-      keepSession: field("boolean", "keepSession", "Keep session after step 保持会话（多步默认 true）"),
+      capabilities: field("object", "capabilities", "Driver capabilities (mobile: udid or deviceSn from ada_devices deviceParams)"),
+      action: field("string", "action", "Sub-action when command=deviceAdmin", {
+        enum: [...DEVICE_ADMIN_ACTION_ENUM]
+      }),
+      keepSession: field("boolean", "keepSession", "Keep session after step (default true for multi-step flows)"),
       url: field("string", "url", "Target URL for navigate 导航地址"),
       text: field("string", "text", "Input or expected text 输入或期望文本"),
       selector: field("string", "selector", "CSS/XPath selector when locator omitted")
@@ -251,7 +256,7 @@ export function webCommandField(): Record<string, unknown> {
 }
 
 export const WEB_COMMAND_DESCRIPTION =
-  "Required semantic web action 必填 Web 语义命令。navigate=打开 URL; click/type=点击/输入; screenshot=截图; newTab|switchTab|closeTab=标签页; wait=等待; assertText|getText|assertVisible=断言/读取; scroll|hover|press|select|uploadFile|dragDrop=交互; back|reload|forward=历史; custom=扩展.";
+  "Semantic web command. Common: navigate, click, type, screenshot, wait, newTab, assertText, custom. Full list: enum.";
 
 export function webEngineField(): Record<string, unknown> {
   return field("string", "engine", WEB_ENGINE_DESCRIPTION, {
@@ -259,16 +264,15 @@ export function webEngineField(): Record<string, unknown> {
   });
 }
 
-export const WEB_ENGINE_DESCRIPTION =
-  "Web automation backend Web 自动化引擎。playwright=default bundled Chromium 默认内置浏览器.";
+export const WEB_ENGINE_DESCRIPTION = "Web engine (playwright = bundled Chromium).";
 
 export function sessionIdField(context: "web" | "mobile" | "any"): Record<string, unknown> {
   const hint =
     context === "web"
-      ? "Reuse web session from prior ada_web_action 复用已有浏览器会话；省略则按 payload 新建"
+      ? "Reuse session from prior ada_web_action (required for follow-up steps)"
       : context === "mobile"
-        ? "Reuse mobile driver session 复用移动会话"
-        : "Reuse session from prior action 复用会话 ID";
+        ? "Reuse session from ada_devices deviceParams.recommended (required across mobile flow)"
+        : "Reuse sessionId from prior step";
   return field("string", "sessionId", hint);
 }
 
@@ -328,4 +332,4 @@ export function mobileCommandField(): Record<string, unknown> {
 }
 
 export const MOBILE_COMMAND_DESCRIPTION =
-  "Required mobile action 必填移动语义命令。click|type(fill 别名)|swipe; launchApp|exitApp; pressHome(系统 Home，home 为别名); recipe|ada_mobile_recipe; screenshot; back; assertText|getText|assertVisible|wait; custom=扩展.";
+  "Semantic mobile command. Common: click, type, launchApp, screenshot, back, deviceAdmin, custom. fill_search: prefer ada_mobile_recipe. Full list: enum.";

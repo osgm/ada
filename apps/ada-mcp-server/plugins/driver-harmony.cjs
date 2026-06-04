@@ -90,19 +90,26 @@ function raceCommandTimeout(work, timeoutMs, label = "command") {
 
 // ../../packages/driver-rpc/src/optional-ui.ts
 var UI_ELEMENT_NOT_FOUND = "UI_ELEMENT_NOT_FOUND";
-var HYPIUM_OPTIONAL_PROBE_NOISE = /RpcClient|Fail to resolve object|RPC exception/i;
+var HYPIUM_OPTIONAL_PROBE_NOISE = /RpcClient|Fail to resolve object|RPC exception|\[Device\]|\[Analysis\]|\[RemoteObject\]/i;
+function isHypiumProbeNoise(text) {
+  return HYPIUM_OPTIONAL_PROBE_NOISE.test(text);
+}
 function suppressHypiumOptionalProbeLogs() {
   const origError = console.error;
+  const origLog = console.log;
   const origTrace = console.trace;
-  console.error = (...args) => {
+  const filter = (orig) => (...args) => {
     const text = args.map(String).join(" ");
-    if (HYPIUM_OPTIONAL_PROBE_NOISE.test(text)) return;
-    origError.apply(console, args);
+    if (isHypiumProbeNoise(text)) return;
+    orig.apply(console, args);
   };
+  console.error = filter(origError);
+  console.log = filter(origLog);
   console.trace = () => {
   };
   return () => {
     console.error = origError;
+    console.log = origLog;
     console.trace = origTrace;
   };
 }

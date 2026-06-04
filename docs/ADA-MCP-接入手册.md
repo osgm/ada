@@ -52,14 +52,15 @@ npx -y @ada-mcp/launcher@0.1.49
       "command": "pnpm",
       "args": ["dlx", "@ada-mcp/launcher@0.1.49"],
       "env": {
-        "ADA_MCP_HIDE_ADVANCED": "1"
+        "ADA_MCP_HIDE_ADVANCED": "0",
+        "ADA_MCP_DESC_MODE": "advanced"
       }
     }
   }
 }
 ```
 
-脚本侧 `connectMcp()` 亦默认 `ADA_MCP_HIDE_ADVANCED=1`（仅暴露 `ada_web_action` / `ada_mobile_action` 等 T1）。需要 `ada_execute` / `ada_invoke` 时设 `ADA_MCP_HIDE_ADVANCED=0`。
+Cursor/Agent 高级自动化推荐 `ADA_MCP_HIDE_ADVANCED=0`（暴露 `ada_invoke` / `ada_execute` / `ada_risk_policy`），可选 `ADA_MCP_DESC_MODE=advanced` 加长 L3 工具说明。脚本侧 `connectMcp()` 默认仍为 `ADA_MCP_HIDE_ADVANCED=1`（仅 T1 语义工具）；需要驱动级 API 时在 env 中设为 `0`。
 
 ### 1.2 版本与 registry
 

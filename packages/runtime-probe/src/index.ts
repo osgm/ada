@@ -57,3 +57,9 @@ export {
   formatSdkInfo,
   registryToDeviceListRows
 } from "./device-display.js";
+export {
+  buildDeviceParamsGuide,
+  type DeviceMobileActionParams,
+  type DeviceParamGuideEntry,
+  type DeviceParamsGuide
+} from "./device-params-guide.js";

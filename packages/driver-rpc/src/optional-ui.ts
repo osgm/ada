@@ -4,20 +4,30 @@ import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 export const UI_ELEMENT_NOT_FOUND = "UI_ELEMENT_NOT_FOUND";
 
 const HYPIUM_OPTIONAL_PROBE_NOISE =
-  /RpcClient|Fail to resolve object|RPC exception/i;
+  /RpcClient|Fail to resolve object|RPC exception|\[Device\]|\[Analysis\]|\[RemoteObject\]/i;
+
+function isHypiumProbeNoise(text: string): boolean {
+  return HYPIUM_OPTIONAL_PROBE_NOISE.test(text);
+}
 
 /** hypium-driver 在 findComponent 未命中时会 console.error + trace，关弹窗探测时静默 */
 export function suppressHypiumOptionalProbeLogs(): () => void {
   const origError = console.error;
+  const origLog = console.log;
   const origTrace = console.trace;
-  console.error = (...args: unknown[]) => {
-    const text = args.map(String).join(" ");
-    if (HYPIUM_OPTIONAL_PROBE_NOISE.test(text)) return;
-    origError.apply(console, args as Parameters<typeof console.error>);
-  };
+  const filter =
+    (orig: (...args: unknown[]) => void) =>
+    (...args: unknown[]) => {
+      const text = args.map(String).join(" ");
+      if (isHypiumProbeNoise(text)) return;
+      orig.apply(console, args as Parameters<typeof console.error>);
+    };
+  console.error = filter(origError);
+  console.log = filter(origLog);
   console.trace = () => {};
   return () => {
     console.error = origError;
+    console.log = origLog;
     console.trace = origTrace;
   };
 }

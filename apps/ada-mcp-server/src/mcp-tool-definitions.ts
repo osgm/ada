@@ -20,15 +20,27 @@ import {
   webEngineField
 } from "./mcp-schemas.js";
 import {
+  DEVICE_ADMIN_HINT,
+  MCP_GLOBAL_POLICY,
+  MCP_WORKFLOW_L0_L4,
+  UPGRADE_L2_L3_MOBILE,
+  UPGRADE_L2_L3_WEB
+} from "./mcp-tool-policy.js";
+import {
   formatTieredDescription,
   getToolTier,
+  isAdvancedDescriptionMode,
   shouldHideAdvancedTools,
   sortToolsByTier
 } from "./mcp-tool-tiers.js";
 
-const MOCK_HINT =
-  "Default is strict real execution; set allowMock=true only for offline demos (returns simulated results).";
-const RISK_HINT = "Set riskApproved=true for high-risk commands (invoke, custom, destructive actions).";
+function policyRef(): string {
+  return MCP_GLOBAL_POLICY;
+}
+
+function advancedExtra(text: string): string {
+  return isAdvancedDescriptionMode() ? ` ${text}` : "";
+}
 
 function buildAllAdaMcpToolDefinitions(): Array<{
   name: string;
@@ -39,10 +51,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_health",
       description:
-        "[Observe] Quick health snapshot of the ADA MCP runtime: Node/npm versions, Playwright/Android/iOS/Harmony install flags, loaded driver plugins, and dependency gaps. " +
-        "USE WHEN: first call in a session, after ada_install_deps, or when automation fails with missing-binary errors. " +
-        "DO NOT USE FOR: deep troubleshooting (use ada_diagnostics). " +
-        `KEY ARGS: scope=web|mobile|all (default web). ${MOCK_HINT}`,
+        `${MCP_WORKFLOW_L0_L4} Runtime health: Node, Playwright, adb/WDA/hdc, plugins, dependency gaps. ` +
+        "USE: session start, after ada_install_deps, or missing-binary errors. Not deep debug → ada_diagnostics. " +
+        `ARGS: scope=web|mobile|all (default web). ${policyRef()}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -58,10 +69,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_diagnostics",
       description:
-        "[Observe] Full doctor report: structured checks for Node, registry, Playwright browsers, Android adb, iOS WDA hints, Harmony hdc, workspace paths, and config. " +
-        "USE WHEN: ada_health shows degraded status, CI setup validation, or unexplained driver failures. " +
-        "PREFER ada_health for a fast pass/fail. " +
-        "KEY ARGS: scope=web|mobile|all (default web).",
+        "Full doctor report (Node, registry, browsers, adb, WDA, hdc, paths, config). " +
+        "USE: ada_health degraded, CI setup, unexplained driver failures. Fast check → ada_health. " +
+        "ARGS: scope=web|mobile|all (default web).",
       inputSchema: {
         type: "object",
         properties: {
@@ -85,9 +95,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_perf_summary",
       description:
-        "[Observe] In-memory latency statistics for MCP tool calls (count, avg, p50, p95, max per tool). " +
-        "USE WHEN: profiling slow automation steps or regression checks. " +
-        "KEY ARGS: reset=true clears samples after read.",
+        "MCP tool latency stats (count, avg, p50, p95, max). USE: profiling slow steps. ARGS: reset=true clears samples.",
       inputSchema: {
         type: "object",
         properties: {
@@ -99,25 +107,22 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_config",
       description:
-        "[Configure] Read the effective ADA agent configuration (merged default.yaml, env overrides, workspace paths). " +
-        "USE WHEN: confirming headless defaults, driver dirs, risk policy paths, or install strategy before running tasks. " +
-        "No parameters required.",
+        "Read effective agent config (yaml, env, workspace paths). USE: headless, driver dirs, risk policy before runs. No parameters.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false }
     },
     {
       name: "ada_devices",
       description:
-        "[Observe-Mobile] List or refresh connected devices (Android/iOS/Harmony) with name, ID, resolution, OS type, SDK. " +
-        "Persists to .ada-agent/devices.json; scan returns rows[] for UI display. " +
-        "USE WHEN: after USB authorization or before mobile_action. " +
-        "KEY ARGS: action=list|scan (default list); deviceTags on scan (optional).",
+        "MOBILE PREREQUISITE: scan/list Android/iOS/Harmony devices. Returns rows + deviceParams.recommended.adaMobileAction. " +
+        "Copy platform, sessionId, capabilities into ada_mobile_action / ada_invoke (reuse sessionId). " +
+        "ARGS: action=scan|list (default scan). Optional deviceTags on scan.",
       inputSchema: {
         type: "object",
         properties: {
           action: {
             type: "string",
             enum: ["list", "scan"],
-            description: "list=read persisted registry; scan=run adb/hdc/xcrun and merge into registry"
+            description: "scan (default)=run adb/hdc/xcrun and merge into registry; list=read persisted cache only"
           },
           deviceTags: {
             type: "array",
@@ -131,10 +136,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_install_deps",
       description:
-        "[Configure] Download/install automation runtimes: Playwright browsers, Android adb tooling, iOS WDA prerequisites, Harmony hypium/hdc. " +
-        "USE WHEN: ada_health or ada_diagnostics reports missing deps; before first web/mobile E2E in a new environment. " +
-        "PREFER launcher --install-deps=... on cold start; use this tool for mid-session installs. " +
-        "KEY ARGS: only=all|playwright|mobile|android|ios|harmony|drivers (default playwright); force=true reinstall.",
+        "Install Playwright browsers, adb, WDA, hypium/hdc. USE: ada_health/diagnostics missing deps. " +
+        "ARGS: only=all|playwright|mobile|android|ios|harmony|drivers (default playwright); force=true.",
       inputSchema: {
         type: "object",
         properties: {
@@ -151,10 +154,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_start_once",
       description:
-        "[Configure] Run the ADA agent bootstrap flow once (equivalent to CLI start --once): credential check, optional dep install, plugin warmup. " +
-        "USE WHEN: emulating full agent startup from MCP without watch mode. " +
-        "NOT for browser automation steps (use ada_web_action). " +
-        "KEY ARGS: localDev=true skips credential gate; skipDeps=true skips auto install check.",
+        "Agent bootstrap once (credentials, deps, plugin warmup). Not UI automation → ada_web_action. " +
+        "ARGS: localDev=true; skipDeps=true.",
       inputSchema: {
         type: "object",
         properties: {
@@ -167,15 +168,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_web_action",
       description:
-        "[Execute-Web] High-level web UI automation with semantic commands (recommended for most web E2E). " +
-        "Engine: playwright (default, bundled Chromium). " +
-        "USE WHEN: navigate, click, type, screenshot, tabs, scroll, upload on a web page. " +
-        "PREFER over ada_execute for web-only flows (simpler schema). Use ada_invoke for raw Playwright page.* APIs. " +
-        "COMMANDS: navigate, click, type, screenshot, hover, press, select, scroll, newTab, switchTab, uploadFile, dragDrop, wait, assertText, getText, back, reload, closeTab, forward, custom. " +
-        `KEY ARGS: command (required), sessionId (reuse session), retry/retryDelayMs, engine, payload (locator/url/text/headless/userDataDir/cdpEndpoint/cdpAutoLaunch/cdpPort/channel). ` +
-        `TIP: set monitor.enabled=true with onFailureOnly=true on critical steps. ` +
-        "For dismiss popups use ada_web_dismiss_popups (no popup = POPUP_NOT_FOUND, not system error). " +
-        `${MOCK_HINT} ${RISK_HINT}`,
+        "Playwright web UI step. Common: navigate, click, type, screenshot, wait, newTab. Full commands: schema.enum. " +
+        "ARGS: command (required), sessionId, payload (locator, url, cdpEndpoint, userDataDir, headless). " +
+        `${UPGRADE_L2_L3_WEB} Popups → ada_web_dismiss_popups. monitor.onFailureOnly on critical steps.`,
       inputSchema: {
         type: "object",
         title: "ada_web_action_input",
@@ -212,10 +207,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_web_dismiss_popups",
       description:
-        "[Execute-Web] Best-effort dismiss dialogs/modals (DOM scan + locator clicks). " +
-        "ALWAYS returns ok: dismissed=true (POPUP_DISMISSED) or dismissed=false (POPUP_NOT_FOUND). " +
-        "PREFER over ada_web_action click loops for 关闭/×. " +
-        MOCK_HINT,
+        "Dismiss web dialogs (ok if POPUP_NOT_FOUND). Prefer over click loops for 关闭/×. ARGS: sessionId, timeoutMs.",
       inputSchema: {
         type: "object",
         title: "ada_web_dismiss_popups_input",
@@ -232,15 +224,11 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_action",
       description:
-        "[Execute-Mobile] High-level mobile UI automation via Android(adb+uia2), iOS(WDA), or Harmony stack. " +
-        "USE WHEN: tap, swipe, launch/terminate app, mobile screenshot, back/home on a device or emulator. " +
-        "PREFER over ada_execute for standard mobile gestures. Use ada_invoke for low-level driver RPC. " +
-        "COMMANDS: click, type, swipe, pinch, assertVisible, screenshot, wait, assertText, getText, back, home, launchApp, exitApp, deviceAdmin, custom. " +
-        "deviceAdmin payload.action: listApps|appInfo|installApp|uninstallApp|pushFile|pullFile|shell|hdc|currentApp|clearAppData|openUrl|pressKey|longPress|setClipboard|getClipboard|deviceInfo|grantPermission|setOrientation|startScreenRecord|stopScreenRecord|reboot. " +
-        `KEY ARGS: platform=android|ios|harmony (required), command (required), sessionId, retry/retryDelayMs, payload (serverUrl, capabilities, locator). ` +
-        `TIP: set monitor.enabled=true with onFailureOnly=true on critical steps. ` +
-        "For dismiss popups use ada_mobile_dismiss_popups (no popup = POPUP_NOT_FOUND, not system error). " +
-        `${MOCK_HINT} ${RISK_HINT}`,
+        "Mobile UI step (android|ios|harmony). Requires ada_devices(scan) → deviceParams.recommended (platform, sessionId, capabilities). " +
+        "Common: click, type, launchApp, screenshot, back, deviceAdmin. " +
+        `${DEVICE_ADMIN_HINT} ` +
+        `ARGS: platform, command, sessionId, payload (real, keepSession, capabilities, locator). ` +
+        `${UPGRADE_L2_L3_MOBILE} Popups → ada_mobile_dismiss_popups.`,
       inputSchema: {
         type: "object",
         title: "ada_mobile_action_input",
@@ -264,10 +252,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_dismiss_popups",
       description:
-        "[Execute-Mobile] Best-effort dismiss dialogs/popups (text labels + corner tap). " +
-        "ALWAYS returns ok: dismissed=true with POPUP_DISMISSED, or dismissed=false with POPUP_NOT_FOUND (no system error). " +
-        "PREFER over repeated ada_mobile_action click for 关闭/跳过. " +
-        `PLATFORMS: android, ios, harmony. ${MOCK_HINT}`,
+        "Dismiss mobile popups (ok if POPUP_NOT_FOUND). After ada_devices. ARGS: platform, sessionId, timeoutMs.",
       inputSchema: {
         type: "object",
         title: "ada_mobile_dismiss_popups_input",
@@ -285,9 +270,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_recipe",
       description:
-        "[Execute-Mobile-Recipe] High-level mobile UI recipes (dump_ui, tap_search, fill_search) on android|ios|harmony. " +
-        "Maps to semantic command recipe (same as phone.fillSearch). Navigation: phone.goto / phone.back. " +
-        `PLATFORMS: android, ios, harmony. ${MOCK_HINT}`,
+        "L2 mobile recipes: dump_ui, tap_search, fill_search (prefer over click+type chains). " +
+        "Requires ada_devices + same sessionId. ARGS: platform, action, text (fill_search).",
       inputSchema: {
         type: "object",
         title: "ada_mobile_recipe_input",
@@ -312,10 +296,10 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_execute",
       description:
-        "[Execute-T3] Universal CommandEnvelope (web+mobile). NOT RECOMMENDED for daily E2E — use ada_web_action / ada_mobile_action / ada_mobile_recipe instead. " +
-        "USE ONLY WHEN: a generic task runner must accept arbitrary commands in one schema. " +
-        "Aliases normalized at entry: terminateApp→exitApp, fill→type, home→pressHome; recipe→custom. " +
-        `PLATFORMS: web, android, ios, harmony. ${MOCK_HINT} ${RISK_HINT}`,
+        "L3 unified CommandEnvelope (web+mobile) for generic task runners. " +
+        "Prefer ada_web_action / ada_mobile_action for E2E; use ada_invoke for driver RPC. " +
+        `Aliases: terminateApp→exitApp, fill→type. ${policyRef()}` +
+        advancedExtra("Supports invoke/recipe/custom in one schema for CI task JSON."),
       inputSchema: {
         type: "object",
         title: "ada_execute_input",
@@ -371,12 +355,12 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_invoke",
       description:
-        "[Execute-LowLevel] Direct driver RPC: Playwright method calls (web), Android/iOS adapter endpoints, Harmony hypium APIs. " +
-        "USE WHEN: APIs not covered by semantic commands (e.g. page.evaluate, context.cookies, Android hierarchy dump, Harmony hdc). " +
-        "REQUIRES riskApproved=true (high risk). " +
-        "MODES: method (Playwright method + target + args) or http (adapter-specific method/path/body). " +
-        "KEY ARGS: platform (required), mode, target, method, args[], http{}, payload (engine/locator/capabilities). " +
-        MOCK_HINT,
+        "L3 driver RPC. Web: mode=method (page|locator + method + args). Mobile: mode=http (WebDriver/hdc path) + capabilities from ada_devices. " +
+        "REQUIRES riskApproved=true. VS ada_execute: invoke=RPC; execute=task envelope. " +
+        `${policyRef()}` +
+        advancedExtra(
+          "Web: page.evaluate, context.cookies. Android: GET /source. Harmony: hdc shell via http path."
+        ),
       inputSchema: {
         type: "object",
         title: "ada_invoke_input",
@@ -388,32 +372,32 @@ function buildAllAdaMcpToolDefinitions(): Array<{
             type: "string",
             title: "mode",
             enum: ["method", "http"],
-            description: "method=Playwright API; http=adapter HTTP 原生调用模式"
+            description: "method=Playwright API (web); http=adapter/WebDriver/hdc (mobile)"
           },
           target: {
             type: "string",
             title: "target",
-            description: "Playwright target: page|context|browser|locator"
+            description: "Playwright object: page | context | browser | locator"
           },
           method: {
             type: "string",
             title: "method",
-            description: "Method name on target 驱动方法名"
+            description: "Method name on target (method mode)"
           },
           args: {
             type: "array",
             title: "args",
             items: {},
-            description: "JSON-serializable arguments 方法参数数组"
+            description: "JSON-serializable method arguments"
           },
           http: {
             type: "object",
             title: "http",
-            description: "Adapter HTTP request body",
+            description: "Adapter HTTP { method, path, body }",
             properties: {
-              method: { type: "string", title: "method", description: "HTTP verb" },
-              path: { type: "string", title: "path", description: "WebDriver path" },
-              body: { title: "body", description: "Request JSON body" }
+              method: { type: "string", title: "method", description: "HTTP verb GET|POST" },
+              path: { type: "string", title: "path", description: "Driver path e.g. /session/.../source" },
+              body: { title: "body", description: "Optional JSON body" }
             },
             required: ["method", "path"]
           },
@@ -431,6 +415,31 @@ function buildAllAdaMcpToolDefinitions(): Array<{
             target: "page",
             method: "title",
             args: [],
+            sessionId: "jd-web",
+            riskApproved: true
+          },
+          {
+            platform: "android",
+            mode: "http",
+            sessionId: "ada-android-R28M30T7HFV",
+            http: { method: "GET", path: "/source" },
+            payload: {
+              real: true,
+              keepSession: true,
+              capabilities: { udid: "R28M30T7HFV" }
+            },
+            riskApproved: true
+          },
+          {
+            platform: "harmony",
+            mode: "http",
+            sessionId: "ada-harmony-device",
+            http: { method: "POST", path: "/hdc/shell", body: { command: "hidumper -s WindowManagerService -a -a" } },
+            payload: {
+              real: true,
+              keepSession: true,
+              capabilities: { deviceSn: "2QS0224716026324" }
+            },
             riskApproved: true
           }
         ]
@@ -439,10 +448,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_run_task_file",
       description:
-        "[Orchestrate] Execute a JSON task file (.tasks.json) with multiple steps, assertions, and optional monitoring — batch E2E in one call. " +
-        "USE WHEN: replaying saved scenarios, regression suites, or demo.tasks.json-style workflows. " +
-        "PREFER ada_batch_actions for ad-hoc inline steps without a file. " +
-        "KEY ARGS: file (required, path relative to workspace or absolute), allowMock, monitor.",
+        "L2 run .tasks.json (regression/CI). Inline steps without file → ada_batch_actions. ARGS: file (required), monitor.",
       inputSchema: {
         type: "object",
         properties: {
@@ -461,9 +467,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_batch_actions",
       description:
-        "[Orchestrate] Run an ordered list of semantic commands in one session without a task file. " +
-        "USE WHEN: multi-step flows (login → navigate → click) with shared sessionId and optional continue-on-error. " +
-        "KEY ARGS: platform, sessionId (required), actions[] ({ command, payload, timeoutMs, retry }), onFailure=stop|continue (preferred), continueOnError (deprecated), dryRun=true(validate only, no execution).",
+        "L2 multi-step semantic batch (shared sessionId). ARGS: platform, sessionId, actions[], onFailure=stop|continue, dryRun=true (validate only).",
       inputSchema: {
         type: "object",
         properties: {
@@ -515,9 +519,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_extract",
       description:
-        "[Data-Web] Extract structured data from the current web page in an existing Playwright session. " +
-        "USE WHEN: scraping visible text, link lists, or HTML tables after navigation (not for assertions — use ada_assertions). " +
-        "KEY ARGS: sessionId (required), mode=text|list|table, payload (selectors/locator options).",
+        "Extract web text/list/table. Not assertions → ada_assertions. ARGS: sessionId, mode=text|list|table, payload.",
       inputSchema: {
         type: "object",
         properties: {
@@ -561,9 +563,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_extract",
       description:
-        "[Data-Mobile] Extract text or full pageSource XML from an active mobile session (Android/iOS/Harmony). " +
-        "USE WHEN: reading on-screen text or debugging element tree. " +
-        "KEY ARGS: platform=android|ios|harmony, sessionId (required), type=text|pageSource, payload.",
+        "Mobile text or pageSource (debug tree before ada_invoke). ARGS: platform, sessionId, type=text|pageSource.",
       inputSchema: {
         type: "object",
         properties: {
@@ -585,9 +585,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_assertions",
       description:
-        "[Data-Mobile] Assert mobile UI state: element visible or text matches in Android/iOS/Harmony session. " +
-        "USE WHEN: mobile test verification after ada_mobile_action. " +
-        "KEY ARGS: platform, sessionId (required), type=visible|text, payload (locator, expected).",
+        "Assert mobile visible|text. ARGS: platform, sessionId, type, payload.",
       inputSchema: {
         type: "object",
         properties: {
@@ -604,18 +602,13 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     },
     {
       name: "ada_sessions",
-      description:
-        "[Session] List all active in-memory browser/device sessions (sessionId, platform, engine, timestamps). " +
-        "USE WHEN: reusing sessionId for follow-up steps, debugging leaks, or before ada_close_session. " +
-        "No parameters required.",
+      description: "List active sessions (sessionId, platform). USE: debug leaks before ada_close_session. No parameters.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false }
     },
     {
       name: "ada_close_session",
       description:
-        "[Session] Close one session by platform + sessionId and release browser/device resources. " +
-        "USE WHEN: finished with a flow, switching users, or freeing memory — always close when done. " +
-        "KEY ARGS: platform, sessionId (required); engine=playwright for web only.",
+        "Close one session. ARGS: platform, sessionId (required); engine=playwright for web.",
       inputSchema: {
         type: "object",
         properties: {
@@ -639,18 +632,13 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_close_all_sessions",
       description:
-        "[Session] Close every active session (web + mobile). " +
-        "USE WHEN: teardown after test suite, Cursor MCP reload, or recovering from stuck browsers. " +
-        "PREFER ada_close_session to close one session without disrupting others. " +
-        "No parameters required.",
+        "Close all sessions (teardown/MCP reload). Prefer ada_close_session for one flow. No parameters.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false }
     },
     {
       name: "ada_risk_policy",
       description:
-        "[Security] View or edit the allowlist for high-risk commands (invoke, custom, destructive ops). " +
-        "USE WHEN: ada_invoke returns risk-policy errors, or auditing which commands bypass approval. " +
-        "KEY ARGS: action=view|add|remove|reset; command (required for add/remove).",
+        "L4 risk allowlist (invoke/custom/destructive). USE: risk_denied errors. ARGS: action=view|add|remove|reset; command for add/remove.",
       inputSchema: {
         type: "object",
         properties: {
@@ -676,6 +664,7 @@ let cachedAdaMcpToolDefinitions: Array<{
   inputSchema: Record<string, unknown>;
 }> | null = null;
 let cachedHideAdvanced: boolean | null = null;
+let cachedDescMode: string | null = null;
 
 export function buildAdaMcpToolDefinitions(): Array<{
   name: string;
@@ -683,7 +672,12 @@ export function buildAdaMcpToolDefinitions(): Array<{
   inputSchema: Record<string, unknown>;
 }> {
   const hideAdvanced = shouldHideAdvancedTools();
-  if (cachedAdaMcpToolDefinitions && cachedHideAdvanced === hideAdvanced) {
+  const descMode = String(process.env.ADA_MCP_DESC_MODE ?? "");
+  if (
+    cachedAdaMcpToolDefinitions &&
+    cachedHideAdvanced === hideAdvanced &&
+    cachedDescMode === descMode
+  ) {
     return cachedAdaMcpToolDefinitions;
   }
   let tools = buildAllAdaMcpToolDefinitions();
@@ -697,5 +691,6 @@ export function buildAdaMcpToolDefinitions(): Array<{
     }))
   );
   cachedHideAdvanced = hideAdvanced;
+  cachedDescMode = descMode;
   return cachedAdaMcpToolDefinitions;
 }

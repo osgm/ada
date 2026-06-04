@@ -83,6 +83,7 @@ import {
   ensureMobileRuntimeReady,
   invalidateRuntimePreflightCache
 } from "./mcp-runtime-preflight.js";
+import { installMcpStdioGuard } from "./mcp-stdio-guard.js";
 
 async function isPortOpen(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -826,6 +827,7 @@ export function createAdaMcpProtocolServer(): Server {
 export const server = createAdaMcpProtocolServer();
 
 export async function startMcpServer(): Promise<void> {
+  installMcpStdioGuard();
   const binaryCommand = process.execPath;
   const cwd = process.cwd();
   const passedArgs = process.argv.slice(2);

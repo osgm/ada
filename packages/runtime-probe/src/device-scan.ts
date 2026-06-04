@@ -75,6 +75,26 @@ export function parseAdbDevicesOutput(stdout: string): Array<{ id: string; state
   return out;
 }
 
+export function isLikelyHdcDeviceId(id: string): boolean {
+  if (!id || /^empty$/i.test(id)) return false;
+  if (/^\[/.test(id) || /fail|error|not match|channelid/i.test(id)) return false;
+  if (/\s/.test(id)) return false;
+  return /^[\w.:+-]+$/.test(id);
+}
+
+/** 过滤 hdc 错误行、占位符等，避免写入 devices.json */
+export function isValidMobileDeviceId(platform: MobilePlatform, id: string): boolean {
+  const trimmed = String(id ?? "").trim();
+  if (!trimmed) return false;
+  if (/^\[/.test(trimmed) || /fail|error|not match/i.test(trimmed)) return false;
+  if (platform === "harmony") return isLikelyHdcDeviceId(trimmed);
+  if (/\s/.test(trimmed)) return false;
+  if (platform === "ios") {
+    return /^[\w-]{8,}$/i.test(trimmed);
+  }
+  return /^[\w.:+-]+$/.test(trimmed);
+}
+
 /** 解析 `hdc list targets` */
 export function parseHdcTargetsOutput(stdout: string): Array<{ id: string; state: DeviceConnectionState }> {
   const out: Array<{ id: string; state: DeviceConnectionState }> = [];
@@ -82,7 +102,7 @@ export function parseHdcTargetsOutput(stdout: string): Array<{ id: string; state
     const t = line.trim();
     if (!t || /^empty/i.test(t)) continue;
     const m = t.match(/^([^\s]+)(?:\s+(device|online|offline|unauthorized))?$/i);
-    if (!m?.[1]) continue;
+    if (!m?.[1] || !isLikelyHdcDeviceId(m[1])) continue;
     const state = normalizeState(m[2] ?? "device");
     out.push({ id: m[1], state });
   }

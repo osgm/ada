@@ -15,8 +15,10 @@ import { runSetupNative } from "@ada/agent/setup-native";
 import { runSetupUi } from "@ada/agent/bootstrap-ui";
 import {
   applyDeviceRegistryToEnv,
+  buildDeviceParamsGuide,
   registryToDeviceListRows,
   type DeviceListRow,
+  type DeviceParamsGuide,
   type DeviceRegistryDefaults
 } from "@ada/runtime-probe";
 import {
@@ -72,6 +74,7 @@ export async function getDeviceRegistrySnapshot(): Promise<Record<string, unknow
   const config = await loadConfig();
   const registry = await loadDeviceRegistry();
   const display = await getDeviceListForDisplay();
+  const deviceParams = buildDeviceParamsGuide(registry);
   return {
     configured: Boolean(config.devices),
     autoScanOnSetup: config.devices?.autoScanOnSetup ?? true,
@@ -79,7 +82,8 @@ export async function getDeviceRegistrySnapshot(): Promise<Record<string, unknow
     registry,
     rows: display.rows,
     lastScanAt: display.lastScanAt,
-    defaults: display.defaults
+    defaults: display.defaults,
+    deviceParams
   };
 }
 
@@ -124,15 +128,33 @@ export async function scanDevicesAndListForDisplay(): Promise<{
   defaults: DeviceRegistryDefaults;
   file: string;
   scanErrors: Array<{ platform: string; message: string }>;
+  deviceParams: DeviceParamsGuide;
+  hints?: string[];
 }> {
   const config = await loadConfig();
   const { registry, scan, file } = await scanAndPersistDevices(config, { applyEnv: true });
+  const rows = registryToDeviceListRows(registry);
+  const deviceParams = buildDeviceParamsGuide(registry);
+  const hints: string[] = [...deviceParams.rules];
+  const androidErr = scan.errors.find((e) => e.platform === "android");
+  if (androidErr) {
+    hints.push(`Android scan failed: ${androidErr.message}`);
+  } else if (!rows.some((r) => r.platform === "android")) {
+    hints.push(
+      "No Android device in scan. Connect USB, authorize adb on phone, run: adb devices. For mobile_action use platform=android and payload.capabilities.udid."
+    );
+  }
+  if (!rows.some((r) => r.platform === "harmony") && !scan.errors.some((e) => e.platform === "harmony")) {
+    hints.push("No Harmony device online (hdc list targets empty). Use platform=harmony only when a Harmony device is connected.");
+  }
   return {
-    rows: registryToDeviceListRows(registry),
+    rows,
     lastScanAt: registry.lastScanAt,
     defaults: registry.defaults,
     file,
-    scanErrors: scan.errors.map((e) => ({ platform: e.platform, message: e.message }))
+    scanErrors: scan.errors.map((e) => ({ platform: e.platform, message: e.message })),
+    deviceParams,
+    ...(hints.length ? { hints } : {})
   };
 }
 

@@ -2,9 +2,10 @@ import type {
   DeviceRegistry,
   DeviceRegistryDefaults,
   MobileDeviceScanResult,
+  MobilePlatform,
   ScannedMobileDevice
 } from "./device-types.js";
-import { flattenScan, pickDefaultDeviceId } from "./device-scan.js";
+import { flattenScan, isValidMobileDeviceId, pickDefaultDeviceId } from "./device-scan.js";
 
 export function createEmptyDeviceRegistry(deviceTags?: string[]): DeviceRegistry {
   const now = new Date().toISOString();
@@ -27,8 +28,11 @@ export function mergeDeviceScan(
   const base = existing ?? createEmptyDeviceRegistry(options?.deviceTags);
   const byKey = new Map(base.devices.map((d) => [`${d.platform}:${d.id}`, d]));
 
+  const freshKeys = new Set<string>();
   for (const fresh of flattenScan(scan)) {
+    if (!isValidMobileDeviceId(fresh.platform, fresh.id)) continue;
     const key = `${fresh.platform}:${fresh.id}`;
+    freshKeys.add(key);
     const prev = byKey.get(key);
     if (prev) {
       byKey.set(key, {
@@ -39,6 +43,21 @@ export function mergeDeviceScan(
       });
     } else {
       byKey.set(key, { ...fresh, firstSeenAt: now, lastSeenAt: now });
+    }
+  }
+
+  const scannedPlatforms: MobilePlatform[] = ["android", "ios", "harmony"];
+  for (const platform of scannedPlatforms) {
+    if (scan.errors.some((e) => e.platform === platform)) continue;
+    for (const [key, device] of byKey) {
+      if (device.platform === platform && !freshKeys.has(key)) {
+        byKey.delete(key);
+      }
+    }
+  }
+  for (const [key, device] of byKey) {
+    if (!isValidMobileDeviceId(device.platform, device.id)) {
+      byKey.delete(key);
     }
   }
 
@@ -53,11 +72,33 @@ export function mergeDeviceScan(
   const iosPool = scan.ios;
   const harmonyPool = scan.harmony;
 
+  const androidDefault = pickDefaultDeviceId(androidPool, preferred.android ?? defaults.android);
   defaults.android =
-    pickDefaultDeviceId(androidPool, preferred.android ?? defaults.android) ?? defaults.android;
-  defaults.ios = pickDefaultDeviceId(iosPool, preferred.ios ?? defaults.ios) ?? defaults.ios;
+    androidDefault && isValidMobileDeviceId("android", androidDefault)
+      ? androidDefault
+      : androidPool.length
+        ? undefined
+        : defaults.android && isValidMobileDeviceId("android", defaults.android)
+          ? defaults.android
+          : undefined;
+  const iosDefault = pickDefaultDeviceId(iosPool, preferred.ios ?? defaults.ios);
+  defaults.ios =
+    iosDefault && isValidMobileDeviceId("ios", iosDefault)
+      ? iosDefault
+      : iosPool.length
+        ? undefined
+        : defaults.ios && isValidMobileDeviceId("ios", defaults.ios)
+          ? defaults.ios
+          : undefined;
+  const harmonyDefault = pickDefaultDeviceId(harmonyPool, preferred.harmony ?? defaults.harmony);
   defaults.harmony =
-    pickDefaultDeviceId(harmonyPool, preferred.harmony ?? defaults.harmony) ?? defaults.harmony;
+    harmonyDefault && isValidMobileDeviceId("harmony", harmonyDefault)
+      ? harmonyDefault
+      : harmonyPool.length
+        ? undefined
+        : defaults.harmony && isValidMobileDeviceId("harmony", defaults.harmony)
+          ? defaults.harmony
+          : undefined;
 
   const tags =
     options?.deviceTags !== undefined
@@ -78,16 +119,19 @@ export function mergeDeviceScan(
 
 /** 将 registry 默认设备写入进程环境（不覆盖用户已显式设置的变量） */
 export function applyDeviceRegistryToEnv(registry: DeviceRegistry): void {
-  if (registry.defaults.android && !process.env.ADA_ANDROID_DEVICE_SN?.trim()) {
-    process.env.ADA_ANDROID_DEVICE_SN = registry.defaults.android;
-    process.env.ADA_ANDROID_UDID = registry.defaults.android;
+  const android = registry.defaults.android;
+  if (android && isValidMobileDeviceId("android", android) && !process.env.ADA_ANDROID_DEVICE_SN?.trim()) {
+    process.env.ADA_ANDROID_DEVICE_SN = android;
+    process.env.ADA_ANDROID_UDID = android;
   }
-  if (registry.defaults.ios && !process.env.ADA_IOS_DEVICE_UDID?.trim()) {
-    process.env.ADA_IOS_DEVICE_UDID = registry.defaults.ios;
+  const ios = registry.defaults.ios;
+  if (ios && isValidMobileDeviceId("ios", ios) && !process.env.ADA_IOS_DEVICE_UDID?.trim()) {
+    process.env.ADA_IOS_DEVICE_UDID = ios;
   }
-  if (registry.defaults.harmony && !process.env.ADA_HARMONY_DEVICE_SN?.trim()) {
-    process.env.ADA_HARMONY_DEVICE_SN = registry.defaults.harmony;
-    process.env.HARMONY_DEVICE_SN = registry.defaults.harmony;
+  const harmony = registry.defaults.harmony;
+  if (harmony && isValidMobileDeviceId("harmony", harmony) && !process.env.ADA_HARMONY_DEVICE_SN?.trim()) {
+    process.env.ADA_HARMONY_DEVICE_SN = harmony;
+    process.env.HARMONY_DEVICE_SN = harmony;
   }
 }
 

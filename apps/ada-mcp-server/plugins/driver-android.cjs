@@ -301,7 +301,7 @@ function defaultUia2DevicePort() {
   const fromEnv = Number(process.env.ADA_ANDROID_UIA2_DEVICE_PORT ?? "6790");
   return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 6790;
 }
-function runAdbCapture(serial, args, pipeStdout = false) {
+function runAdbCapture(serial, args, pipeStdout = true) {
   const adbArgs = serial ? ["-s", serial, ...args] : args;
   return new Promise((resolve) => {
     const child = (0, import_node_child_process2.spawn)("adb", adbArgs, {
@@ -430,6 +430,14 @@ var init_device_display = __esm({
   }
 });
 
+// ../../packages/runtime-probe/src/device-params-guide.ts
+var init_device_params_guide = __esm({
+  "../../packages/runtime-probe/src/device-params-guide.ts"() {
+    "use strict";
+    init_device_display();
+  }
+});
+
 // ../../packages/runtime-probe/src/index.ts
 var init_src3 = __esm({
   "../../packages/runtime-probe/src/index.ts"() {
@@ -439,6 +447,7 @@ var init_src3 = __esm({
     init_device_scan();
     init_device_registry();
     init_device_display();
+    init_device_params_guide();
   }
 });
 

@@ -10,7 +10,7 @@ export async function handleDevices(
     mcpTextResult: (data: Record<string, unknown>) => any;
   }
 ): Promise<any> {
-  const action = typeof args.action === "string" ? args.action : "list";
+  const action = typeof args.action === "string" ? args.action : "scan";
   if (action === "scan") {
     deps.invalidateRuntimeCaches();
     const tags = Array.isArray(args.deviceTags) ? args.deviceTags.filter((x): x is string => typeof x === "string") : undefined;

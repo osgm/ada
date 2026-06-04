@@ -17,7 +17,7 @@ export function defaultUia2DevicePort(): number {
 export function runAdbCapture(
   serial: string,
   args: string[],
-  pipeStdout = false
+  pipeStdout = true
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   const adbArgs = serial ? ["-s", serial, ...args] : args;
   return new Promise((resolve) => {

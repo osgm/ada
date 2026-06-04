@@ -434,6 +434,14 @@ var init_device_display = __esm({
   }
 });
 
+// ../../packages/runtime-probe/src/device-params-guide.ts
+var init_device_params_guide = __esm({
+  "../../packages/runtime-probe/src/device-params-guide.ts"() {
+    "use strict";
+    init_device_display();
+  }
+});
+
 // ../../packages/runtime-probe/src/index.ts
 var init_src3 = __esm({
   "../../packages/runtime-probe/src/index.ts"() {
@@ -443,6 +451,7 @@ var init_src3 = __esm({
     init_device_scan();
     init_device_registry();
     init_device_display();
+    init_device_params_guide();
   }
 });
 

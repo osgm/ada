@@ -4,7 +4,7 @@ import { buildAdaMcpToolDefinitions } from "../apps/ada-mcp-server/src/mcp-tool-
 import {
   buildRecoveryHint,
   getToolTier,
-  MCP_TOOL_TIER_ORDER,
+  MCP_TOOL_LIST_ORDER,
   shouldHideAdvancedTools
 } from "../apps/ada-mcp-server/src/mcp-tool-tiers.ts";
 
@@ -25,7 +25,7 @@ describe("mcp-tool-catalog", () => {
         assert.ok(names.includes(advanced), `missing advanced tool: ${advanced}`);
       }
       assert.ok(names[0].startsWith("ada_"));
-      assert.equal(getToolTier(names[0]), "T1");
+      assert.equal(names[0], "ada_health");
     } finally {
       if (prevHide === undefined) delete process.env.ADA_MCP_HIDE_ADVANCED;
       else process.env.ADA_MCP_HIDE_ADVANCED = prevHide;
@@ -49,20 +49,24 @@ describe("mcp-tool-catalog", () => {
     }
   });
 
-  it("sorts tools T1 then T2 then T3 and prefixes descriptions", () => {
+  it("sorts tools by domain order (invoke after web_action, before mobile_action)", () => {
     const prev = process.env.ADA_MCP_HIDE_ADVANCED;
     delete process.env.ADA_MCP_HIDE_ADVANCED;
     try {
       const tools = buildAdaMcpToolDefinitions();
-      let lastTier = 0;
+      const names = tools.map((tool) => tool.name);
+      const expected = MCP_TOOL_LIST_ORDER.filter((name) => names.includes(name));
+      assert.deepEqual(names, expected);
+      const webIdx = names.indexOf("ada_web_action");
+      const invokeIdx = names.indexOf("ada_invoke");
+      const mobileIdx = names.indexOf("ada_mobile_action");
+      assert.ok(webIdx >= 0 && invokeIdx > webIdx && invokeIdx < mobileIdx);
       for (const tool of tools) {
-        const tier = MCP_TOOL_TIER_ORDER[getToolTier(tool.name)];
-        assert.ok(tier >= lastTier, `tools not tier-sorted at ${tool.name}`);
-        lastTier = tier;
-        assert.match(tool.description, /^\[T[123]/);
+        assert.match(tool.description, /^\[L[0-4]/);
       }
       const invoke = tools.find((tool) => tool.name === "ada_invoke");
-      assert.ok(invoke?.description.includes("USE ONLY AFTER T1"));
+      assert.ok(invoke?.description.includes("Driver-level"));
+      assert.ok(invoke?.description.includes("riskApproved"));
     } finally {
       if (prev === undefined) delete process.env.ADA_MCP_HIDE_ADVANCED;
       else process.env.ADA_MCP_HIDE_ADVANCED = prev;
@@ -117,6 +121,15 @@ describe("mcp-tool-catalog", () => {
     assert.ok(tool, "ada_batch_actions should exist");
     const props = ((tool as { inputSchema: { properties?: Record<string, unknown> } }).inputSchema.properties ?? {});
     assert.ok("dryRun" in props, "dryRun should be part of inputSchema.properties");
-    assert.match(tool!.description, /dryRun=true/);
+    assert.match(tool!.description, /dryRun/);
+  });
+
+  it("ada_invoke includes web/android/harmony examples", () => {
+    const tool = buildAdaMcpToolDefinitions().find((item) => item.name === "ada_invoke");
+    assert.ok(tool);
+    const examples = (tool!.inputSchema as { examples?: unknown[] }).examples ?? [];
+    assert.equal(examples.length, 3);
+    const platforms = examples.map((ex) => (ex as { platform: string }).platform);
+    assert.deepEqual(platforms.sort(), ["android", "harmony", "web"]);
   });
 });
