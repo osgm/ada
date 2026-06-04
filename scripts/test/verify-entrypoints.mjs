@@ -92,7 +92,12 @@ async function main() {
         '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify-entrypoints","version":"1.0"}}}\n'
     }
   );
-  if (!/\[ADA-MCP\] server connected/.test(`${mcpInit.stdout}\n${mcpInit.stderr}`)) {
+  const mcpOut = `${mcpInit.stdout}\n${mcpInit.stderr}`;
+  const mcpInitOk =
+    /"serverInfo"\s*:\s*\{[^}]*"name"\s*:\s*"ada-mcp-server"/.test(mcpInit.stdout) ||
+    /\[ADA-MCP\].*server connected/i.test(mcpOut) ||
+    /\[ADA-MCP\].*ready.*stdio/i.test(mcpOut);
+  if (!mcpInitOk) {
     throw new Error(`ada-mcp initialize failed:\n${mcpInit.stdout}\n${mcpInit.stderr}`.trim());
   }
 

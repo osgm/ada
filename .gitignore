@@ -17,8 +17,8 @@ ANDROID_HOME/
 release/
 artifacts/
 
-# Build outputs
-build/
+# Build outputs（仅仓库根 build/；勿匹配 scripts/build/）
+/build/
 dist/
 scripts/lib/ada-executor.cjs
 *.tgz
