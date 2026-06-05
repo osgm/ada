@@ -7,6 +7,7 @@ import {
   ensureDriverDependencies,
   isInstallScopeComplete,
   resolveInstallContextCwd,
+  resolvePlaywrightHostFilePathSync,
   type EnsureInstallOptions,
   depsLogLine,
   emitBootstrapPhaseProgress,
@@ -98,11 +99,12 @@ function applyPreinstallPlaywrightHostFile(): void {
   if (process.env.PLAYWRIGHT_DOWNLOAD_HOST?.trim()) {
     return;
   }
-  const roots = [process.env.INIT_CWD, process.cwd()].filter(
-    (x): x is string => typeof x === "string" && x.trim().length > 0
-  );
-  for (const root of roots) {
-    const file = path.join(root, ".ada-mcp-playwright-host");
+  const hostCandidates = [
+    resolvePlaywrightHostFilePathSync(),
+    ...(process.env.INIT_CWD ? [path.join(process.env.INIT_CWD, ".ada-mcp-playwright-host")] : []),
+    path.join(process.cwd(), ".ada-mcp-playwright-host")
+  ];
+  for (const file of hostCandidates) {
     try {
       const host = normalizePlaywrightHost(fs.readFileSync(file, "utf8").trim());
       if (host.length > 0 && PREINSTALL_PLAYWRIGHT_HOST_ALLOW.has(host)) {

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import path from "node:path";
+import { resolveDeviceRegistryPathSync } from "@ada/core-runtime";
 import type { Platform } from "@ada/contracts";
 
 export interface DeviceRegistryDefaults {
@@ -13,8 +13,8 @@ export interface MergePayloadOptions {
   screen?: { width: number; height: number };
 }
 
-async function deviceRegistryPath(cwd: string): Promise<string> {
-  return path.join(cwd, ".ada-agent", "devices.json");
+async function deviceRegistryPath(_cwd: string): Promise<string> {
+  return resolveDeviceRegistryPathSync();
 }
 
 export async function loadDeviceRegistryDefaults(cwd = process.cwd()): Promise<DeviceRegistryDefaults> {

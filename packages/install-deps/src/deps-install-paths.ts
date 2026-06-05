@@ -1,7 +1,10 @@
-import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { resolveWorkspaceRoot as resolveWorkspaceRootCore } from "@ada/core-runtime";
+import {
+  resolveGlobalAdaHomeSync as resolveGlobalAdaHomeFromCore,
+  resolveUserHomeDirSync,
+  resolveWorkspaceRoot as resolveWorkspaceRootCore
+} from "@ada/core-runtime";
 import {
   discoverPlaywrightBrowsersPath,
   isPlaywrightBrowsersAutoDiscoverEnabled
@@ -24,17 +27,59 @@ export function resolveInstallContextCwd(): string {
   return process.cwd();
 }
 
-/** 全局 ADA 数据目录（默认 ~/.ada） */
+/** 全局 ADA 数据目录（默认当前用户 ~/.ada） */
 export function resolveGlobalAdaHomeSync(): string {
-  const override = process.env.ADA_HOME?.trim();
-  if (override) {
-    return path.resolve(override);
-  }
-  return path.join(os.homedir(), ".ada");
+  return resolveGlobalAdaHomeFromCore();
 }
 
 export async function resolveGlobalAdaHome(): Promise<string> {
   return resolveGlobalAdaHomeSync();
+}
+
+/** 确保 ~/.ada 存在并返回路径 */
+export async function ensureGlobalAdaHome(): Promise<string> {
+  const dir = resolveGlobalAdaHomeSync();
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
+}
+
+export {
+  resolveAgentEffectiveConfigPathSync,
+  resolveDeviceRegistryPathSync,
+  resolvePlaywrightHostFilePathSync
+} from "@ada/core-runtime";
+
+/** 旧版 `.ada-agent/*` 路径（迁移读取用） */
+export async function legacyAdaAgentDataCandidates(fileName: string): Promise<string[]> {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (p: string) => {
+    const n = path.normalize(p);
+    if (!seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  };
+
+  add(path.join(resolveGlobalAdaHomeFromCore(), ".ada-agent", fileName));
+  add(path.join(resolveUserHomeDirSync(), ".ada-agent", fileName));
+
+  try {
+    const ws = await resolveWorkspaceRoot(resolveInstallContextCwd());
+    add(path.join(ws, ".ada-agent", fileName));
+  } catch {
+    // ignore
+  }
+  add(path.join(process.cwd(), ".ada-agent", fileName));
+  add(path.join(process.cwd(), "..", ".ada-agent", fileName));
+  return out;
+}
+
+/** 旧版工作区 `.ada-agent/deps-install-state.json`（迁移用） */
+export async function legacyDepsStateFileCandidates(): Promise<string[]> {
+  const legacy = await legacyAdaAgentDataCandidates("deps-install-state.json");
+  const hostFile = path.join(resolveInstallContextCwd(), ".ada-mcp-playwright-host");
+  return [...legacy, hostFile];
 }
 
 /** Agent / GUI / Web / MCP 共用的 npm 包装目录 */
@@ -116,26 +161,4 @@ export async function ensureDepsInstallWorkspace(depsRoot: string): Promise<void
       "utf8"
     );
   }
-}
-
-/** 旧版工作区 `.ada-agent/deps-install-state.json`（迁移用） */
-export async function legacyDepsStateFileCandidates(): Promise<string[]> {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (p: string) => {
-    const n = path.normalize(p);
-    if (!seen.has(n)) {
-      seen.add(n);
-      out.push(n);
-    }
-  };
-  try {
-    const ws = await resolveWorkspaceRoot(resolveInstallContextCwd());
-    add(path.join(ws, ".ada-agent", "deps-install-state.json"));
-  } catch {
-    // ignore
-  }
-  add(path.join(process.cwd(), ".ada-agent", "deps-install-state.json"));
-  add(path.join(process.cwd(), "..", ".ada-agent", "deps-install-state.json"));
-  return out;
 }

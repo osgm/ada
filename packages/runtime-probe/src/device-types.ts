@@ -44,7 +44,7 @@ export interface DeviceRegistryDefaults {
   harmony?: string;
 }
 
-/** 持久化到 .ada-agent/devices.json */
+/** 持久化到 ~/.ada/devices.json */
 export interface DeviceRegistry {
   version: 1;
   updatedAt: string;

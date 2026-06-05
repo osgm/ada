@@ -30,13 +30,18 @@ export {
   type EnsureInstallOptions
 } from "./dependency-installer.js";
 export {
+  legacyAdaAgentDataCandidates,
   legacyDepsStateFileCandidates,
   resolveDepsInstallRoot,
   resolveDepsStateFilePath,
   resolveDepsStateFilePathSync,
+  resolveAgentEffectiveConfigPathSync,
+  resolveDeviceRegistryPathSync,
+  ensureGlobalAdaHome,
   resolveGlobalAdaHome,
   resolveGlobalAdaHomeSync,
   resolveInstallContextCwd,
+  resolvePlaywrightHostFilePathSync,
   resolvePlaywrightBrowsersPath,
   resolveWorkspaceRoot,
   ensureDepsInstallWorkspace,

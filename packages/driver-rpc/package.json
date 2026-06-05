@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@ada/contracts": "0.1.0",
+    "@ada/core-runtime": "0.1.0",
     "@ada/mobile-ui": "0.1.0"
   }
 }

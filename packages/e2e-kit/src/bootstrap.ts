@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { spawn } from "node:child_process";
+import { resolveDeviceRegistryPathSync } from "@ada/core-runtime";
 import { loadDeviceRegistryDefaults, mergeMobileSessionPayload } from "@ada/driver-rpc";
 import { parseHdcTargetsOutput } from "@ada/runtime-probe";
 
@@ -63,12 +63,13 @@ export async function bootstrapHarmony(
   const pref = preferredSn?.trim() || defaults.harmony || process.env.ADA_HARMONY_DEVICE_SN?.trim() || "";
   let deviceSn = pref && online.includes(pref) ? pref : online[0];
   try {
-    const raw = await fs.readFile(path.join(cwd, ".ada-agent", "devices.json"), "utf8");
+    const registryPath = resolveDeviceRegistryPathSync();
+    const raw = await fs.readFile(registryPath, "utf8");
     const reg = JSON.parse(raw);
     if (!reg.defaults) reg.defaults = {};
     reg.defaults.harmony = deviceSn;
     reg.updatedAt = new Date().toISOString();
-    await fs.writeFile(path.join(cwd, ".ada-agent", "devices.json"), JSON.stringify(reg, null, 2));
+    await fs.writeFile(registryPath, JSON.stringify(reg, null, 2));
   } catch {
     /* ignore */
   }

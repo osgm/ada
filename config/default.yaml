@@ -66,7 +66,7 @@ monitoring:
     maxHeight: 720
     keepAspectRatio: true # 保持比例，避免监控图像变形
 
-# 移动设备：引导/启动后自动 adb/hdc/xcrun 扫描并写入 .ada-agent/devices.json
+# 移动设备：引导/启动后自动 adb/hdc/xcrun 扫描并写入 ~/.ada/devices.json
 devices:
   autoScanOnSetup: true
   autoScanOnStart: true

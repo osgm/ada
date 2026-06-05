@@ -1,6 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+export {
+  isFilesystemRootPath,
+  resolveAgentEffectiveConfigPathSync,
+  resolveDeviceRegistryPathSync,
+  resolveGlobalAdaHomeSync,
+  resolvePlaywrightHostFilePathSync,
+  resolveUserHomeDirSync
+} from "./ada-home.js";
+
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

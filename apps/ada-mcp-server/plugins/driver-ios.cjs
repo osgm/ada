@@ -31,6 +31,82 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// ../../packages/core-runtime/src/ada-home.ts
+function isFilesystemRootPath(dir) {
+  const resolved = import_node_path.default.resolve(dir);
+  const parsed = import_node_path.default.parse(resolved);
+  return resolved === parsed.root || import_node_path.default.dirname(resolved) === parsed.root;
+}
+function resolveUserHomeDirSync() {
+  const candidates = [
+    import_node_os.default.homedir(),
+    process.env.HOME,
+    process.env.USERPROFILE,
+    process.platform === "win32" && process.env.SystemDrive && process.env.USERNAME ? import_node_path.default.join(process.env.SystemDrive, "Users", process.env.USERNAME) : void 0
+  ].filter((x) => typeof x === "string" && x.trim().length > 0);
+  for (const candidate of candidates) {
+    const resolved = import_node_path.default.resolve(candidate.trim());
+    if (!isFilesystemRootPath(resolved)) {
+      return resolved;
+    }
+  }
+  return process.platform === "win32" ? import_node_path.default.join("C:", "Users", "Default") : "/tmp";
+}
+function resolveGlobalAdaHomeSync() {
+  const override = process.env.ADA_HOME?.trim();
+  if (override) {
+    const resolved = import_node_path.default.resolve(override);
+    if (!isFilesystemRootPath(resolved)) {
+      return resolved;
+    }
+  }
+  return import_node_path.default.join(resolveUserHomeDirSync(), ".ada");
+}
+var import_node_os, import_node_path;
+var init_ada_home = __esm({
+  "../../packages/core-runtime/src/ada-home.ts"() {
+    "use strict";
+    import_node_os = __toESM(require("node:os"), 1);
+    import_node_path = __toESM(require("node:path"), 1);
+  }
+});
+
+// ../../packages/core-runtime/src/index.ts
+async function resolveWorkspaceRoot(configRelativePath, startDir = process.cwd()) {
+  const exeDir = import_node_path2.default.dirname(process.execPath);
+  if (exeDir && exeDir !== "." && exeDir.length > 1) {
+    const besideExe = import_node_path2.default.join(exeDir, configRelativePath);
+    try {
+      await import_promises.default.access(besideExe);
+      return exeDir;
+    } catch {
+    }
+  }
+  let current = startDir;
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = import_node_path2.default.join(current, configRelativePath);
+    try {
+      await import_promises.default.access(candidate);
+      return current;
+    } catch {
+      const parent = import_node_path2.default.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+  return startDir;
+}
+var import_promises, import_node_path2;
+var init_src = __esm({
+  "../../packages/core-runtime/src/index.ts"() {
+    import_promises = __toESM(require("node:fs/promises"));
+    import_node_path2 = __toESM(require("node:path"));
+    init_ada_home();
+  }
+});
+
 // ../../packages/install-deps/src/install-progress.ts
 var init_install_progress = __esm({
   "../../packages/install-deps/src/install-progress.ts"() {
@@ -43,41 +119,6 @@ var init_log_locale = __esm({
   "../../packages/install-deps/src/log-locale.ts"() {
     "use strict";
     init_install_progress();
-  }
-});
-
-// ../../packages/core-runtime/src/index.ts
-async function resolveWorkspaceRoot(configRelativePath, startDir = process.cwd()) {
-  const exeDir = import_node_path.default.dirname(process.execPath);
-  if (exeDir && exeDir !== "." && exeDir.length > 1) {
-    const besideExe = import_node_path.default.join(exeDir, configRelativePath);
-    try {
-      await import_promises.default.access(besideExe);
-      return exeDir;
-    } catch {
-    }
-  }
-  let current = startDir;
-  for (let i = 0; i < 10; i += 1) {
-    const candidate = import_node_path.default.join(current, configRelativePath);
-    try {
-      await import_promises.default.access(candidate);
-      return current;
-    } catch {
-      const parent = import_node_path.default.dirname(current);
-      if (parent === current) {
-        break;
-      }
-      current = parent;
-    }
-  }
-  return startDir;
-}
-var import_promises, import_node_path;
-var init_src = __esm({
-  "../../packages/core-runtime/src/index.ts"() {
-    import_promises = __toESM(require("node:fs/promises"));
-    import_node_path = __toESM(require("node:path"));
   }
 });
 
@@ -99,23 +140,19 @@ function resolveInstallContextCwd() {
   }
   return process.cwd();
 }
-function resolveGlobalAdaHomeSync() {
-  const override = process.env.ADA_HOME?.trim();
-  if (override) {
-    return import_node_path2.default.resolve(override);
-  }
-  return import_node_path2.default.join(import_node_os.default.homedir(), ".ada");
+function resolveGlobalAdaHomeSync2() {
+  return resolveGlobalAdaHomeSync();
 }
-var import_node_os, import_node_path2, DEFAULT_CONFIG_RELATIVE;
+var import_node_path3, DEFAULT_CONFIG_RELATIVE;
 var init_deps_install_paths = __esm({
   "../../packages/install-deps/src/deps-install-paths.ts"() {
     "use strict";
-    import_node_os = __toESM(require("node:os"), 1);
-    import_node_path2 = __toESM(require("node:path"), 1);
+    import_node_path3 = __toESM(require("node:path"), 1);
     init_src();
     init_playwright_browsers_discovery();
     init_log_locale();
-    DEFAULT_CONFIG_RELATIVE = import_node_path2.default.join("config", "default.yaml");
+    init_src();
+    DEFAULT_CONFIG_RELATIVE = import_node_path3.default.join("config", "default.yaml");
   }
 });
 
@@ -130,20 +167,20 @@ function normalizeToolsRelativeSegment(relativeDir) {
 }
 function joinWorkspaceToolsDir(baseDir, relativeDir) {
   const rel = normalizeToolsRelativeSegment(relativeDir);
-  const base = import_node_path3.default.resolve(baseDir);
-  const parsed = import_node_path3.default.parse(base);
+  const base = import_node_path4.default.resolve(baseDir);
+  const parsed = import_node_path4.default.parse(base);
   if (base === parsed.root) {
-    return import_node_path3.default.join(resolveGlobalAdaHomeSync(), rel);
+    return import_node_path4.default.join(resolveGlobalAdaHomeSync2(), rel);
   }
-  return import_node_path3.default.join(base, rel);
+  return import_node_path4.default.join(base, rel);
 }
 function isFilesystemRootToolsDir(dir) {
-  const resolved = import_node_path3.default.resolve(dir);
-  const parsed = import_node_path3.default.parse(resolved);
-  return import_node_path3.default.dirname(resolved) === parsed.root;
+  const resolved = import_node_path4.default.resolve(dir);
+  const parsed = import_node_path4.default.parse(resolved);
+  return import_node_path4.default.dirname(resolved) === parsed.root;
 }
 function resolveAdaHomeToolsDir(relativeDir) {
-  return import_node_path3.default.join(resolveGlobalAdaHomeSync(), normalizeToolsRelativeSegment(relativeDir));
+  return import_node_path4.default.join(resolveGlobalAdaHomeSync2(), normalizeToolsRelativeSegment(relativeDir));
 }
 async function fileExists(filePath) {
   try {
@@ -154,13 +191,13 @@ async function fileExists(filePath) {
   }
 }
 async function toolsDirHasHdc(dir) {
-  return fileExists(import_node_path3.default.join(dir, HDC_BIN));
+  return fileExists(import_node_path4.default.join(dir, HDC_BIN));
 }
 function uniquePaths(paths) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const raw of paths) {
-    const normalized = import_node_path3.default.normalize(raw);
+    const normalized = import_node_path4.default.normalize(raw);
     if (seen.has(normalized)) {
       continue;
     }
@@ -175,7 +212,7 @@ function mcpServerEntryDir() {
     return null;
   }
   try {
-    return import_node_path3.default.dirname(import_node_path3.default.resolve(entry));
+    return import_node_path4.default.dirname(import_node_path4.default.resolve(entry));
   } catch {
     return null;
   }
@@ -183,10 +220,10 @@ function mcpServerEntryDir() {
 function walkUpToolsDirs(startDir, relativeDir, maxDepth = 10) {
   const rel = normalizeToolsRelativeSegment(relativeDir);
   const out = [];
-  let dir = import_node_path3.default.resolve(startDir);
+  let dir = import_node_path4.default.resolve(startDir);
   for (let i = 0; i < maxDepth; i += 1) {
     out.push(joinWorkspaceToolsDir(dir, rel));
-    const parent = import_node_path3.default.dirname(dir);
+    const parent = import_node_path4.default.dirname(dir);
     if (parent === dir) {
       break;
     }
@@ -213,7 +250,7 @@ async function collectToolsDirCandidates(options) {
   const relativeDir = normalizeToolsRelativeSegment(options?.relativeDir);
   const startCwd = options?.cwd ?? resolveInstallContextCwd();
   const entryDir = mcpServerEntryDir();
-  const execDir = import_node_path3.default.dirname(process.execPath);
+  const execDir = import_node_path4.default.dirname(process.execPath);
   const adaHomeTools = resolveAdaHomeToolsDir(relativeDir);
   const startDirs = uniquePaths(
     [
@@ -226,7 +263,7 @@ async function collectToolsDirCandidates(options) {
     ].filter((x) => typeof x === "string" && x.length > 0)
   );
   const candidates = uniquePaths([
-    ...process.env.ADA_TOOLS_DIR?.trim() ? [import_node_path3.default.resolve(process.env.ADA_TOOLS_DIR.trim())] : [],
+    ...process.env.ADA_TOOLS_DIR?.trim() ? [import_node_path4.default.resolve(process.env.ADA_TOOLS_DIR.trim())] : [],
     ...await workspaceToolsDirs(relativeDir, startDirs),
     ...startDirs.flatMap((dir) => walkUpToolsDirs(dir, relativeDir)),
     adaHomeTools
@@ -262,12 +299,12 @@ async function resolveDefaultToolsDir(options) {
 function adaHomeToolsFromOptions(options) {
   return resolveAdaHomeToolsDir(options?.relativeDir);
 }
-var import_promises2, import_node_path3, HDC_BIN, DEFAULT_TOOLS_RELATIVE;
+var import_promises2, import_node_path4, HDC_BIN, DEFAULT_TOOLS_RELATIVE;
 var init_tools_paths = __esm({
   "../../packages/install-deps/src/tools-paths.ts"() {
     "use strict";
     import_promises2 = __toESM(require("node:fs/promises"), 1);
-    import_node_path3 = __toESM(require("node:path"), 1);
+    import_node_path4 = __toESM(require("node:path"), 1);
     init_deps_install_paths();
     init_deps_install_paths();
     init_deps_install_paths();
@@ -581,8 +618,8 @@ async function runCommand(command, args, cwd) {
   });
 }
 async function ensureWdaSources(toolsDir, onLogLine, options) {
-  const dir = import_node_path4.default.join(toolsDir, "wda", "WebDriverAgent");
-  const project = import_node_path4.default.join(dir, "WebDriverAgent.xcodeproj");
+  const dir = import_node_path5.default.join(toolsDir, "wda", "WebDriverAgent");
+  const project = import_node_path5.default.join(dir, "WebDriverAgent.xcodeproj");
   if (await pathExists(project)) return project;
   const cloneEnabled = options?.allowClone === true || ["1", "true", "yes"].includes((process.env.ADA_IOS_WDA_CLONE ?? "").trim().toLowerCase());
   if (!cloneEnabled) {
@@ -591,7 +628,7 @@ async function ensureWdaSources(toolsDir, onLogLine, options) {
     );
   }
   onLogLine?.(`[ios-wda] cloning ${PINNED_WDA_REPO}`);
-  await import_promises3.default.mkdir(import_node_path4.default.dirname(dir), { recursive: true });
+  await import_promises3.default.mkdir(import_node_path5.default.dirname(dir), { recursive: true });
   await runCommand("git", ["clone", "--depth", "1", PINNED_WDA_REPO, dir]);
   if (!await pathExists(project)) {
     throw new Error("WebDriverAgent clone completed but WebDriverAgent.xcodeproj missing");
@@ -599,7 +636,7 @@ async function ensureWdaSources(toolsDir, onLogLine, options) {
   return project;
 }
 function spawnXcodebuildWda(projectPath, destination, onLogLine) {
-  const projectDir = import_node_path4.default.dirname(projectPath);
+  const projectDir = import_node_path5.default.dirname(projectPath);
   const args = [
     "-project",
     projectPath,
@@ -654,7 +691,7 @@ async function ensureIosWdaBootstrap(options) {
     return { outcome: artifact, wdaUrl };
   }
   try {
-    const toolsDir = await resolveDefaultToolsDir() ?? import_node_path4.default.join(process.cwd(), "tools");
+    const toolsDir = await resolveDefaultToolsDir() ?? import_node_path5.default.join(process.cwd(), "tools");
     const projectPath = await ensureWdaSources(toolsDir, onLogLine, {
       allowClone: options?.scopeInstall === true
     });
@@ -679,12 +716,12 @@ async function ensureIosWdaBootstrap(options) {
   }
   return { outcome: artifact, wdaUrl };
 }
-var import_promises3, import_node_path4, import_node_child_process2, PINNED_WDA_REPO;
+var import_promises3, import_node_path5, import_node_child_process2, PINNED_WDA_REPO;
 var init_ios_wda_bootstrap = __esm({
   "../../packages/install-deps/src/ios-wda-bootstrap.ts"() {
     "use strict";
     import_promises3 = __toESM(require("node:fs/promises"), 1);
-    import_node_path4 = __toESM(require("node:path"), 1);
+    import_node_path5 = __toESM(require("node:path"), 1);
     import_node_child_process2 = require("node:child_process");
     init_tools_paths();
     init_src3();
@@ -758,6 +795,9 @@ function iosSessionSignature(payload) {
     capabilities: capsOf(payload)
   });
 }
+
+// ../../packages/driver-rpc/src/session-defaults.ts
+init_src();
 
 // ../../packages/driver-rpc/src/fill-search-options.ts
 function asStringList(v) {
@@ -1737,8 +1777,8 @@ var ElementIdCache = class {
 function isHttpServerUrl(value) {
   return /^https?:\/\//i.test(value.trim());
 }
-function resolveMobileHttpPath(baseUrl, path8, sessionId) {
-  const trimmed = path8.trim();
+function resolveMobileHttpPath(baseUrl, path9, sessionId) {
+  const trimmed = path9.trim();
   if (isHttpServerUrl(trimmed)) {
     return trimmed;
   }
@@ -2078,16 +2118,16 @@ init_src3();
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
 init_src3();
 var import_promises5 = __toESM(require("node:fs/promises"), 1);
-var import_node_path7 = __toESM(require("node:path"), 1);
+var import_node_path8 = __toESM(require("node:path"), 1);
 
 // ../../plugins/driver-ios/src/device-admin.ts
 var import_node_child_process4 = require("node:child_process");
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_node_path7 = __toESM(require("node:path"), 1);
 
 // ../../plugins/driver-ios/src/ios-afc-client.ts
 var import_node_child_process3 = require("node:child_process");
 var import_promises4 = __toESM(require("node:fs/promises"), 1);
-var import_node_path5 = __toESM(require("node:path"), 1);
+var import_node_path6 = __toESM(require("node:path"), 1);
 var CONTAINER_PATH_RE = /^@([^:]+):([^/]+)\/(.+)$/;
 var BUNDLE_PATH_RE = /^@([^:]+):(.+)$/s;
 var BUNDLE_ONLY_RE = /^@([^:]+)$/;
@@ -2176,7 +2216,7 @@ async function iosAfcPush(options) {
   if (process.platform !== "darwin") {
     return { ok: false, code: "IOS_AFC_HOST_UNSUPPORTED", message: "afcclient requires macOS host" };
   }
-  const localPath = import_node_path5.default.resolve(options.localPath);
+  const localPath = import_node_path6.default.resolve(options.localPath);
   try {
     await import_promises4.default.access(localPath);
   } catch {
@@ -2207,8 +2247,8 @@ async function iosAfcPull(options) {
   if (process.platform !== "darwin") {
     return { ok: false, code: "IOS_AFC_HOST_UNSUPPORTED", message: "afcclient requires macOS host" };
   }
-  const localPath = import_node_path5.default.resolve(options.localPath);
-  await import_promises4.default.mkdir(import_node_path5.default.dirname(localPath), { recursive: true });
+  const localPath = import_node_path6.default.resolve(options.localPath);
+  await import_promises4.default.mkdir(import_node_path6.default.dirname(localPath), { recursive: true });
   const parsedRemote = parseIosRemotePath(options.remotePath, options.fallbackBundleId);
   if (!parsedRemote.ok) {
     return { ok: false, code: "IOS_PULL_REMOTE_INVALID", message: parsedRemote.message };
@@ -2322,7 +2362,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { appId, installed: packages.includes(appId) });
     }
     case "installApp": {
-      const localPath = import_node_path6.default.resolve(String(payload.path ?? payload.localPath ?? ""));
+      const localPath = import_node_path7.default.resolve(String(payload.path ?? payload.localPath ?? ""));
       if (!localPath) return deviceAdminFail(command, "IOS_INSTALL_PATH_MISSING", "path required");
       const res = await runHostTool("ideviceinstaller", ["-i", localPath]);
       if (!res.ok) return deviceAdminFail(command, "IOS_INSTALL_FAILED", res.stderr || res.stdout);
@@ -2339,7 +2379,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { appId, output: res.stdout.trim() });
     }
     case "pushFile": {
-      const localPath = import_node_path6.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const localPath = import_node_path7.default.resolve(String(payload.localPath ?? payload.path ?? ""));
       const remotePath = String(payload.remotePath ?? "").trim();
       if (!localPath || !remotePath) {
         return deviceAdminFail(command, "IOS_PUSH_PATHS_MISSING", "localPath and remotePath required");
@@ -2354,7 +2394,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { localPath, remotePath, tool: "afcclient" });
     }
     case "pullFile": {
-      const localPath = import_node_path6.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const localPath = import_node_path7.default.resolve(String(payload.localPath ?? payload.path ?? ""));
       const remotePath = String(payload.remotePath ?? "").trim();
       if (!localPath || !remotePath) {
         return deviceAdminFail(command, "IOS_PULL_PATHS_MISSING", "localPath and remotePath required");
@@ -2759,7 +2799,7 @@ var WdaClientAdapter = class _WdaClientAdapter {
       screenshot: async (outputPath) => {
         const res = await wdaFetch("GET", `${session.serverUrl}/session/${session.sessionId}/screenshot`);
         if (!res.ok || typeof res.value !== "string") throw new Error(JSON.stringify(res.raw ?? {}));
-        await import_promises5.default.mkdir(import_node_path7.default.dirname(outputPath), { recursive: true });
+        await import_promises5.default.mkdir(import_node_path8.default.dirname(outputPath), { recursive: true });
         await import_promises5.default.writeFile(outputPath, Buffer.from(res.value, "base64"));
         return outputPath;
       },
@@ -2785,7 +2825,7 @@ var WdaClientAdapter = class _WdaClientAdapter {
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "pressHome" } };
     }
     if (command.command === "screenshot") {
-      const output = payload.screenshotPath ?? import_node_path7.default.join(process.cwd(), "artifacts", `${command.requestId}-ios.png`);
+      const output = payload.screenshotPath ?? import_node_path8.default.join(process.cwd(), "artifacts", `${command.requestId}-ios.png`);
       await observe.screenshot(output);
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "screenshot", screenshot: output } };
     }
