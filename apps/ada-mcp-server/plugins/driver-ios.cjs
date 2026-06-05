@@ -405,10 +405,102 @@ var init_playwright_browser_install = __esm({
   }
 });
 
-// ../../packages/runtime-probe/src/runtime-probe.ts
-var init_runtime_probe = __esm({
-  "../../packages/runtime-probe/src/runtime-probe.ts"() {
+// ../../packages/runtime-probe/src/ios-wda-probe.ts
+function iosUseSimulator() {
+  return ["1", "true", "yes"].includes((process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase());
+}
+function runCommandCapture(command, args, timeoutMs = 15e3) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process.spawn)(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      ...process.platform === "win32" ? { windowsHide: true } : {}
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ code: -1, stdout, stderr: stderr || "timeout" });
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve({ code: 1, stdout: "", stderr: "" });
+    });
+  });
+}
+function defaultWdaServerUrl() {
+  return (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100").replace(/\/$/, "");
+}
+function wdaBootstrapEnabled() {
+  const raw = process.env.ADA_IOS_WDA_BOOTSTRAP?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+async function resolveFirstPhysicalIosUdidViaIdeviceId() {
+  const listed = await runCommandCapture("idevice_id", ["-l"]);
+  if (listed.code !== 0) return "";
+  for (const line of listed.stdout.split(/\r?\n/)) {
+    const udid = line.trim();
+    if (udid) return udid;
+  }
+  return "";
+}
+async function resolveIosDeviceUdid(preferred) {
+  const fromEnv = preferred?.trim() || process.env.ADA_IOS_DEVICE_UDID?.trim() || "";
+  if (fromEnv) return fromEnv;
+  if (process.platform === "win32") {
+    return resolveFirstPhysicalIosUdidViaIdeviceId();
+  }
+  if (process.platform !== "darwin") return "";
+  const physical = await resolveFirstPhysicalIosUdid();
+  if (physical && !iosUseSimulator()) {
+    return physical;
+  }
+  if (physical && iosUseSimulator()) {
+    const bootedSim2 = await resolveBootedSimulatorUdid();
+    if (bootedSim2) return bootedSim2;
+    return physical;
+  }
+  const bootedSim = await resolveBootedSimulatorUdid();
+  if (bootedSim) return bootedSim;
+  return physical ?? "";
+}
+async function resolveBootedSimulatorUdid() {
+  const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "booted"]);
+  if (sim.code !== 0) return "";
+  const match = sim.stdout.match(/\(([A-F0-9-]{36})\)\s+\(Booted\)/i);
+  return match?.[1] ?? "";
+}
+async function resolveFirstPhysicalIosUdid() {
+  const trace = await runCommandCapture("xcrun", ["xctrace", "list", "devices"]);
+  if (trace.code !== 0) return "";
+  for (const line of trace.stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("==") || /simulator/i.test(trimmed)) continue;
+    const match = trimmed.match(/\(([A-F0-9-]{36})\)\s*$/i);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+function buildWdaXcodeDestination(udid) {
+  if (udid) return `id=${udid}`;
+  const simName = process.env.ADA_IOS_SIMULATOR_NAME?.trim() || "iPhone 15";
+  return `platform=iOS Simulator,name=${simName}`;
+}
+var import_node_child_process;
+var init_ios_wda_probe = __esm({
+  "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
     "use strict";
+    import_node_child_process = require("node:child_process");
   }
 });
 
@@ -460,12 +552,81 @@ var init_android_uia2_probe = __esm({
   }
 });
 
-// ../../packages/runtime-probe/src/ios-wda-probe.ts
-function runCommandCapture(command, args, timeoutMs = 15e3) {
+// ../../packages/runtime-probe/src/ios-iproxy.ts
+function isIosIproxyHostSupported() {
+  return process.platform === "darwin" || process.platform === "win32";
+}
+function iosIproxyDisabled() {
+  return ["1", "true", "yes"].includes((process.env.ADA_IOS_IPROXY_DISABLED ?? "").trim().toLowerCase());
+}
+function defaultWdaDevicePort() {
+  const raw = process.env.ADA_IOS_WDA_DEVICE_PORT?.trim();
+  const n = raw ? Number(raw) : 8100;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 8100;
+}
+function defaultWdaLocalPort() {
+  const fromEnv = process.env.ADA_IOS_WDA_LOCAL_PORT?.trim();
+  if (fromEnv) {
+    const n = Number(fromEnv);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  try {
+    const parsed = new URL(defaultWdaServerUrl());
+    const port = Number(parsed.port || 8100);
+    if (Number.isFinite(port) && port > 0) return port;
+  } catch {
+  }
+  return 8100;
+}
+function resolveWdaLocalPortForUdid(udid) {
+  const mapRaw = process.env.ADA_IOS_WDA_PORT_MAP?.trim();
+  if (mapRaw && udid) {
+    for (const part of mapRaw.split(/[,;\s]+/)) {
+      const [id, portStr] = part.split(":");
+      if (id?.trim().toLowerCase() === udid.trim().toLowerCase()) {
+        const n = Number(portStr);
+        if (Number.isFinite(n) && n > 0) return Math.floor(n);
+      }
+    }
+  }
+  return defaultWdaLocalPort();
+}
+function wdaServerUrlForLocalPort(localPort) {
+  return `http://127.0.0.1:${localPort}`;
+}
+function iproxyInstallHint() {
+  if (process.platform === "win32") {
+    return "run install-deps --only=ios (auto-downloads to ~/.ada/tools/libimobiledevice) or set ADA_IPROXY_PATH";
+  }
+  return "install libimobiledevice (brew install libimobiledevice)";
+}
+async function pathExists(targetPath) {
+  try {
+    await import_promises3.default.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function resolveIproxyCommand() {
+  const fromEnv = process.env.ADA_IPROXY_PATH?.trim();
+  if (fromEnv) return fromEnv;
+  const libDir = process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim() || (process.env.ADA_TOOLS_DIR ? import_node_path5.default.join(process.env.ADA_TOOLS_DIR, "libimobiledevice") : "");
+  if (libDir) {
+    const candidate = import_node_path5.default.join(libDir, process.platform === "win32" ? "iproxy.exe" : "iproxy");
+    if (await pathExists(candidate)) return candidate;
+  }
+  if (await commandExists("iproxy")) return "iproxy";
+  return null;
+}
+function shouldUseShell(command) {
+  return process.platform === "win32" && !command.includes("/") && !command.includes("\\");
+}
+function runCommandCapture2(command, args, timeoutMs = 15e3) {
   return new Promise((resolve) => {
-    const child = (0, import_node_child_process.spawn)(command, args, {
+    const child = (0, import_node_child_process2.spawn)(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32",
+      shell: shouldUseShell(command),
       ...process.platform === "win32" ? { windowsHide: true } : {}
     });
     let stdout = "";
@@ -490,47 +651,210 @@ function runCommandCapture(command, args, timeoutMs = 15e3) {
     });
   });
 }
-function defaultWdaServerUrl() {
-  return (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100").replace(/\/$/, "");
+async function isIosSimulatorUdid(udid) {
+  const id = udid.trim();
+  if (!id || process.platform !== "darwin") return false;
+  const sim = await runCommandCapture2("xcrun", ["simctl", "list", "devices", "available"]);
+  if (sim.code !== 0) return false;
+  return new RegExp(`\\(${id}\\)`, "i").test(sim.stdout);
 }
-function wdaBootstrapEnabled() {
-  const raw = process.env.ADA_IOS_WDA_BOOTSTRAP?.trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+function iproxyKey(udid, localPort, devicePort) {
+  return `${udid || "*"}:${localPort}:${devicePort}`;
 }
-async function resolveIosDeviceUdid(preferred) {
-  const fromEnv = preferred?.trim() || process.env.ADA_IOS_DEVICE_UDID?.trim() || "";
-  if (fromEnv) return fromEnv;
-  const useSimulator = ["1", "true", "yes"].includes(
-    (process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase()
-  );
-  if (useSimulator || process.platform === "darwin") {
-    const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "booted"]);
-    if (sim.code === 0) {
-      const match = sim.stdout.match(/\(([A-F0-9-]{36})\)\s+\(Booted\)/i);
-      if (match?.[1]) return match[1];
+async function ensureIosIproxyForward(options) {
+  const devicePort = options?.devicePort ?? defaultWdaDevicePort();
+  let udid = options?.udid?.trim() ?? "";
+  if (!udid) {
+    udid = await resolveIosDeviceUdid();
+  }
+  const localPort = options?.localPort ?? resolveWdaLocalPortForUdid(udid);
+  const serverUrl = wdaServerUrlForLocalPort(localPort);
+  const log = options?.onLogLine;
+  if (!isIosIproxyHostSupported()) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: "iproxy requires macOS or Windows host"
+    };
+  }
+  if (iosIproxyDisabled()) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: "iproxy disabled (ADA_IOS_IPROXY_DISABLED=1)"
+    };
+  }
+  if (!udid) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid: "",
+      serverUrl,
+      detail: "no iOS device UDID (connect device or set ADA_IOS_DEVICE_UDID)"
+    };
+  }
+  if (await isIosSimulatorUdid(udid)) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `simulator ${udid} (iproxy not needed)`
+    };
+  }
+  const key = iproxyKey(udid, localPort, devicePort);
+  if (iproxyChildren.has(key)) {
+    return {
+      forwarded: true,
+      skipped: false,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `iproxy already active ${localPort}->${devicePort} udid=${udid}`
+    };
+  }
+  if (await isTcpPortOpen("127.0.0.1", localPort, 800)) {
+    return {
+      forwarded: true,
+      skipped: false,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `local port ${localPort} already open (assuming iproxy/WDA)`
+    };
+  }
+  const iproxyCmd = await resolveIproxyCommand();
+  if (!iproxyCmd) {
+    return {
+      forwarded: false,
+      skipped: false,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `iproxy not found in PATH (${iproxyInstallHint()})`
+    };
+  }
+  const args = [String(localPort), String(devicePort), "-u", udid];
+  log?.(`[ios-iproxy] ${iproxyCmd} ${args.join(" ")}`);
+  const child = (0, import_node_child_process2.spawn)(iproxyCmd, args, {
+    stdio: "ignore",
+    detached: true,
+    shell: shouldUseShell(iproxyCmd),
+    ...process.platform === "win32" ? { windowsHide: true } : {}
+  });
+  child.unref();
+  if (child.pid) {
+    iproxyChildren.set(key, child.pid);
+  }
+  await new Promise((r) => setTimeout(r, 600));
+  const open = await isTcpPortOpen("127.0.0.1", localPort, 1500);
+  return {
+    forwarded: open,
+    skipped: false,
+    localPort,
+    devicePort,
+    udid,
+    serverUrl,
+    detail: open ? `iproxy ${localPort}->${devicePort} udid=${udid}` : `iproxy started but 127.0.0.1:${localPort} not open yet`
+  };
+}
+async function probeIosWdaRuntime(options) {
+  let udid = options?.udid?.trim() ?? "";
+  if (!udid) {
+    udid = await resolveIosDeviceUdid();
+  }
+  let wdaUrl = (options?.serverUrl ?? defaultWdaServerUrl()).replace(/\/$/, "");
+  let forwarded = false;
+  if (options?.ensureForward !== false && udid && !await isIosSimulatorUdid(udid)) {
+    const fwd = await ensureIosIproxyForward({ udid });
+    forwarded = fwd.forwarded;
+    if (!options?.serverUrl) {
+      wdaUrl = fwd.serverUrl;
+      process.env.ADA_WDA_SERVER_URL = wdaUrl;
     }
   }
-  if (process.platform !== "darwin") return "";
-  const trace = await runCommandCapture("xcrun", ["xctrace", "list", "devices"]);
-  if (trace.code !== 0) return "";
-  for (const line of trace.stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("==") || /simulator/i.test(trimmed)) continue;
-    const match = trimmed.match(/\(([A-F0-9-]{36})\)\s*$/i);
-    if (match?.[1]) return match[1];
+  const wda = await probeWdaStatus(wdaUrl);
+  let detail = wda.detail;
+  if (forwarded && !wda.reachable) {
+    const bootstrapHint = process.platform === "darwin" ? "use --install-deps=ios or ADA_IOS_WDA_BOOTSTRAP=true" : "ensure WDA is installed on device (bootstrap requires macOS)";
+    detail += ` (iproxy applied; WDA may not be running on device \u2014 ${bootstrapHint})`;
+  } else if (!forwarded && udid && !await isIosSimulatorUdid(udid) && !iosIproxyDisabled()) {
+    const iproxyCmd = await resolveIproxyCommand();
+    if (!iproxyCmd) {
+      detail += ` (${iproxyInstallHint()})`;
+    }
   }
-  return "";
+  return {
+    wdaUrl,
+    reachable: wda.reachable,
+    ready: wda.ready,
+    forwarded,
+    udid,
+    detail,
+    status: wda.status
+  };
 }
-function buildWdaXcodeDestination(udid) {
-  if (udid) return `id=${udid}`;
-  const simName = process.env.ADA_IOS_SIMULATOR_NAME?.trim() || "iPhone 15";
-  return `platform=iOS Simulator,name=${simName}`;
-}
-var import_node_child_process;
-var init_ios_wda_probe = __esm({
-  "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
+var import_node_child_process2, import_promises3, import_node_path5, iproxyChildren;
+var init_ios_iproxy = __esm({
+  "../../packages/runtime-probe/src/ios-iproxy.ts"() {
     "use strict";
-    import_node_child_process = require("node:child_process");
+    import_node_child_process2 = require("node:child_process");
+    import_promises3 = __toESM(require("node:fs/promises"), 1);
+    import_node_path5 = __toESM(require("node:path"), 1);
+    init_runtime_probe();
+    init_ios_wda_probe();
+    init_android_uia2_probe();
+    iproxyChildren = /* @__PURE__ */ new Map();
+  }
+});
+
+// ../../packages/runtime-probe/src/runtime-probe.ts
+async function commandExists(command) {
+  return new Promise((resolve) => {
+    const checker = process.platform === "win32" ? "where" : "which";
+    const child = (0, import_node_child_process3.spawn)(checker, [command], {
+      stdio: "ignore",
+      shell: process.platform === "win32"
+    });
+    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  });
+}
+async function isTcpPortOpen(host, port, timeoutMs = 2e3) {
+  return new Promise((resolve) => {
+    const socket = import_node_net.default.connect({ host, port });
+    const done = (ok) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(timeoutMs, () => done(false));
+  });
+}
+var import_node_net, import_node_child_process3;
+var init_runtime_probe = __esm({
+  "../../packages/runtime-probe/src/runtime-probe.ts"() {
+    "use strict";
+    import_node_net = __toESM(require("node:net"), 1);
+    import_node_child_process3 = require("node:child_process");
+    init_ios_iproxy();
   }
 });
 
@@ -579,6 +903,7 @@ var init_src3 = __esm({
     init_runtime_probe();
     init_android_uia2_probe();
     init_ios_wda_probe();
+    init_ios_iproxy();
     init_ios_idevice_probe();
     init_device_scan();
     init_device_registry();
@@ -597,9 +922,9 @@ var init_android_uia2_bootstrap = __esm({
 });
 
 // ../../packages/install-deps/src/ios-wda-bootstrap.ts
-async function pathExists(target) {
+async function pathExists2(target) {
   try {
-    await import_promises3.default.access(target);
+    await import_promises4.default.access(target);
     return true;
   } catch {
     return false;
@@ -607,7 +932,7 @@ async function pathExists(target) {
 }
 async function runCommand(command, args, cwd) {
   await new Promise((resolve, reject) => {
-    const child = (0, import_node_child_process2.spawn)(command, args, {
+    const child = (0, import_node_child_process4.spawn)(command, args, {
       cwd,
       stdio: "ignore",
       shell: process.platform === "win32",
@@ -618,9 +943,9 @@ async function runCommand(command, args, cwd) {
   });
 }
 async function ensureWdaSources(toolsDir, onLogLine, options) {
-  const dir = import_node_path5.default.join(toolsDir, "wda", "WebDriverAgent");
-  const project = import_node_path5.default.join(dir, "WebDriverAgent.xcodeproj");
-  if (await pathExists(project)) return project;
+  const dir = import_node_path6.default.join(toolsDir, "wda", "WebDriverAgent");
+  const project = import_node_path6.default.join(dir, "WebDriverAgent.xcodeproj");
+  if (await pathExists2(project)) return project;
   const cloneEnabled = options?.allowClone === true || ["1", "true", "yes"].includes((process.env.ADA_IOS_WDA_CLONE ?? "").trim().toLowerCase());
   if (!cloneEnabled) {
     throw new Error(
@@ -628,15 +953,15 @@ async function ensureWdaSources(toolsDir, onLogLine, options) {
     );
   }
   onLogLine?.(`[ios-wda] cloning ${PINNED_WDA_REPO}`);
-  await import_promises3.default.mkdir(import_node_path5.default.dirname(dir), { recursive: true });
+  await import_promises4.default.mkdir(import_node_path6.default.dirname(dir), { recursive: true });
   await runCommand("git", ["clone", "--depth", "1", PINNED_WDA_REPO, dir]);
-  if (!await pathExists(project)) {
+  if (!await pathExists2(project)) {
     throw new Error("WebDriverAgent clone completed but WebDriverAgent.xcodeproj missing");
   }
   return project;
 }
 function spawnXcodebuildWda(projectPath, destination, onLogLine) {
-  const projectDir = import_node_path5.default.dirname(projectPath);
+  const projectDir = import_node_path6.default.dirname(projectPath);
   const args = [
     "-project",
     projectPath,
@@ -648,7 +973,7 @@ function spawnXcodebuildWda(projectPath, destination, onLogLine) {
     "test"
   ];
   onLogLine?.(`[ios-wda] xcodebuild ${args.join(" ")}`);
-  const child = (0, import_node_child_process2.spawn)("xcodebuild", args, {
+  const child = (0, import_node_child_process4.spawn)("xcodebuild", args, {
     cwd: projectDir,
     stdio: "ignore",
     detached: true,
@@ -673,14 +998,20 @@ function wdaBootstrapAllowed(options) {
 }
 async function ensureIosWdaBootstrap(options) {
   const onLogLine = options?.onLogLine;
-  const wdaUrl = defaultWdaServerUrl();
+  let wdaUrl = defaultWdaServerUrl();
   const artifact = { id: "ios-wda", status: "skipped", detail: "bootstrap disabled" };
   if (process.platform !== "darwin") {
     artifact.detail = "iOS WDA bootstrap requires macOS host";
     artifact.status = "missing";
     return { outcome: artifact, wdaUrl };
   }
-  const probe = await probeWdaStatus(wdaUrl);
+  const udid = await resolveIosDeviceUdid();
+  const fwd = await ensureIosIproxyForward({ udid, onLogLine });
+  if (fwd.serverUrl) {
+    wdaUrl = fwd.serverUrl;
+    process.env.ADA_WDA_SERVER_URL = wdaUrl;
+  }
+  const probe = await probeIosWdaRuntime({ udid, serverUrl: wdaUrl, ensureForward: false });
   if (!wdaBootstrapAllowed(options)) {
     artifact.detail = `bootstrap disabled (use --install-deps=ios|all or ADA_IOS_WDA_BOOTSTRAP=true); ${probe.detail}`;
     artifact.status = probe.ready ? "skipped" : "missing";
@@ -691,14 +1022,14 @@ async function ensureIosWdaBootstrap(options) {
     return { outcome: artifact, wdaUrl };
   }
   try {
-    const toolsDir = await resolveDefaultToolsDir() ?? import_node_path5.default.join(process.cwd(), "tools");
+    const toolsDir = await resolveDefaultToolsDir() ?? import_node_path6.default.join(process.cwd(), "tools");
     const projectPath = await ensureWdaSources(toolsDir, onLogLine, {
       allowClone: options?.scopeInstall === true
     });
-    const udid = await resolveIosDeviceUdid();
     const destination = buildWdaXcodeDestination(udid);
-    onLogLine?.(`[ios-wda] destination=${destination}`);
+    onLogLine?.(`[ios-wda] destination=${destination} udid=${udid || "(simulator)"}`);
     spawnXcodebuildWda(projectPath, destination, onLogLine);
+    await ensureIosIproxyForward({ udid, localPort: fwd.localPort, devicePort: fwd.devicePort, onLogLine });
     process.env.ADA_WDA_SERVER_URL = wdaUrl;
     const ready = await waitForWdaReady(wdaUrl, 12e4, onLogLine);
     const after = await probeWdaStatus(wdaUrl);
@@ -716,16 +1047,25 @@ async function ensureIosWdaBootstrap(options) {
   }
   return { outcome: artifact, wdaUrl };
 }
-var import_promises3, import_node_path5, import_node_child_process2, PINNED_WDA_REPO;
+var import_promises4, import_node_path6, import_node_child_process4, PINNED_WDA_REPO;
 var init_ios_wda_bootstrap = __esm({
   "../../packages/install-deps/src/ios-wda-bootstrap.ts"() {
     "use strict";
-    import_promises3 = __toESM(require("node:fs/promises"), 1);
-    import_node_path5 = __toESM(require("node:path"), 1);
-    import_node_child_process2 = require("node:child_process");
+    import_promises4 = __toESM(require("node:fs/promises"), 1);
+    import_node_path6 = __toESM(require("node:path"), 1);
+    import_node_child_process4 = require("node:child_process");
     init_tools_paths();
     init_src3();
     PINNED_WDA_REPO = "https://github.com/appium/WebDriverAgent.git";
+  }
+});
+
+// ../../packages/install-deps/src/ios-libimobiledevice-install.ts
+var init_ios_libimobiledevice_install = __esm({
+  "../../packages/install-deps/src/ios-libimobiledevice-install.ts"() {
+    "use strict";
+    init_tools_paths();
+    init_tools_paths();
   }
 });
 
@@ -734,6 +1074,8 @@ var init_ios_idevice_bootstrap = __esm({
   "../../packages/install-deps/src/ios-idevice-bootstrap.ts"() {
     "use strict";
     init_src3();
+    init_ios_libimobiledevice_install();
+    init_tools_paths();
   }
 });
 
@@ -759,6 +1101,7 @@ var init_dependency_installer = __esm({
     init_src3();
     init_android_uia2_bootstrap();
     init_ios_wda_bootstrap();
+    init_ios_libimobiledevice_install();
     init_ios_idevice_bootstrap();
     init_platform_support();
     init_deps_install_paths();
@@ -1253,10 +1596,15 @@ async function safeDumpUi(ctx, retries = 1) {
   return [];
 }
 async function focusAndType(ctx, input, point, text, payload) {
+  if (input && ctx.typeOnPick) {
+    ctx.invalidateDumpCache?.();
+    await ctx.typeOnPick(input, text);
+    return "typeOnPick";
+  }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
     await ctx.typeFocused(text);
@@ -1282,13 +1630,20 @@ function findRole(nodes, ctx, role, heuristics) {
   return findUiNode(nodes, {
     role,
     screen: ctx.screen,
-    platform: ctx.platform === "ios" ? "android" : ctx.platform,
+    platform: ctx.platform === "android" ? "android" : ctx.platform === "harmony" ? "harmony" : void 0,
     heuristics: heuristics ?? ctx.heuristics
   });
 }
 function coordinateFallback(screen, kind) {
   const yRatio = kind === "entry" ? 0.11 : 0.12;
   return [Math.round(screen.width / 2), Math.round(screen.height * yRatio)];
+}
+async function clickUiPick(ctx, pick) {
+  if (ctx.clickPick) {
+    await ctx.clickPick(pick);
+    return;
+  }
+  await ctx.clickPoint(pick.point);
 }
 async function tryHintChainFill(ctx, parsed, text, payload) {
   if (parsed.strict || !parsed.entryHints.length && !parsed.inputHints.length) return null;
@@ -1297,7 +1652,7 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
     const entry = pickNodeByTextHints(nodes, [hint], "searchEntry", ctx.screen);
     if (entry) {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(entry.point);
+      await clickUiPick(ctx, entry);
       await recipeSettleDelay(ctx, payload, 600);
       nodes = await ctx.dumpUi();
       break;
@@ -1309,7 +1664,7 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
     if (!input) continue;
     try {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 400);
       if (ctx.typeFocused) {
         await ctx.typeFocused(text);
@@ -1339,7 +1694,7 @@ async function recipeTapSearch(ctx, options) {
   let input = findRole(nodes, ctx, "searchInput", h);
   if (input) {
     ctx.invalidateDumpCache?.();
-    await ctx.clickPoint(input.point);
+    await clickUiPick(ctx, input);
     return {
       ok: true,
       phase: "tap_search",
@@ -1374,7 +1729,7 @@ async function recipeTapSearch(ctx, options) {
     };
   }
   ctx.invalidateDumpCache?.();
-  await ctx.clickPoint(entry.point);
+  await clickUiPick(ctx, entry);
   await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;
@@ -1777,8 +2132,8 @@ var ElementIdCache = class {
 function isHttpServerUrl(value) {
   return /^https?:\/\//i.test(value.trim());
 }
-function resolveMobileHttpPath(baseUrl, path9, sessionId) {
-  const trimmed = path9.trim();
+function resolveMobileHttpPath(baseUrl, path10, sessionId) {
+  const trimmed = path10.trim();
   if (isHttpServerUrl(trimmed)) {
     return trimmed;
   }
@@ -2064,10 +2419,24 @@ function buildIosRecipeContext(observe, control, screen, hooks) {
       dumpCache.invalidate();
       await hooks.tapAt(point);
     },
+    async clickPick(pick) {
+      if (hooks.clickPick) {
+        dumpCache.invalidate();
+        await hooks.clickPick(pick);
+        return;
+      }
+      dumpCache.invalidate();
+      await hooks.tapAt(pick.point);
+    },
     async typeAt(point, text) {
       dumpCache.invalidate();
       await hooks.tapAt(point);
       await hooks.sendKeys(text);
+    },
+    async typeOnPick(pick, text) {
+      if (!hooks.typeOnPick) throw new Error("typeOnPick not available");
+      dumpCache.invalidate();
+      await hooks.typeOnPick(pick, text);
     },
     async typeFocused(text) {
       dumpCache.invalidate();
@@ -2099,6 +2468,7 @@ init_harmony_hdc_install();
 init_android_uia2_bootstrap();
 init_ios_wda_bootstrap();
 init_ios_idevice_bootstrap();
+init_ios_libimobiledevice_install();
 init_platform_support();
 
 // ../../packages/install-deps/src/mobile-server-restart.ts
@@ -2108,8 +2478,8 @@ init_ios_wda_bootstrap();
 async function restartIosWdaServer(options) {
   if (!wdaBootstrapEnabled()) return false;
   await ensureIosWdaBootstrap({ force: options?.force ?? true, onLogLine: options?.onLogLine });
-  const probe = await probeWdaStatus();
-  return probe.reachable;
+  const probe = await probeIosWdaRuntime({ ensureForward: true });
+  return probe.reachable || probe.ready;
 }
 
 // ../../packages/install-deps/src/task-runtime-probe.ts
@@ -2117,17 +2487,17 @@ init_src3();
 
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
 init_src3();
-var import_promises5 = __toESM(require("node:fs/promises"), 1);
-var import_node_path8 = __toESM(require("node:path"), 1);
+var import_promises6 = __toESM(require("node:fs/promises"), 1);
+var import_node_path9 = __toESM(require("node:path"), 1);
 
 // ../../plugins/driver-ios/src/device-admin.ts
-var import_node_child_process4 = require("node:child_process");
-var import_node_path7 = __toESM(require("node:path"), 1);
+var import_node_child_process6 = require("node:child_process");
+var import_node_path8 = __toESM(require("node:path"), 1);
 
 // ../../plugins/driver-ios/src/ios-afc-client.ts
-var import_node_child_process3 = require("node:child_process");
-var import_promises4 = __toESM(require("node:fs/promises"), 1);
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_node_child_process5 = require("node:child_process");
+var import_promises5 = __toESM(require("node:fs/promises"), 1);
+var import_node_path7 = __toESM(require("node:path"), 1);
 var CONTAINER_PATH_RE = /^@([^:]+):([^/]+)\/(.+)$/;
 var BUNDLE_PATH_RE = /^@([^:]+):(.+)$/s;
 var BUNDLE_ONLY_RE = /^@([^:]+)$/;
@@ -2199,7 +2569,7 @@ function buildAfcClientArgs(options) {
 }
 async function runAfcClient(args) {
   return new Promise((resolve) => {
-    const child = (0, import_node_child_process3.spawn)("afcclient", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = (0, import_node_child_process5.spawn)("afcclient", args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (d) => {
@@ -2216,9 +2586,9 @@ async function iosAfcPush(options) {
   if (process.platform !== "darwin") {
     return { ok: false, code: "IOS_AFC_HOST_UNSUPPORTED", message: "afcclient requires macOS host" };
   }
-  const localPath = import_node_path6.default.resolve(options.localPath);
+  const localPath = import_node_path7.default.resolve(options.localPath);
   try {
-    await import_promises4.default.access(localPath);
+    await import_promises5.default.access(localPath);
   } catch {
     return { ok: false, code: "IOS_PUSH_LOCAL_MISSING", message: `local file not found: ${localPath}` };
   }
@@ -2247,8 +2617,8 @@ async function iosAfcPull(options) {
   if (process.platform !== "darwin") {
     return { ok: false, code: "IOS_AFC_HOST_UNSUPPORTED", message: "afcclient requires macOS host" };
   }
-  const localPath = import_node_path6.default.resolve(options.localPath);
-  await import_promises4.default.mkdir(import_node_path6.default.dirname(localPath), { recursive: true });
+  const localPath = import_node_path7.default.resolve(options.localPath);
+  await import_promises5.default.mkdir(import_node_path7.default.dirname(localPath), { recursive: true });
   const parsedRemote = parseIosRemotePath(options.remotePath, options.fallbackBundleId);
   if (!parsedRemote.ok) {
     return { ok: false, code: "IOS_PULL_REMOTE_INVALID", message: parsedRemote.message };
@@ -2308,7 +2678,7 @@ async function wdaPost(session, wdaFetch, subPath, body) {
 }
 async function runHostTool(bin, args) {
   return new Promise((resolve) => {
-    const child = (0, import_node_child_process4.spawn)(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = (0, import_node_child_process6.spawn)(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (d) => {
@@ -2362,7 +2732,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { appId, installed: packages.includes(appId) });
     }
     case "installApp": {
-      const localPath = import_node_path7.default.resolve(String(payload.path ?? payload.localPath ?? ""));
+      const localPath = import_node_path8.default.resolve(String(payload.path ?? payload.localPath ?? ""));
       if (!localPath) return deviceAdminFail(command, "IOS_INSTALL_PATH_MISSING", "path required");
       const res = await runHostTool("ideviceinstaller", ["-i", localPath]);
       if (!res.ok) return deviceAdminFail(command, "IOS_INSTALL_FAILED", res.stderr || res.stdout);
@@ -2379,7 +2749,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { appId, output: res.stdout.trim() });
     }
     case "pushFile": {
-      const localPath = import_node_path7.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const localPath = import_node_path8.default.resolve(String(payload.localPath ?? payload.path ?? ""));
       const remotePath = String(payload.remotePath ?? "").trim();
       if (!localPath || !remotePath) {
         return deviceAdminFail(command, "IOS_PUSH_PATHS_MISSING", "localPath and remotePath required");
@@ -2394,7 +2764,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { localPath, remotePath, tool: "afcclient" });
     }
     case "pullFile": {
-      const localPath = import_node_path7.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const localPath = import_node_path8.default.resolve(String(payload.localPath ?? payload.path ?? ""));
       const remotePath = String(payload.remotePath ?? "").trim();
       if (!localPath || !remotePath) {
         return deviceAdminFail(command, "IOS_PULL_PATHS_MISSING", "localPath and remotePath required");
@@ -2613,6 +2983,68 @@ function isIosClearTypeOp(payload) {
   return p.inputOp === "clear" || p.iosInputOp === "clear" || payload.text === "" && Boolean(payload.locator);
 }
 
+// ../../plugins/driver-ios/src/ios-pick-locator.ts
+function iosPickToXpathCandidates(pick) {
+  if (!pick.label || pick.label === "fallback") {
+    if (pick.kind === "input") {
+      return ["//XCUIElementTypeSearchField", '//XCUIElementTypeTextField[@visible="true"]'];
+    }
+    return ['//*[@visible="true" and contains(@type, "Button")]'];
+  }
+  const lit = escapeXpathLiteral(pick.label);
+  const textMatch = `contains(@label, ${lit}) or contains(@name, ${lit}) or contains(@value, ${lit})`;
+  if (pick.kind === "input") {
+    return [
+      `//XCUIElementTypeSearchField[${textMatch}]`,
+      `//XCUIElementTypeTextField[${textMatch}]`,
+      "//XCUIElementTypeSearchField",
+      '//XCUIElementTypeTextField[@visible="true"]'
+    ];
+  }
+  return [
+    `//XCUIElementTypeButton[${textMatch}]`,
+    `//XCUIElementTypeSearchField[${textMatch}]`,
+    `//*[@visible="true" and (${textMatch})]`
+  ];
+}
+
+// ../../plugins/driver-ios/src/ios-tap-at.ts
+function buildSinglePointerTapActions(x, y) {
+  return [
+    {
+      type: "pointer",
+      id: "finger1",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x, y },
+        { type: "pointerDown", button: 0 },
+        { type: "pause", duration: 50 },
+        { type: "pointerUp", button: 0 }
+      ]
+    }
+  ];
+}
+async function tapAtPointWithFallback(wdaFetch, sessionUrl, sessionId, point) {
+  const [x, y] = point;
+  const tapRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap/0`, { x, y });
+  if (tapRes.ok) return "wda-tap";
+  const tapLegacy = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap`, { x, y });
+  if (tapLegacy.ok) return "wda-tap";
+  const dragRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/dragfromtoforduration`, {
+    fromX: x,
+    fromY: y,
+    toX: x,
+    toY: y,
+    duration: 0.05
+  });
+  if (dragRes.ok) return "drag-tap";
+  const actionsRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/actions`, {
+    actions: buildSinglePointerTapActions(x, y)
+  });
+  if (actionsRes.ok) return "actions-tap";
+  throw new Error(JSON.stringify(tapRes.raw ?? {}));
+}
+
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
 function fail(command, code, message) {
   return { requestId: command.requestId, success: false, errorCode: code, errorMessage: message };
@@ -2633,7 +3065,7 @@ function ensureElementCache(session) {
 function invalidateElementCache(session) {
   session.elementCache?.clear();
 }
-async function findElement(session, payload, wdaFetch) {
+async function findElement(session, payload, wdaFetch, opts) {
   if (payload.elementId) return { ok: true, elementId: payload.elementId };
   const cacheKey = locatorCacheKey(payload.locator);
   if (cacheKey) {
@@ -2645,9 +3077,11 @@ async function findElement(session, payload, wdaFetch) {
   const mapped = iosLocatorToUsing(locator);
   if (!mapped) return { ok: false, code: "IOS_LOCATOR_UNSUPPORTED", message: "unsupported locator type" };
   const { using, value } = mapped;
+  const attempts = opts?.attempts ?? 3;
+  const delayMs = opts?.delayMs ?? 500;
   const res = await retryAsync(
     () => wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/element`, { using, value }),
-    { attempts: 3, delayMs: 500 }
+    { attempts, delayMs }
   ).catch(() => ({ ok: false, status: 0, value: void 0, raw: {} }));
   if (!res.ok) return { ok: false, code: "IOS_LOCATOR_LOOKUP_FAILED", message: JSON.stringify(res.raw ?? {}) };
   const elementId = extractWebDriverElementId(res.value);
@@ -2658,9 +3092,41 @@ async function findElement(session, payload, wdaFetch) {
   return { ok: true, elementId };
 }
 async function tapAtPoint(session, point, wdaFetch) {
-  const [x, y] = point;
-  const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/tap/0`, { x, y });
-  if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
+  await tapAtPointWithFallback(wdaFetch, session.serverUrl, session.sessionId, point);
+}
+async function clickPickElement(session, pick, wdaFetch, control) {
+  let lastErr = "element not found";
+  for (const xpath of iosPickToXpathCandidates(pick)) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) {
+      lastErr = el.message;
+      continue;
+    }
+    await control.click(el.elementId);
+    return;
+  }
+  throw new Error(lastErr);
+}
+async function typeOnPickElement(session, pick, text, wdaFetch, control) {
+  let lastErr = "search input element not found";
+  for (const xpath of iosPickToXpathCandidates(pick.kind === "input" ? pick : { ...pick, kind: "input" })) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) {
+      lastErr = el.message;
+      continue;
+    }
+    await control.click(el.elementId);
+    const clearRes = await wdaFetch(
+      "POST",
+      `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/clear`
+    );
+    if (!clearRes.ok) {
+      await control.type(el.elementId, "");
+    }
+    await control.type(el.elementId, text);
+    return;
+  }
+  throw new Error(lastErr);
 }
 async function executeInvoke(session, command, payload, recoverSession) {
   const invoke = normalizeInvokePayload(payload, "http");
@@ -2727,6 +3193,12 @@ var WdaClientAdapter = class _WdaClientAdapter {
         signature: iosSessionSignature(payload),
         elementCache: new ElementIdCache()
       };
+    }
+    const caps = capsOf(payload);
+    const udid = String(caps.udid ?? "").trim();
+    const fwd = await ensureIosIproxyForward({ udid: udid || void 0 });
+    if (fwd.serverUrl && !payload.serverUrl && !process.env.ADA_WDA_SERVER_URL?.trim()) {
+      process.env.ADA_WDA_SERVER_URL = fwd.serverUrl;
     }
     const serverUrl = serverUrlOf(payload);
     return this.createWdaSession(serverUrl, payload);
@@ -2799,8 +3271,8 @@ var WdaClientAdapter = class _WdaClientAdapter {
       screenshot: async (outputPath) => {
         const res = await wdaFetch("GET", `${session.serverUrl}/session/${session.sessionId}/screenshot`);
         if (!res.ok || typeof res.value !== "string") throw new Error(JSON.stringify(res.raw ?? {}));
-        await import_promises5.default.mkdir(import_node_path8.default.dirname(outputPath), { recursive: true });
-        await import_promises5.default.writeFile(outputPath, Buffer.from(res.value, "base64"));
+        await import_promises6.default.mkdir(import_node_path9.default.dirname(outputPath), { recursive: true });
+        await import_promises6.default.writeFile(outputPath, Buffer.from(res.value, "base64"));
         return outputPath;
       },
       pageSource: async () => {
@@ -2825,7 +3297,7 @@ var WdaClientAdapter = class _WdaClientAdapter {
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "pressHome" } };
     }
     if (command.command === "screenshot") {
-      const output = payload.screenshotPath ?? import_node_path8.default.join(process.cwd(), "artifacts", `${command.requestId}-ios.png`);
+      const output = payload.screenshotPath ?? import_node_path9.default.join(process.cwd(), "artifacts", `${command.requestId}-ios.png`);
       await observe.screenshot(output);
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "screenshot", screenshot: output } };
     }
@@ -2917,6 +3389,14 @@ var WdaClientAdapter = class _WdaClientAdapter {
             });
             if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
           },
+          clickPick: async (pick) => {
+            await clickPickElement(session, pick, wdaFetch, control);
+            invalidateElementCache(session);
+            if (pick.kind === "entry") {
+              await recoverSession();
+            }
+          },
+          typeOnPick: (pick, text) => typeOnPickElement(session, pick, text, wdaFetch, control),
           heuristics: parseUiHeuristicsFromPayload(payload)
         });
         const outcome = await runMobileCustomAction(action, ctx, {

@@ -614,10 +614,15 @@ async function safeDumpUi(ctx, retries = 1) {
   return [];
 }
 async function focusAndType(ctx, input, point, text, payload) {
+  if (input && ctx.typeOnPick) {
+    ctx.invalidateDumpCache?.();
+    await ctx.typeOnPick(input, text);
+    return "typeOnPick";
+  }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
     await ctx.typeFocused(text);
@@ -643,13 +648,20 @@ function findRole(nodes, ctx, role, heuristics) {
   return findUiNode(nodes, {
     role,
     screen: ctx.screen,
-    platform: ctx.platform === "ios" ? "android" : ctx.platform,
+    platform: ctx.platform === "android" ? "android" : ctx.platform === "harmony" ? "harmony" : void 0,
     heuristics: heuristics ?? ctx.heuristics
   });
 }
 function coordinateFallback(screen, kind) {
   const yRatio = kind === "entry" ? 0.11 : 0.12;
   return [Math.round(screen.width / 2), Math.round(screen.height * yRatio)];
+}
+async function clickUiPick(ctx, pick) {
+  if (ctx.clickPick) {
+    await ctx.clickPick(pick);
+    return;
+  }
+  await ctx.clickPoint(pick.point);
 }
 async function tryHintChainFill(ctx, parsed, text, payload) {
   if (parsed.strict || !parsed.entryHints.length && !parsed.inputHints.length) return null;
@@ -658,7 +670,7 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
     const entry = pickNodeByTextHints(nodes, [hint], "searchEntry", ctx.screen);
     if (entry) {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(entry.point);
+      await clickUiPick(ctx, entry);
       await recipeSettleDelay(ctx, payload, 600);
       nodes = await ctx.dumpUi();
       break;
@@ -670,7 +682,7 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
     if (!input) continue;
     try {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 400);
       if (ctx.typeFocused) {
         await ctx.typeFocused(text);
@@ -700,7 +712,7 @@ async function recipeTapSearch(ctx, options) {
   let input = findRole(nodes, ctx, "searchInput", h);
   if (input) {
     ctx.invalidateDumpCache?.();
-    await ctx.clickPoint(input.point);
+    await clickUiPick(ctx, input);
     return {
       ok: true,
       phase: "tap_search",
@@ -735,7 +747,7 @@ async function recipeTapSearch(ctx, options) {
     };
   }
   ctx.invalidateDumpCache?.();
-  await ctx.clickPoint(entry.point);
+  await clickUiPick(ctx, entry);
   await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;

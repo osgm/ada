@@ -36,7 +36,7 @@ export async function probeRuntimesForTasks(
     const ios = await probeIosRuntime();
     out.ios = {
       needed: true,
-      ready: ios.hostSupported && ios.xcrunOk && ios.wdaReachable,
+      ready: ios.ready,
       detail: ios.detail
     };
   }

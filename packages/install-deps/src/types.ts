@@ -8,6 +8,7 @@ export interface InstallDepsDependenciesConfig {
   playwrightHostCandidates: string[];
   toolsDir?: string;
   harmonyHdcDownloadUrls?: string[];
+  iosLibimobiledeviceDownloadUrls?: string[];
 }
 
 export interface InstallDepsConfig {

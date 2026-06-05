@@ -402,6 +402,16 @@ iOS **WDA HTTP** invoke：
 | `ADA_IOS_WDA_BOOTSTRAP` | `true` 时 macOS 上 xcodebuild 拉起 WebDriverAgent |
 | `ADA_WDA_SERVER_URL` | WDA 地址，默认 `http://127.0.0.1:8100` |
 | `ADA_WDA_PROJECT_PATH` | 本地 WebDriverAgent.xcodeproj 路径 |
+| `ADA_IOS_DEVICE_UDID` | 指定真机 UDID（多设备时必填） |
+| `ADA_IOS_WDA_PORT_MAP` | 多设备端口映射，如 `UDID:8100,UDID2:8101` |
+| `ADA_IOS_WDA_LOCAL_PORT` | 本机 iproxy 监听端口，默认 8100 |
+| `ADA_IOS_WDA_DEVICE_PORT` | 设备端 WDA 端口，默认 8100 |
+| `ADA_IOS_IPROXY_DISABLED` | `1` 时跳过 iproxy（已手动转发或远程 WDA 时用） |
+| `ADA_IPROXY_PATH` | 自定义 `iproxy` 可执行文件路径 |
+| `ADA_IOS_LIBIMOBILEDEVICE_DOWNLOAD_URLS` | Windows 自动下载 libimobiledevice 的 ZIP 候选 URL（逗号分隔） |
+| `ADA_IOS_LIBIMOBILEDEVICE_DOWNLOAD` | 设 `0` 禁用 Windows 自动下载 |
+
+**Windows USB 直连 iOS（方案 C）**：Windows 宿主机 + USB 真机 + 手机已安装 WDA（须在 Mac 上签名安装一次）。`install-deps --only=ios` 会自动下载 [libimobiledevice-win32](https://github.com/libimobiledevice-win32/imobiledevice-net) 到 `~/.ada/tools/libimobiledevice/` 并加入 PATH；也可手动安装或设 `ADA_IPROXY_PATH`。MCP 启动后会自动 `iproxy 8100 8100 -u <UDID>`。**Windows 不能 bootstrap WDA**，仅 macOS 可 `ADA_IOS_WDA_BOOTSTRAP=true`。仍需 Apple Mobile Device Support（iTunes USB 驱动）。
 
 WDA / UIA2 **进程挂掉**时：在对应 `*_BOOTSTRAP=true` 下，驱动会先尝试 **bootstrap 重启 Server**，再 **重建 WebDriver 会话**并重试请求（30s 冷却）。
 
@@ -568,8 +578,9 @@ npm run install:deps && npm run health && npm run doctor
 **Windows 移动测试推荐**：
 
 1. 先确认 `adb devices` / `hdc list targets` 正常
-2. MCP 可设 `ADA_MCP_SKIP_INSTALL_DEPS=1`（依赖已装好时）
-3. `launchApp` 带上已有 `sessionId` 复用会话；**不要**并发多次 `launchApp`
+2. **iOS（USB）**：确认 `idevice_id -l` 能列出 UDID；手机 WDA 已在 Mac 安装；MCP 会自动 iproxy
+3. MCP 可设 `ADA_MCP_SKIP_INSTALL_DEPS=1`（依赖已装好时）
+4. `launchApp` 带上已有 `sessionId` 复用会话；**不要**并发多次 `launchApp`
 
 ## 9. 维护者
 

@@ -39,12 +39,13 @@ import {
   probeIosRuntime,
   probeAndroidUia2Runtime,
   probeIosIdeviceRuntime,
-  probeWdaStatus
+  probeIosWdaRuntime
 } from "@ada/runtime-probe";
 import { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
 import { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
+import { ensureIosLibimobiledeviceForConfig } from "./ios-libimobiledevice-install.js";
 import { ensureIosIdeviceBootstrap } from "./ios-idevice-bootstrap.js";
-import { isIosFullInstallScope, isIosHostSupported } from "./platform-support.js";
+import { isIosFullInstallScope, isIosHostSupported, isIosWdaBootstrapSupported } from "./platform-support.js";
 
 export {
   legacyDepsStateFileCandidates,
@@ -204,13 +205,20 @@ async function probeMobileRuntimes(
     }
   }
   if (checkIos) {
-    const ios = await probeIosRuntime();
-    const wda = await probeWdaStatus(ios.wdaUrl);
-    const ready = ios.hostSupported && ios.xcrunOk && wda.ready;
+    const wda = await probeIosWdaRuntime({ ensureForward: true });
+    const ready = wda.ready || (wda.reachable && wda.forwarded);
     tracker.record({
       id: "ios-xcrun",
-      status: ios.hostSupported && ios.xcrunOk ? "skipped" : "missing",
-      detail: ios.detail
+      status:
+        process.platform === "darwin" || process.platform === "win32"
+          ? "skipped"
+          : "missing",
+      detail:
+        process.platform === "darwin"
+          ? "macOS host"
+          : process.platform === "win32"
+            ? "Windows USB host (no xcrun; WDA must be preinstalled on device)"
+            : "iOS requires macOS or Windows host"
     });
     tracker.record({
       id: "ios-wda",
@@ -223,7 +231,7 @@ async function probeMobileRuntimes(
       status: idevice.ideviceinstallerOk && idevice.afcclientOk ? "skipped" : "missing",
       detail: idevice.detail
     });
-    onLogLine?.(ready ? `[mobile] ${wda.detail}` : `[mobile][warn] ${ios.detail}; ${wda.detail}`);
+    onLogLine?.(ready ? `[mobile] ${wda.detail}` : `[mobile][warn] ${wda.detail}`);
     if ((!idevice.ideviceinstallerOk || !idevice.afcclientOk) && idevice.installHint) {
       onLogLine?.(`[ios][hint] ${idevice.installHint}`);
     }
@@ -464,8 +472,8 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
     const state = await loadInstallState();
     onLogLine?.(
       depsLogLine(
-        "[deps] iOS 依赖跳过（需 macOS 宿主机）",
-        "[deps] iOS deps skipped (requires macOS host)"
+        "[deps] iOS 依赖跳过（需 macOS 或 Windows 宿主机）",
+        "[deps] iOS deps skipped (requires macOS or Windows host)"
       )
     );
     return {
@@ -479,7 +487,7 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
       skippedDrivers: [],
       failedDrivers: [],
       summaryLines: [
-        depsLogLine("iOS 需 macOS 宿主机，已跳过", "iOS requires macOS host, skipped")
+        depsLogLine("iOS 需 macOS 或 Windows 宿主机，已跳过", "iOS requires macOS or Windows host, skipped")
       ],
       bestNpmRegistry: state.bestNpmRegistry,
       bestPlaywrightDownloadHost: state.bestPlaywrightDownloadHost
@@ -658,6 +666,19 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
   }
 
   if (needMobileHints) {
+    const needIosLibimobiledevice =
+      process.platform === "win32" &&
+      isIosHostSupported() &&
+      (only === "ios" || only === "mobile" || only === "drivers" || only === "all");
+    if (needIosLibimobiledevice) {
+      const { outcome } = await ensureIosLibimobiledeviceForConfig(config, onLogLine, { force });
+      tracker.record(outcome);
+      await applyAdaToolsToProcessEnv({
+        cwd: root,
+        relativeDir: config.dependencies.toolsDir?.trim() || "tools",
+        onLogLine
+      });
+    }
     await probeMobileRuntimes(only, tracker, onLogLine);
     const bootstrapAndroid =
       only === "android" || only === "mobile" || only === "drivers" || only === "all";
@@ -673,14 +694,14 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
         onLogLine?.("[mobile] UIA2 bootstrap skipped (no adb device)");
       }
     }
-    const bootstrapIos =
-      isIosHostSupported() &&
+    const bootstrapIosWda =
+      isIosWdaBootstrapSupported() &&
       (only === "ios" || only === "mobile" || only === "drivers" || only === "all");
     const iosScopeFullInstall = isIosFullInstallScope(only);
     const iosWdaBootstrapFlag = ["1", "true", "yes"].includes(
       (process.env.ADA_IOS_WDA_BOOTSTRAP ?? "").trim().toLowerCase()
     );
-    if (bootstrapIos && (iosScopeFullInstall || iosWdaBootstrapFlag)) {
+    if (bootstrapIosWda && (iosScopeFullInstall || iosWdaBootstrapFlag)) {
       const { outcome } = await ensureIosWdaBootstrap({
         force,
         onLogLine,
@@ -691,11 +712,15 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
     const ideviceBootstrapFlag = ["1", "true", "yes"].includes(
       (process.env.ADA_IOS_IDEVICE_BOOTSTRAP ?? "").trim().toLowerCase()
     );
-    if (bootstrapIos && (iosScopeFullInstall || ideviceBootstrapFlag)) {
+    const bootstrapIosIdevice =
+      isIosHostSupported() &&
+      (only === "ios" || only === "mobile" || only === "drivers" || only === "all");
+    if (bootstrapIosIdevice && (iosScopeFullInstall || ideviceBootstrapFlag)) {
       const { outcome } = await ensureIosIdeviceBootstrap({
         force,
         onLogLine,
-        scopeInstall: iosScopeFullInstall
+        scopeInstall: iosScopeFullInstall,
+        config
       });
       tracker.record(outcome);
     }

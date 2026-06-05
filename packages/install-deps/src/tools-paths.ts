@@ -7,6 +7,7 @@ import { resolveWorkspaceRoot } from "./deps-install-paths.js";
 
 const HDC_BIN = process.platform === "win32" ? "hdc.exe" : "hdc";
 const DEFAULT_TOOLS_RELATIVE = "tools";
+export const LIBIMOBILEDEVICE_SUBDIR = "libimobiledevice";
 
 /**
  * 配置里的 toolsDir 应为相对段（如 `tools`）。
@@ -210,6 +211,22 @@ export function resolveHdcExecutable(toolsDir: string): string {
   return path.join(toolsDir, HDC_BIN);
 }
 
+export function resolveLibimobiledeviceToolsDir(toolsDir: string): string {
+  return path.join(toolsDir, LIBIMOBILEDEVICE_SUBDIR);
+}
+
+export function resolveLibimobiledeviceExecutable(toolsDir: string, name: string): string {
+  const fileName = process.platform === "win32" ? `${name}.exe` : name;
+  return path.join(resolveLibimobiledeviceToolsDir(toolsDir), fileName);
+}
+
+async function libimobiledeviceToolsReady(toolsDir: string): Promise<boolean> {
+  return (
+    (await fileExists(resolveLibimobiledeviceExecutable(toolsDir, "iproxy"))) &&
+    (await fileExists(resolveLibimobiledeviceExecutable(toolsDir, "idevice_id")))
+  );
+}
+
 function pathEnvKey(): string {
   if (process.platform === "win32") {
     return Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "Path";
@@ -246,26 +263,41 @@ export async function applyAdaToolsToProcessEnv(options?: {
   const pathKey = pathEnvKey();
   const sep = process.platform === "win32" ? ";" : ":";
   const current = process.env[pathKey] ?? "";
-  const normalizedTools = path.normalize(toolsDir);
-  const already = current
+  const normalizedCurrent = current
     .split(sep)
     .filter(Boolean)
-    .some((entry) => path.normalize(entry) === normalizedTools);
+    .map((entry) => path.normalize(entry));
+
+  const prependEntries: string[] = [];
+  if (process.platform === "win32" && (await libimobiledeviceToolsReady(toolsDir))) {
+    const libDir = resolveLibimobiledeviceToolsDir(toolsDir);
+    process.env.ADA_LIBIMOBILEDEVICE_DIR = libDir;
+    prependEntries.push(libDir);
+  }
+  prependEntries.push(toolsDir);
+
+  const toPrepend = prependEntries.filter(
+    (entry) => !normalizedCurrent.some((existing) => existing === path.normalize(entry))
+  );
 
   let pathPrepended = false;
-  if (!already) {
-    process.env[pathKey] = current.length > 0 ? `${toolsDir}${sep}${current}` : toolsDir;
+  if (toPrepend.length > 0) {
+    process.env[pathKey] = current.length > 0 ? `${toPrepend.join(sep)}${sep}${current}` : toPrepend.join(sep);
     pathPrepended = true;
   }
 
   const hdcNote = hdcPresent
     ? path.basename(hdcPath)
     : `${path.basename(hdcPath)} (not found, ADA_TOOLS_DIR still set)`;
+  const libNote =
+    process.env.ADA_LIBIMOBILEDEVICE_DIR && (await libimobiledeviceToolsReady(toolsDir))
+      ? depsLogLine("，libimobiledevice 已加入 PATH", ", libimobiledevice on PATH")
+      : "";
   const pathNote = pathPrepended ? ", prepended to PATH" : "";
   onLogLine?.(
     depsLogLine(
-      `[harmony] 使用工具目录 ${toolsDir}（hdc=${hdcNote}${pathPrepended ? "，已加入 PATH" : ""}）`,
-      `[harmony] tools dir ${toolsDir} (hdc=${hdcNote}${pathNote})`
+      `[harmony] 使用工具目录 ${toolsDir}（hdc=${hdcNote}${pathPrepended ? "，已加入 PATH" : ""}${libNote}）`,
+      `[harmony] tools dir ${toolsDir} (hdc=${hdcNote}${pathNote}${libNote})`
     )
   );
 

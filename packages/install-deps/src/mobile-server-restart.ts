@@ -1,7 +1,7 @@
 import {
   androidUia2BootstrapEnabled,
   probeAndroidUia2Runtime,
-  probeWdaStatus,
+  probeIosWdaRuntime,
   wdaBootstrapEnabled
 } from "@ada/runtime-probe";
 import { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
@@ -17,8 +17,8 @@ export interface RestartMobileServerOptions {
 export async function restartIosWdaServer(options?: RestartMobileServerOptions): Promise<boolean> {
   if (!wdaBootstrapEnabled()) return false;
   await ensureIosWdaBootstrap({ force: options?.force ?? true, onLogLine: options?.onLogLine });
-  const probe = await probeWdaStatus();
-  return probe.reachable;
+  const probe = await probeIosWdaRuntime({ ensureForward: true });
+  return probe.reachable || probe.ready;
 }
 
 /** UiAutomator2 Server 不可达时重装 APK 并 instrument 重启（需 ADA_ANDROID_UIA2_BOOTSTRAP=true） */

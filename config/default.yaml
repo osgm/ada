@@ -104,6 +104,9 @@ dependencies:
   # install-deps --only=harmony / --only=all 时自动下载 hdc（支持 .zip 或直链；GitHub blob 链接会自动转 raw）
   harmonyHdcDownloadUrls:
     - "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
+  # Windows install-deps --only=ios / --only=all 时自动下载 libimobiledevice-win32（.zip）
+  iosLibimobiledeviceDownloadUrls:
+    - "https://github.com/libimobiledevice-win32/imobiledevice-net/releases/download/v1.3.17/libimobiledevice.1.2.1-r1122-win-x64.zip"
 
 # 可选：命名 app profile（E2E / MCP 通过 ADA_APP_PROFILE 引用；勿在此内置业务 App）
 # appProfiles:

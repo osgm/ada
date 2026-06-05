@@ -18,7 +18,8 @@ import {
 } from "@ada/driver-rpc";
 import { buildIosRecipeContext } from "./recipe-context.js";
 import { restartIosWdaServer } from "@ada/install-deps";
-import { retryAsync } from "@ada/runtime-probe";
+import { ensureIosIproxyForward, retryAsync } from "@ada/runtime-probe";
+import type { UiPickResult } from "@ada/mobile-ui";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -31,6 +32,8 @@ import type {
 import { capsOf, iosSessionSignature, serverUrlOf } from "./session-signature.js";
 import { executeIosDeviceAdmin } from "./device-admin.js";
 import { iosLocatorToUsing, isIosClearTypeOp } from "./ios-locator.js";
+import { iosPickToXpathCandidates } from "./ios-pick-locator.js";
+import { tapAtPointWithFallback } from "./ios-tap-at.js";
 
 function fail(command: CommandEnvelope, code: string, message: string): CommandResult {
   return { requestId: command.requestId, success: false, errorCode: code, errorMessage: message };
@@ -64,7 +67,8 @@ type WdaFetchFn = (
 async function findElement(
   session: IOSAdapterSession,
   payload: IOSPayload,
-  wdaFetch: WdaFetchFn
+  wdaFetch: WdaFetchFn,
+  opts?: { attempts?: number; delayMs?: number }
 ): Promise<{ ok: true; elementId: string } | { ok: false; code: string; message: string }> {
   if (payload.elementId) return { ok: true, elementId: payload.elementId };
   const cacheKey = locatorCacheKey(payload.locator);
@@ -77,9 +81,11 @@ async function findElement(
   const mapped = iosLocatorToUsing(locator);
   if (!mapped) return { ok: false, code: "IOS_LOCATOR_UNSUPPORTED", message: "unsupported locator type" };
   const { using, value } = mapped;
+  const attempts = opts?.attempts ?? 3;
+  const delayMs = opts?.delayMs ?? 500;
   const res = await retryAsync(
     () => wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/element`, { using, value }),
-    { attempts: 3, delayMs: 500 }
+    { attempts, delayMs }
   ).catch(() => ({ ok: false, status: 0, value: undefined, raw: {} as Record<string, unknown> }));
   if (!res.ok) return { ok: false, code: "IOS_LOCATOR_LOOKUP_FAILED", message: JSON.stringify(res.raw ?? {}) };
   const elementId = extractWebDriverElementId(res.value);
@@ -91,9 +97,54 @@ async function findElement(
 }
 
 async function tapAtPoint(session: IOSAdapterSession, point: [number, number], wdaFetch: WdaFetchFn): Promise<void> {
-  const [x, y] = point;
-  const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/tap/0`, { x, y });
-  if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
+  await tapAtPointWithFallback(wdaFetch, session.serverUrl, session.sessionId, point);
+}
+
+async function clickPickElement(
+  session: IOSAdapterSession,
+  pick: UiPickResult,
+  wdaFetch: WdaFetchFn,
+  control: IOSControlChannel
+): Promise<void> {
+  let lastErr = "element not found";
+  for (const xpath of iosPickToXpathCandidates(pick)) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) {
+      lastErr = el.message;
+      continue;
+    }
+    await control.click(el.elementId);
+    return;
+  }
+  throw new Error(lastErr);
+}
+
+async function typeOnPickElement(
+  session: IOSAdapterSession,
+  pick: UiPickResult,
+  text: string,
+  wdaFetch: WdaFetchFn,
+  control: IOSControlChannel
+): Promise<void> {
+  let lastErr = "search input element not found";
+  for (const xpath of iosPickToXpathCandidates(pick.kind === "input" ? pick : { ...pick, kind: "input" })) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) {
+      lastErr = el.message;
+      continue;
+    }
+    await control.click(el.elementId);
+    const clearRes = await wdaFetch(
+      "POST",
+      `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/clear`
+    );
+    if (!clearRes.ok) {
+      await control.type(el.elementId, "");
+    }
+    await control.type(el.elementId, text);
+    return;
+  }
+  throw new Error(lastErr);
 }
 
 async function executeInvoke(
@@ -172,6 +223,12 @@ export class WdaClientAdapter implements IOSAdapter {
         signature: iosSessionSignature(payload),
         elementCache: new ElementIdCache()
       };
+    }
+    const caps = capsOf(payload);
+    const udid = String(caps.udid ?? "").trim();
+    const fwd = await ensureIosIproxyForward({ udid: udid || undefined });
+    if (fwd.serverUrl && !payload.serverUrl && !process.env.ADA_WDA_SERVER_URL?.trim()) {
+      process.env.ADA_WDA_SERVER_URL = fwd.serverUrl;
     }
     const serverUrl = serverUrlOf(payload);
     return this.createWdaSession(serverUrl, payload);
@@ -363,6 +420,14 @@ export class WdaClientAdapter implements IOSAdapter {
             });
             if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
           },
+          clickPick: async (pick) => {
+            await clickPickElement(session, pick, wdaFetch, control);
+            invalidateElementCache(session);
+            if (pick.kind === "entry") {
+              await recoverSession();
+            }
+          },
+          typeOnPick: (pick, text) => typeOnPickElement(session, pick, text, wdaFetch, control),
           heuristics: parseUiHeuristicsFromPayload(payload as unknown as Record<string, unknown>)
         });
         const outcome = await runMobileCustomAction(action, ctx, {

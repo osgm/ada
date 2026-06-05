@@ -6,6 +6,8 @@ import { resolveDefaultToolsDir } from "./tools-paths.js";
 import {
   buildWdaXcodeDestination,
   defaultWdaServerUrl,
+  ensureIosIproxyForward,
+  probeIosWdaRuntime,
   probeWdaStatus,
   resolveIosDeviceUdid,
   wdaBootstrapEnabled
@@ -123,7 +125,7 @@ export async function ensureIosWdaBootstrap(options?: EnsureIosWdaOptions): Prom
   wdaUrl: string;
 }> {
   const onLogLine = options?.onLogLine;
-  const wdaUrl = defaultWdaServerUrl();
+  let wdaUrl = defaultWdaServerUrl();
   const artifact: DriverInstallOutcome = { id: "ios-wda", status: "skipped", detail: "bootstrap disabled" };
 
   if (process.platform !== "darwin") {
@@ -132,7 +134,14 @@ export async function ensureIosWdaBootstrap(options?: EnsureIosWdaOptions): Prom
     return { outcome: artifact, wdaUrl };
   }
 
-  const probe = await probeWdaStatus(wdaUrl);
+  const udid = await resolveIosDeviceUdid();
+  const fwd = await ensureIosIproxyForward({ udid, onLogLine });
+  if (fwd.serverUrl) {
+    wdaUrl = fwd.serverUrl;
+    process.env.ADA_WDA_SERVER_URL = wdaUrl;
+  }
+
+  const probe = await probeIosWdaRuntime({ udid, serverUrl: wdaUrl, ensureForward: false });
   if (!wdaBootstrapAllowed(options)) {
     artifact.detail = `bootstrap disabled (use --install-deps=ios|all or ADA_IOS_WDA_BOOTSTRAP=true); ${probe.detail}`;
     artifact.status = probe.ready ? "skipped" : "missing";
@@ -149,10 +158,10 @@ export async function ensureIosWdaBootstrap(options?: EnsureIosWdaOptions): Prom
     const projectPath = await ensureWdaSources(toolsDir, onLogLine, {
       allowClone: options?.scopeInstall === true
     });
-    const udid = await resolveIosDeviceUdid();
     const destination = buildWdaXcodeDestination(udid);
-    onLogLine?.(`[ios-wda] destination=${destination}`);
+    onLogLine?.(`[ios-wda] destination=${destination} udid=${udid || "(simulator)"}`);
     spawnXcodebuildWda(projectPath, destination, onLogLine);
+    await ensureIosIproxyForward({ udid, localPort: fwd.localPort, devicePort: fwd.devicePort, onLogLine });
     process.env.ADA_WDA_SERVER_URL = wdaUrl;
     const ready = await waitForWdaReady(wdaUrl, 120_000, onLogLine);
     const after = await probeWdaStatus(wdaUrl);

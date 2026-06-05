@@ -71,7 +71,10 @@ export {
   normalizeToolsRelativeSegment,
   joinWorkspaceToolsDir,
   isFilesystemRootToolsDir,
+  resolveLibimobiledeviceExecutable,
+  resolveLibimobiledeviceToolsDir,
   resolveAdaHomeToolsDir,
+  LIBIMOBILEDEVICE_SUBDIR,
   resolveSafeToolsDirForWrite,
   type AdaToolsResolution
 } from "./tools-paths.js";
@@ -98,7 +101,8 @@ export { ensureHarmonyHdcForConfig } from "./harmony-hdc-install.js";
 export { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
 export { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
 export { ensureIosIdeviceBootstrap } from "./ios-idevice-bootstrap.js";
-export { isIosHostSupported, isIosFullInstallScope } from "./platform-support.js";
+export { ensureIosLibimobiledeviceForConfig, ensureIosLibimobiledeviceInToolsDir, parseIosLibimobiledeviceDownloadUrls, DEFAULT_IOS_LIBIMOBILEDEVICE_WIN_X64_URL, isLibimobiledeviceToolsReady } from "./ios-libimobiledevice-install.js";
+export { isIosHostSupported, isIosFullInstallScope, isIosUsbHostSupported, isIosWdaBootstrapSupported } from "./platform-support.js";
 export { restartAndroidUia2Server, restartIosWdaServer } from "./mobile-server-restart.js";
 export { probeHarmonyRuntime } from "./harmony-runtime-probe.js";
 export { probeRuntimesForTasks, type TaskRuntimeProbe } from "./task-runtime-probe.js";

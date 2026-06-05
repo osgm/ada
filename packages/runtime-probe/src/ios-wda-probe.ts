@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
 
+export function iosUseSimulator(): boolean {
+  return ["1", "true", "yes"].includes((process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase());
+}
+
 function runCommandCapture(
   command: string,
   args: string[],
@@ -43,23 +47,49 @@ export function wdaBootstrapEnabled(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
-/** 解析 iOS 真机 UDID（xctrace）或模拟器 UDID（simctl booted） */
+async function resolveFirstPhysicalIosUdidViaIdeviceId(): Promise<string> {
+  const listed = await runCommandCapture("idevice_id", ["-l"]);
+  if (listed.code !== 0) return "";
+  for (const line of listed.stdout.split(/\r?\n/)) {
+    const udid = line.trim();
+    if (udid) return udid;
+  }
+  return "";
+}
+
+/** 解析 iOS UDID：默认真机优先；模拟器需 ADA_IOS_USE_SIMULATOR=1 或无真机时回退 */
 export async function resolveIosDeviceUdid(preferred?: string): Promise<string> {
   const fromEnv = preferred?.trim() || process.env.ADA_IOS_DEVICE_UDID?.trim() || "";
   if (fromEnv) return fromEnv;
 
-  const useSimulator = ["1", "true", "yes"].includes(
-    (process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase()
-  );
-  if (useSimulator || process.platform === "darwin") {
-    const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "booted"]);
-    if (sim.code === 0) {
-      const match = sim.stdout.match(/\(([A-F0-9-]{36})\)\s+\(Booted\)/i);
-      if (match?.[1]) return match[1];
-    }
+  if (process.platform === "win32") {
+    return resolveFirstPhysicalIosUdidViaIdeviceId();
   }
   if (process.platform !== "darwin") return "";
 
+  const physical = await resolveFirstPhysicalIosUdid();
+  if (physical && !iosUseSimulator()) {
+    return physical;
+  }
+  if (physical && iosUseSimulator()) {
+    const bootedSim = await resolveBootedSimulatorUdid();
+    if (bootedSim) return bootedSim;
+    return physical;
+  }
+
+  const bootedSim = await resolveBootedSimulatorUdid();
+  if (bootedSim) return bootedSim;
+  return physical ?? "";
+}
+
+async function resolveBootedSimulatorUdid(): Promise<string> {
+  const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "booted"]);
+  if (sim.code !== 0) return "";
+  const match = sim.stdout.match(/\(([A-F0-9-]{36})\)\s+\(Booted\)/i);
+  return match?.[1] ?? "";
+}
+
+async function resolveFirstPhysicalIosUdid(): Promise<string> {
   const trace = await runCommandCapture("xcrun", ["xctrace", "list", "devices"]);
   if (trace.code !== 0) return "";
   for (const line of trace.stdout.split(/\r?\n/)) {

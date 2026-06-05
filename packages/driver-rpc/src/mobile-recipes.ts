@@ -30,7 +30,11 @@ export interface MobileRecipeContext extends UiDumpReader {
   heuristics?: UiHeuristicsConfig;
   getDumpRaw?(): Promise<string>;
   clickPoint(point: [number, number]): Promise<void>;
+  /** Prefer element click when pick carries label (iOS WDA without wda/tap/0). */
+  clickPick?(pick: UiPickResult): Promise<void>;
   typeAt(point: [number, number], text: string): Promise<void>;
+  /** Element-aware typing (e.g. iOS WDA element/value instead of coordinate tap + keys). */
+  typeOnPick?(pick: UiPickResult, text: string): Promise<void>;
   typeFocused?(text: string): Promise<void>;
   pressEnter(): Promise<void>;
   pressBack?(): Promise<void>;
@@ -82,10 +86,15 @@ async function focusAndType(
   text: string,
   payload?: Record<string, unknown>
 ): Promise<string> {
+  if (input && ctx.typeOnPick) {
+    ctx.invalidateDumpCache?.();
+    await ctx.typeOnPick(input, text);
+    return "typeOnPick";
+  }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
     await ctx.typeFocused(text);
@@ -125,7 +134,7 @@ function findRole(
   return findUiNode(nodes, {
     role,
     screen: ctx.screen,
-    platform: ctx.platform === "ios" ? "android" : ctx.platform,
+    platform: ctx.platform === "android" ? "android" : ctx.platform === "harmony" ? "harmony" : undefined,
     heuristics: heuristics ?? ctx.heuristics
   });
 }
@@ -133,6 +142,14 @@ function findRole(
 function coordinateFallback(screen: ScreenSize, kind: "entry" | "input"): [number, number] {
   const yRatio = kind === "entry" ? 0.11 : 0.12;
   return [Math.round(screen.width / 2), Math.round(screen.height * yRatio)];
+}
+
+async function clickUiPick(ctx: MobileRecipeContext, pick: UiPickResult): Promise<void> {
+  if (ctx.clickPick) {
+    await ctx.clickPick(pick);
+    return;
+  }
+  await ctx.clickPoint(pick.point);
 }
 
 /** P1：按 hints 链式点击入口 → 输入框 → 输入（对齐脚本 find+fill 兜底） */
@@ -149,7 +166,7 @@ async function tryHintChainFill(
     const entry = pickNodeByTextHints(nodes, [hint], "searchEntry", ctx.screen);
     if (entry) {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(entry.point);
+      await clickUiPick(ctx, entry);
       await recipeSettleDelay(ctx, payload, 600);
       nodes = await ctx.dumpUi();
       break;
@@ -162,7 +179,7 @@ async function tryHintChainFill(
     if (!input) continue;
     try {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 400);
       if (ctx.typeFocused) {
         await ctx.typeFocused(text);
@@ -195,7 +212,7 @@ export async function recipeTapSearch(ctx: MobileRecipeContext, options?: Recipe
   let input = findRole(nodes, ctx, "searchInput", h);
   if (input) {
     ctx.invalidateDumpCache?.();
-    await ctx.clickPoint(input.point);
+    await clickUiPick(ctx, input);
     return {
       ok: true,
       phase: "tap_search",
@@ -233,7 +250,7 @@ export async function recipeTapSearch(ctx: MobileRecipeContext, options?: Recipe
   }
 
   ctx.invalidateDumpCache?.();
-  await ctx.clickPoint(entry.point);
+  await clickUiPick(ctx, entry);
   await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;

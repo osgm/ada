@@ -4,6 +4,7 @@ export {
   probeIosRuntime,
   isTcpPortOpen
 } from "./runtime-probe.js";
+export type { IosRuntimeProbe } from "./runtime-probe.js";
 export {
   defaultUia2DevicePort,
   defaultUia2LocalPort,
@@ -19,10 +20,23 @@ export {
 export {
   buildWdaXcodeDestination,
   defaultWdaServerUrl,
+  iosUseSimulator,
   listIosSimulators,
   resolveIosDeviceUdid,
   wdaBootstrapEnabled
 } from "./ios-wda-probe.js";
+export {
+  defaultWdaDevicePort,
+  defaultWdaLocalPort,
+  ensureIosIproxyForward,
+  iosIproxyDisabled,
+  isIosIproxyHostSupported,
+  isIosSimulatorUdid,
+  probeIosWdaRuntime,
+  resolveIproxyCommand,
+  resolveWdaLocalPortForUdid,
+  wdaServerUrlForLocalPort
+} from "./ios-iproxy.js";
 export { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "./ios-idevice-probe.js";
 export type {
   DeviceConnectionState,

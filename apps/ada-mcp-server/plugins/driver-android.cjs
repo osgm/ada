@@ -405,9 +405,9 @@ var init_playwright_browser_install = __esm({
   }
 });
 
-// ../../packages/runtime-probe/src/runtime-probe.ts
-var init_runtime_probe = __esm({
-  "../../packages/runtime-probe/src/runtime-probe.ts"() {
+// ../../packages/runtime-probe/src/ios-wda-probe.ts
+var init_ios_wda_probe = __esm({
+  "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
     "use strict";
   }
 });
@@ -523,10 +523,21 @@ var init_android_uia2_probe = __esm({
   }
 });
 
-// ../../packages/runtime-probe/src/ios-wda-probe.ts
-var init_ios_wda_probe = __esm({
-  "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
+// ../../packages/runtime-probe/src/ios-iproxy.ts
+var init_ios_iproxy = __esm({
+  "../../packages/runtime-probe/src/ios-iproxy.ts"() {
     "use strict";
+    init_runtime_probe();
+    init_ios_wda_probe();
+    init_android_uia2_probe();
+  }
+});
+
+// ../../packages/runtime-probe/src/runtime-probe.ts
+var init_runtime_probe = __esm({
+  "../../packages/runtime-probe/src/runtime-probe.ts"() {
+    "use strict";
+    init_ios_iproxy();
   }
 });
 
@@ -575,6 +586,7 @@ var init_src3 = __esm({
     init_runtime_probe();
     init_android_uia2_probe();
     init_ios_wda_probe();
+    init_ios_iproxy();
     init_ios_idevice_probe();
     init_device_scan();
     init_device_registry();
@@ -749,11 +761,22 @@ var init_ios_wda_bootstrap = __esm({
   }
 });
 
+// ../../packages/install-deps/src/ios-libimobiledevice-install.ts
+var init_ios_libimobiledevice_install = __esm({
+  "../../packages/install-deps/src/ios-libimobiledevice-install.ts"() {
+    "use strict";
+    init_tools_paths();
+    init_tools_paths();
+  }
+});
+
 // ../../packages/install-deps/src/ios-idevice-bootstrap.ts
 var init_ios_idevice_bootstrap = __esm({
   "../../packages/install-deps/src/ios-idevice-bootstrap.ts"() {
     "use strict";
     init_src3();
+    init_ios_libimobiledevice_install();
+    init_tools_paths();
   }
 });
 
@@ -779,6 +802,7 @@ var init_dependency_installer = __esm({
     init_src3();
     init_android_uia2_bootstrap();
     init_ios_wda_bootstrap();
+    init_ios_libimobiledevice_install();
     init_ios_idevice_bootstrap();
     init_platform_support();
     init_deps_install_paths();
@@ -1255,10 +1279,15 @@ async function safeDumpUi(ctx, retries = 1) {
   return [];
 }
 async function focusAndType(ctx, input, point, text, payload) {
+  if (input && ctx.typeOnPick) {
+    ctx.invalidateDumpCache?.();
+    await ctx.typeOnPick(input, text);
+    return "typeOnPick";
+  }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
     await ctx.typeFocused(text);
@@ -1284,13 +1313,20 @@ function findRole(nodes, ctx, role, heuristics) {
   return findUiNode(nodes, {
     role,
     screen: ctx.screen,
-    platform: ctx.platform === "ios" ? "android" : ctx.platform,
+    platform: ctx.platform === "android" ? "android" : ctx.platform === "harmony" ? "harmony" : void 0,
     heuristics: heuristics ?? ctx.heuristics
   });
 }
 function coordinateFallback(screen, kind) {
   const yRatio = kind === "entry" ? 0.11 : 0.12;
   return [Math.round(screen.width / 2), Math.round(screen.height * yRatio)];
+}
+async function clickUiPick(ctx, pick) {
+  if (ctx.clickPick) {
+    await ctx.clickPick(pick);
+    return;
+  }
+  await ctx.clickPoint(pick.point);
 }
 async function tryHintChainFill(ctx, parsed, text, payload) {
   if (parsed.strict || !parsed.entryHints.length && !parsed.inputHints.length) return null;
@@ -1299,7 +1335,7 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
     const entry = pickNodeByTextHints(nodes, [hint], "searchEntry", ctx.screen);
     if (entry) {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(entry.point);
+      await clickUiPick(ctx, entry);
       await recipeSettleDelay(ctx, payload, 600);
       nodes = await ctx.dumpUi();
       break;
@@ -1311,7 +1347,7 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
     if (!input) continue;
     try {
       ctx.invalidateDumpCache?.();
-      await ctx.clickPoint(input.point);
+      await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 400);
       if (ctx.typeFocused) {
         await ctx.typeFocused(text);
@@ -1341,7 +1377,7 @@ async function recipeTapSearch(ctx, options) {
   let input = findRole(nodes, ctx, "searchInput", h);
   if (input) {
     ctx.invalidateDumpCache?.();
-    await ctx.clickPoint(input.point);
+    await clickUiPick(ctx, input);
     return {
       ok: true,
       phase: "tap_search",
@@ -1376,7 +1412,7 @@ async function recipeTapSearch(ctx, options) {
     };
   }
   ctx.invalidateDumpCache?.();
-  await ctx.clickPoint(entry.point);
+  await clickUiPick(ctx, entry);
   await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;
@@ -2274,6 +2310,7 @@ init_harmony_hdc_install();
 init_android_uia2_bootstrap();
 init_ios_wda_bootstrap();
 init_ios_idevice_bootstrap();
+init_ios_libimobiledevice_install();
 init_platform_support();
 
 // ../../packages/install-deps/src/mobile-server-restart.ts

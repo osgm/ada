@@ -1,9 +1,8 @@
 import { awaitBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 import type { AgentConfig } from "@ada/agent/types";
 import { loadDeviceRegistry } from "@ada/agent-core";
-import { applyDeviceRegistryToEnv } from "@ada/runtime-probe";
+import { applyDeviceRegistryToEnv, commandExists, iosIproxyDisabled, probeAndroidRuntime, probeIosRuntime } from "@ada/runtime-probe";
 import { getDependencyHealth, probeHarmonyRuntime, type InstallDepsConfig } from "@ada/install-deps";
-import { probeAndroidRuntime, probeIosRuntime } from "@ada/runtime-probe";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import { isMobilePlatform } from "./mcp-normalize.js";
 import { loadAgentConfig } from "./config.js";
@@ -133,14 +132,29 @@ export async function ensureMobileRuntimeReady(
     if (platform === "ios") {
       const ios = await probeIosRuntime();
       if (!ios.hostSupported) {
-        throw new Error("iOS runtime not ready: requires macOS host with Xcode / WDA");
+        throw new Error("iOS runtime not ready: requires macOS or Windows host with libimobiledevice + WDA on device");
       }
-      if (!ios.xcrunOk) {
+      if (process.platform === "darwin" && !ios.xcrunOk) {
         throw new Error("iOS runtime not ready: xcrun not found (install Xcode Command Line Tools)");
+      }
+      if (process.platform === "win32") {
+        const hasUdidEnv = Boolean(process.env.ADA_IOS_DEVICE_UDID?.trim());
+        const ideviceIdOk = await commandExists("idevice_id");
+        if (!ideviceIdOk && !hasUdidEnv) {
+          throw new Error(
+            "iOS runtime not ready: idevice_id not found (install libimobiledevice for Windows; connect iPhone via USB)"
+          );
+        }
+        if (!iosIproxyDisabled()) {
+          const iproxyOk = await commandExists("iproxy");
+          if (!iproxyOk) {
+            throw new Error("iOS runtime not ready: iproxy not found (install libimobiledevice for Windows)");
+          }
+        }
       }
       if (!ios.wdaReachable) {
         throw new Error(
-          `iOS runtime not ready: ${ios.detail} (start WebDriverAgent or set ADA_WDA_SERVER_URL)`
+          `iOS runtime not ready: ${ios.detail} (start WebDriverAgent on device or set ADA_WDA_SERVER_URL)`
         );
       }
       return;

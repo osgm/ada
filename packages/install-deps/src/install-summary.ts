@@ -88,6 +88,8 @@ export function resolveRequestedDriverArtifacts(only: InstallScopeForDrivers): D
   }
   if (!isIosHostSupported()) {
     ids = ids.filter((id) => !IOS_DRIVER_ARTIFACTS.has(id));
+  } else if (process.platform === "win32") {
+    ids = ids.filter((id) => id !== "ios-xcrun");
   }
   return ids;
 }

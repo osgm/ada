@@ -93,11 +93,12 @@ export async function runDoctor(
   const iosProbe = iosEnabled
     ? await probeIosRuntime()
     : {
-        hostSupported: process.platform === "darwin",
+        hostSupported: process.platform === "darwin" || process.platform === "win32",
         xcrunOk: false,
         wdaReachable: false,
         wdaUrl: process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100",
-        detail: "ios not in scope"
+        detail: "ios not in scope",
+        ready: false
       };
   const wdaStatus = iosEnabled ? await probeWdaStatus(iosProbe.wdaUrl) : null;
   const ideviceProbe = iosEnabled ? await probeIosIdeviceRuntime() : null;
@@ -113,7 +114,7 @@ export async function runDoctor(
         };
   const androidDriverEnabled = androidEnabled;
   const iosDriverEnabled = iosEnabled;
-  const iosRuntimeOk = !iosEnabled || (iosProbe.hostSupported && iosProbe.xcrunOk && (wdaStatus?.ready ?? iosProbe.wdaReachable));
+  const iosRuntimeOk = !iosEnabled || iosProbe.ready || (wdaStatus?.ready ?? iosProbe.wdaReachable);
   const queueDirs = {
     inbox: await dirExists(queue.inboxDir),
     processed: await dirExists(queue.processedDir),

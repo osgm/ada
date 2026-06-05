@@ -107,6 +107,9 @@ export const defaultConfig: AgentConfig = {
     toolsDir: "tools",
     harmonyHdcDownloadUrls: [
       "https://raw.githubusercontent.com/osgm/ada/main/tools/hdc.exe"
+    ],
+    iosLibimobiledeviceDownloadUrls: [
+      "https://github.com/libimobiledevice-win32/imobiledevice-net/releases/download/v1.3.17/libimobiledevice.1.2.1-r1122-win-x64.zip"
     ]
   }
 };

@@ -92,6 +92,8 @@ export interface AgentConfig {
     toolsDir?: string;
     /** 可选：自动下载 hdc 的候选 URL（仅 harmony/all 依赖安装时使用） */
     harmonyHdcDownloadUrls?: string[];
+    /** 可选：Windows 自动下载 libimobiledevice-win32 的候选 URL（ios/all 依赖安装时使用） */
+    iosLibimobiledeviceDownloadUrls?: string[];
   };
 }
 

@@ -169,6 +169,24 @@ export async function listAndroidDevices(options?: { enrich?: boolean }): Promis
 
 export async function listIosDevices(): Promise<ScannedMobileDevice[]> {
   const devices: ScannedMobileDevice[] = [];
+  if (process.platform === "win32") {
+    const listed = await runCommandCapture("idevice_id", ["-l"]);
+    if (listed.ok) {
+      for (const line of listed.stdout.split(/\r?\n/)) {
+        const udid = line.trim();
+        if (!udid) continue;
+        devices.push({
+          platform: "ios",
+          id: udid,
+          state: "device",
+          authorized: true,
+          kind: "physical",
+          source: "idevice_id -l"
+        });
+      }
+    }
+    return devices;
+  }
   if (process.platform === "darwin") {
     const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "available"]);
     if (sim.ok) {
