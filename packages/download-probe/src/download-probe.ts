@@ -2,6 +2,8 @@
  * 通过 Range 拉取固定字节样本，按实际下载速度（KB/s）排序镜像。
  */
 
+import { probeLogLine, useEnglishAdaLogs } from "./log-locale.js";
+
 export type DownloadProbeResult = {
   durationMs: number;
   bytesRead: number;
@@ -102,7 +104,10 @@ export function formatDownloadProbeLine(prefix: string, candidate: string, probe
     return `${prefix} ${candidate} -> fail`;
   }
   const mib = (probe.bytesRead / (1024 * 1024)).toFixed(2);
-  return `${prefix} ${candidate} -> ${probe.speedKBps.toFixed(0)} KB/s（${mib} MiB / ${probe.durationMs}ms）`;
+  const stats = useEnglishAdaLogs()
+    ? `${probe.speedKBps.toFixed(0)} KB/s (${mib} MiB / ${probe.durationMs}ms)`
+    : `${probe.speedKBps.toFixed(0)} KB/s（${mib} MiB / ${probe.durationMs}ms）`;
+  return `${prefix} ${candidate} -> ${stats}`;
 }
 
 /** 对 URL 列表测速，返回最快项 */
@@ -112,14 +117,18 @@ export async function pickFastestProbeUrl(
 ): Promise<{ url: string; probe: DownloadProbeResult } | null> {
   let best: { url: string; probe: DownloadProbeResult } | null = null;
   for (const url of urls) {
-    onLogLine?.(`[probe] 探测下载速度: ${url}`);
+    onLogLine?.(probeLogLine(`[probe] 探测下载速度: ${url}`, `[probe] probing download speed: ${url}`));
     const probe = await probeDownloadSample(url);
     if (!probe) {
       onLogLine?.(`[probe]   ${url} -> fail`);
       continue;
     }
+    const mib = (probe.bytesRead / (1024 * 1024)).toFixed(2);
     onLogLine?.(
-      `[probe]   ${url} -> ${probe.speedKBps.toFixed(0)} KB/s（${(probe.bytesRead / (1024 * 1024)).toFixed(2)} MiB / ${probe.durationMs}ms）`
+      probeLogLine(
+        `[probe]   ${url} -> ${probe.speedKBps.toFixed(0)} KB/s（${mib} MiB / ${probe.durationMs}ms）`,
+        `[probe]   ${url} -> ${probe.speedKBps.toFixed(0)} KB/s (${mib} MiB / ${probe.durationMs}ms)`
+      )
     );
     if (!best || probe.speedKBps > best.probe.speedKBps) {
       best = { url, probe };

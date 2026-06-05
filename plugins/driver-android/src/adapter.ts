@@ -22,6 +22,22 @@ export interface AndroidPayload {
   screenHeight?: number;
   commandTimeoutMs?: number;
   uiHeuristics?: Record<string, unknown>;
+  /** deviceAdmin / 手势扩展字段 */
+  userOnly?: boolean;
+  thirdPartyOnly?: boolean;
+  path?: string;
+  localPath?: string;
+  remotePath?: string;
+  command?: string;
+  url?: string;
+  key?: string | number;
+  keyCode?: string | number;
+  durationMs?: number;
+  ms?: number;
+  permission?: string;
+  orientation?: string;
+  pinchIn?: boolean;
+  swipePreset?: string;
   custom?: {
     action?: string;
     method?: string;

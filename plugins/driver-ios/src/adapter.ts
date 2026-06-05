@@ -12,9 +12,14 @@ export interface IOSPayload {
   screenshotPath?: string;
   locator?: { id?: string; accessibilityId?: string; xpath?: string };
   timeoutMs?: number;
+  durationMs?: number;
   expectedText?: string;
   bundleId?: string;
   appId?: string;
+  screenWidth?: number;
+  screenHeight?: number;
+  swipePreset?: string;
+  pinchIn?: boolean;
   custom?: {
     method?: string;
     action?: string;

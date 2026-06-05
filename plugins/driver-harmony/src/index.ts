@@ -91,6 +91,9 @@ interface HarmonyPayload {
   appId?: string;
   bundleId?: string;
   abilityId?: string;
+  ability?: string;
+  fling?: boolean;
+  pinchIn?: boolean;
   probe?: boolean;
   custom?: {
     action?: string;
@@ -1002,7 +1005,7 @@ const harmonyPlugin: DriverPlugin = {
         };
       }
       if (command.command === "deviceAdmin") {
-        return executeHarmonyDeviceAdmin(command, driver, payload as HarmonyPayload);
+        return executeHarmonyDeviceAdmin(command, driver, payload as Record<string, unknown>);
       }
       if (command.command === "pinch") {
         const { mode: pinchMode } = await pinchWithPayload(driver, payload);

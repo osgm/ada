@@ -1,12 +1,16 @@
 /**
- * npm registry 下载测速（拉取 playwright 包 tarball 前 512KB）
+ * 零依赖 npm registry 测速（与 ada-mcp-server/scripts/registry-probe.mjs 保持同步）
  */
 import { pickBestDownloadProbe, probeDownloadSample } from "./download-probe.mjs";
 import { DEFAULT_NPM_REGISTRY_CANDIDATES } from "./mirror-candidates.mjs";
+import {
+  isMcpFastStartEnv,
+  probeDownloadTimeoutMs,
+  registryMetaFetchTimeoutMs,
+  registryProbeMaxTotalMs
+} from "./probe-env.mjs";
 
 export { DEFAULT_NPM_REGISTRY_CANDIDATES };
-
-const PINNED_PLAYWRIGHT_VERSION = process.env.ADA_PLAYWRIGHT_VERSION?.trim() || "1.59.1";
 
 function normalizeRegistryUrl(url) {
   return String(url).replace(/\/$/, "");
@@ -35,6 +39,8 @@ export function registryCandidateList(extraEnv) {
   return out;
 }
 
+const PINNED_PLAYWRIGHT_VERSION = process.env.ADA_PLAYWRIGHT_VERSION?.trim() || "1.59.1";
+
 /** npm registry 包路径（scoped 包为 /@scope%2Fname） */
 export function npmRegistryPackagePath(packageName) {
   const name = String(packageName).trim();
@@ -58,23 +64,70 @@ function registryTarballUrl(registry, packageName, version) {
   return `${base}${npmRegistryPackagePath(pkg)}/-/${tarballName}-${ver}.tgz`;
 }
 
-async function probeRegistryDownload(registry, samplePackage, sampleVersion) {
+/** ADA_MCP_REGISTRY 等：跳过测速，直接安装 */
+export function resolveForcedRegistryUrl() {
+  const raw =
+    process.env.ADA_MCP_REGISTRY?.trim() ||
+    process.env.ADA_NPM_REGISTRY?.trim() ||
+    process.env.ADA_NPM_PROXY_REGISTRY?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  return normalizeRegistryUrl(raw);
+}
+
+async function probeRegistryDownload(registry, samplePackage, sampleVersion, timeoutMs) {
   const url = registryTarballUrl(registry, samplePackage, sampleVersion);
-  return probeDownloadSample(url);
+  return probeDownloadSample(url, { timeoutMs });
 }
 
 export async function detectBestRegistry(candidates = registryCandidateList(), samplePackage) {
+  const forced = resolveForcedRegistryUrl();
+  if (forced) {
+    return {
+      best: forced,
+      candidates,
+      forced: true,
+      fastStart: isMcpFastStartEnv(),
+      probeResults: []
+    };
+  }
   const pkg = samplePackage?.trim() || "playwright";
-  const probeResults = [];
-  for (const candidate of candidates) {
-    const probe = await probeRegistryDownload(candidate, pkg, PINNED_PLAYWRIGHT_VERSION);
-    probeResults.push({ candidate, probe });
+  const perTimeoutMs = probeDownloadTimeoutMs();
+  const maxTotalMs = registryProbeMaxTotalMs();
+  const tasks = candidates.map(async (candidate) => {
+    const probe = await probeRegistryDownload(candidate, pkg, PINNED_PLAYWRIGHT_VERSION, perTimeoutMs);
+    return { candidate, probe };
+  });
+  let probeResults;
+  if (maxTotalMs > 0) {
+    const raced = await Promise.race([
+      Promise.all(tasks).then((rows) => ({ rows, timedOut: false })),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ rows: null, timedOut: true }), maxTotalMs);
+      })
+    ]);
+    if (!raced.timedOut && raced.rows) {
+      probeResults = raced.rows;
+    } else {
+      probeResults = (
+        await Promise.allSettled(tasks)
+      ).map((s, i) =>
+        s.status === "fulfilled" ? s.value : { candidate: candidates[i], probe: null }
+      );
+    }
+  } else {
+    probeResults = await Promise.all(tasks);
   }
   const bestRow = pickBestDownloadProbe(probeResults, (c) => candidates.indexOf(c));
   const best = bestRow?.candidate ?? candidates[0] ?? DEFAULT_NPM_REGISTRY_CANDIDATES[0];
   return {
     best: normalizeRegistryUrl(best),
     candidates,
+    parallel: true,
+    fastStart: isMcpFastStartEnv(),
+    probeTimeoutMs: perTimeoutMs,
+    maxTotalMs: maxTotalMs || null,
     probeResults: probeResults.map(({ candidate, probe }) => ({
       candidate,
       latency: probe?.durationMs ?? null,
@@ -83,3 +136,56 @@ export async function detectBestRegistry(candidates = registryCandidateList(), s
     }))
   };
 }
+
+/**
+ * 从指定 registry 读取 dist-tag latest 的版本号（与 pnpm dlx 无 @版本 时一致）
+ */
+export async function fetchPackageLatestVersion(packageName, registry) {
+  const reg = normalizeRegistryUrl(registry);
+  const url = `${reg}${npmRegistryPackagePath(packageName)}/latest`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), registryMetaFetchTimeoutMs());
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    const json = await response.json();
+    const version = String(json.version ?? "").trim();
+    return version || undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 指定 registry 上是否存在某版本（用于镜像未同步时回退 npmjs） */
+export async function fetchPackageVersionExists(packageName, version, registry) {
+  const reg = normalizeRegistryUrl(registry);
+  const ver = String(version ?? "").trim();
+  if (!ver || ver === "latest") {
+    return false;
+  }
+  const url = `${reg}${npmRegistryPackagePath(packageName)}/${encodeURIComponent(ver)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), registryMetaFetchTimeoutMs());
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export { normalizeRegistryUrl };

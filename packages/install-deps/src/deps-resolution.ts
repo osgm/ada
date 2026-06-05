@@ -11,6 +11,7 @@ import {
   resolveInstallContextCwd,
   resolvePlaywrightBrowsersPath
 } from "./deps-install-paths.js";
+import { depsLogLine, wrapInstallDepsLogEmitter } from "./log-locale.js";
 
 /** npm 包解析来源：系统全局 > 环境/工作区 > ~/.ada/deps */
 export type PackageSource = "global" | "env" | "shared" | "none";
@@ -147,6 +148,7 @@ function isTruthyEnv(name: string): boolean {
  * 全局或工作区已满足的包不会迁入共享目录（安装流程另判 needsSharedDepsInstall）。
  */
 export async function ensurePackageResolution(onLogLine?: (line: string) => void): Promise<NodeRequire> {
+  const log = wrapInstallDepsLogEmitter(onLogLine);
   if (compositeRequire && resolutionReady) {
     return compositeRequire;
   }
@@ -161,7 +163,9 @@ export async function ensurePackageResolution(onLogLine?: (line: string) => void
       const req = createRequire(path.join(globalRoot, "package.json"));
       resolutionTiers.push({ source: "global", req, modulesDir: globalRoot });
       nodePathPrepend.push(globalRoot);
-      onLogLine?.(`[deps] 系统全局 npm: ${globalRoot}`);
+      log?.(
+        depsLogLine(`[deps] 系统全局 npm: ${globalRoot}`, `[deps] system global npm: ${globalRoot}`)
+      );
     } catch {
       // ignore invalid global root
     }
@@ -213,14 +217,21 @@ export async function ensurePackageResolution(onLogLine?: (line: string) => void
   resolutionReady = true;
 
   if (!process.env.PLAYWRIGHT_BROWSERS_PATH?.trim()) {
-    const browsersPath = await resolvePlaywrightBrowsersPath();
+    const browsersPath = await resolvePlaywrightBrowsersPath({ onLogLine: log });
     process.env.PLAYWRIGHT_BROWSERS_PATH = browsersPath;
     await fs.mkdir(browsersPath, { recursive: true });
   }
 
   const order = resolutionTiers.map((t) => t.source).join(" > ");
-  onLogLine?.(`[deps] 包解析优先级: ${order}`);
-  onLogLine?.(`[deps] 共享安装目录（按需）: ${sharedDepsRoot}`);
+  log?.(
+    depsLogLine(`[deps] 包解析优先级: ${order}`, `[deps] package resolution order: ${order}`)
+  );
+  log?.(
+    depsLogLine(
+      `[deps] 共享安装目录（按需）: ${sharedDepsRoot}`,
+      `[deps] shared install dir (on demand): ${sharedDepsRoot}`
+    )
+  );
   return compositeRequire;
 }
 

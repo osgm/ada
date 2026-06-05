@@ -14,7 +14,8 @@ export type MobileCustomAction =
   | "dump_hierarchy"
   | "dump_layout"
   | "tap_search"
-  | "fill_search";
+  | "fill_search"
+  | "smart_wait";
 
 export function normalizeMobileCustomAction(action: string, method?: string): string {
   const a = String(action || method || "").toLowerCase();
@@ -53,7 +54,11 @@ export async function runMobileCustomAction(
 
   if (action === "smart_wait") {
     const payload = options?.payload ?? {};
-    const waitBlock = (payload.wait ?? payload.custom?.wait) as Record<string, unknown> | undefined;
+    const custom =
+      typeof payload.custom === "object" && payload.custom !== null
+        ? (payload.custom as Record<string, unknown>)
+        : undefined;
+    const waitBlock = (payload.wait ?? custom?.wait) as Record<string, unknown> | undefined;
     const fallbackMs =
       typeof waitBlock?.timeoutMs === "number"
         ? waitBlock.timeoutMs

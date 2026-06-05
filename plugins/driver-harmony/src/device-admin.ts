@@ -12,7 +12,7 @@ type HarmonyAdminDriver = {
   stopApp(bundleName: string): Promise<void>;
 };
 
-type HarmonyAdminPayload = Record<string, unknown> & {
+export type HarmonyAdminPayload = Record<string, unknown> & {
   appId?: string;
   path?: string;
   localPath?: string;

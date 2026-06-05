@@ -1,4 +1,6 @@
 import type { AdaPlatform } from "./mcp-normalize.js";
+import type { McpResultOptions } from "./mcp-result.js";
+import { loadPopupsModule } from "./mcp-popups-runtime.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -26,12 +28,12 @@ export async function handleWebDismissPopups(
   args: Record<string, unknown>,
   deps: {
     mergeWebEngineIntoPayload: (args: Record<string, unknown>) => Record<string, unknown>;
-    mcpTextResult: (data: Record<string, unknown>) => unknown;
+    mcpTextResult: (data: Record<string, unknown>, options?: McpResultOptions) => unknown;
   }
 ): Promise<unknown> {
   const sessionId = String(args.sessionId ?? "mcp-session");
   const payload = deps.mergeWebEngineIntoPayload(args);
-  const { dismissWebPopups } = await import("../../../scripts/lib/popups.mjs");
+  const { dismissWebPopups } = await loadPopupsModule();
   let outcome;
   try {
     outcome = await dismissWebPopups(sessionId, payload, {
@@ -59,7 +61,7 @@ export async function handleMobileDismissPopups(
   args: Record<string, unknown>,
   deps: {
     requireMobilePlatform: (value: unknown) => Exclude<AdaPlatform, "web">;
-    mcpTextResult: (data: Record<string, unknown>) => unknown;
+    mcpTextResult: (data: Record<string, unknown>, options?: McpResultOptions) => unknown;
   }
 ): Promise<unknown> {
   const platform = deps.requireMobilePlatform(args.platform);
@@ -69,7 +71,7 @@ export async function handleMobileDismissPopups(
     width: Number(payload.screenWidth ?? 1080),
     height: Number(payload.screenHeight ?? 2400)
   };
-  const { dismissMobilePopups } = await import("../../../scripts/lib/popups.mjs");
+  const { dismissMobilePopups } = await loadPopupsModule();
   let outcome;
   try {
     outcome = await dismissMobilePopups(platform, sessionId, payload, screen, {

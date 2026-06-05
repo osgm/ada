@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/launcher",
-  "version": "0.1.61",
+  "version": "0.1.76",
   "description": "Probe fastest npm registry then pnpm dlx @ada-mcp/mcp-server (zero deps)",
   "private": false,
   "type": "module",
@@ -9,7 +9,15 @@
   },
   "files": [
     "launcher.mjs",
+    "console-encoding.mjs",
+    "launcher-inflight.mjs",
+    "launcher-probe-lock.mjs",
+    "win-mcp-server-cache.mjs",
+    "ada-install-lock.mjs",
+    "seed-deps-state.mjs",
+    "log-locale.mjs",
     "mcp-log.mjs",
+    "probe-env.mjs",
     "mirror-candidates.mjs",
     "download-probe.mjs",
     "registry-probe.mjs",
@@ -24,6 +32,6 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "node --check mcp-log.mjs && node --check launcher.mjs && node --check registry-probe-cache.mjs && node --check registry-probe.mjs && node --check download-probe.mjs && node --check mirror-candidates.mjs && node --check playwright-probe.mjs"
+    "typecheck": "node --check console-encoding.mjs && node --check ada-install-lock.mjs && node --check launcher-inflight.mjs && node --check launcher-probe-lock.mjs && node --check win-mcp-server-cache.mjs && node --check seed-deps-state.mjs && node --check probe-env.mjs && node --check log-locale.mjs && node --check mcp-log.mjs && node --check launcher.mjs && node --check registry-probe-cache.mjs && node --check registry-probe.mjs && node --check download-probe.mjs && node --check mirror-candidates.mjs && node --check playwright-probe.mjs"
   }
 }

@@ -3,6 +3,7 @@
  */
 import { pickBestDownloadProbe, probeDownloadSample } from "./download-probe.mjs";
 import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "./mirror-candidates.mjs";
+import { isMcpFastStartEnv, probeDownloadTimeoutMs, registryMetaFetchTimeoutMs } from "./probe-env.mjs";
 
 export { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES };
 
@@ -36,7 +37,7 @@ export async function resolveChromiumBrowserVersionForProbe() {
   for (const url of sources) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12_000);
+      const timer = setTimeout(() => controller.abort(), registryMetaFetchTimeoutMs());
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
       if (!response.ok) {
@@ -106,14 +107,14 @@ export function playwrightHostCandidateList() {
   return out;
 }
 
-async function probePlaywrightHostDownload(host, browserVersion) {
+async function probePlaywrightHostDownload(host, browserVersion, timeoutMs) {
   if (!browserVersion) {
     return null;
   }
   let best = null;
   for (const base of playwrightProbeUrls(host)) {
     const url = playwrightChromiumZipUrl(base, browserVersion);
-    const probe = await probeDownloadSample(url);
+    const probe = await probeDownloadSample(url, { timeoutMs });
     if (probe && (!best || probe.speedKBps > best.speedKBps)) {
       best = probe;
     }
@@ -123,11 +124,13 @@ async function probePlaywrightHostDownload(host, browserVersion) {
 
 export async function detectBestPlaywrightHost(candidates = playwrightHostCandidateList()) {
   const browserVersion = await resolveChromiumBrowserVersionForProbe();
-  const probeResults = [];
-  for (const candidate of candidates) {
-    const probe = await probePlaywrightHostDownload(candidate, browserVersion);
-    probeResults.push({ candidate, probe });
-  }
+  const timeoutMs = probeDownloadTimeoutMs();
+  const probeResults = await Promise.all(
+    candidates.map(async (candidate) => {
+      const probe = await probePlaywrightHostDownload(candidate, browserVersion, timeoutMs);
+      return { candidate, probe };
+    })
+  );
   const bestRow = pickBestDownloadProbe(probeResults, (c) => candidates.indexOf(c));
   const best = bestRow?.candidate ?? candidates[0] ?? DEFAULT_PLAYWRIGHT_HOST_CANDIDATES[0];
   return {

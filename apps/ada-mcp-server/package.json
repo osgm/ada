@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.61",
+  "version": "0.1.76",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "private": false,
   "type": "commonjs",
@@ -16,6 +16,8 @@
     "dist/cli.cjs",
     "plugins",
     "scripts/preinstall-probes.mjs",
+    "scripts/log-locale.mjs",
+    "scripts/probe-env.mjs",
     "scripts/mirror-candidates.mjs",
     "scripts/download-probe.mjs",
     "scripts/registry-probe.mjs",
@@ -63,12 +65,14 @@
     "node": ">=22"
   },
   "overrides": {
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "glob": "^13.0.0"
   },
   "pnpm": {
     "overrides": {
       "zod": "3.25.76",
-      "@modelcontextprotocol/sdk>zod": "3.25.76"
+      "@modelcontextprotocol/sdk>zod": "3.25.76",
+      "glob": "^13.0.0"
     }
   }
 }

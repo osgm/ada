@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import type { InstallDepsConfig } from "./types.js";
 import type { DriverInstallOutcome } from "./install-summary.js";
-import { resolveDefaultToolsDir } from "./tools-paths.js";
+import { resolveDefaultToolsDir, resolveSafeToolsDirForWrite } from "./tools-paths.js";
 
 function hdcBinaryName(): string {
   return process.platform === "win32" ? "hdc.exe" : "hdc";
@@ -254,16 +254,23 @@ export async function ensureHarmonyHdcInToolsDir(
   config: InstallDepsConfig,
   onLogLine?: (line: string) => void
 ): Promise<DriverInstallOutcome> {
-  const hdcPath = path.join(toolsDir, hdcBinaryName());
+  const relativeDir = config.dependencies?.toolsDir?.trim() || "tools";
+  const safeToolsDir = resolveSafeToolsDirForWrite(toolsDir, relativeDir);
+  if (safeToolsDir !== path.resolve(toolsDir)) {
+    onLogLine?.(
+      `[harmony][warn] tools 目录 ${toolsDir} 不可写，改用 ${safeToolsDir}（避免在磁盘根 /tools 创建）`
+    );
+  }
+  const hdcPath = path.join(safeToolsDir, hdcBinaryName());
   if (await pathExists(hdcPath)) {
     return { id: "harmony-hdc", status: "skipped", detail: hdcPath };
   }
-  await fs.mkdir(toolsDir, { recursive: true });
+  await fs.mkdir(safeToolsDir, { recursive: true });
 
   const fromPath = await locateCommandPath(hdcBinaryName());
   if (fromPath && (await pathExists(fromPath))) {
     try {
-      const copied = await copyHarmonyToolBundle(fromPath, toolsDir);
+      const copied = await copyHarmonyToolBundle(fromPath, safeToolsDir);
       if (await pathExists(hdcPath)) {
         onLogLine?.(
           `[harmony] 已从 PATH 复制 hdc 到 tools: ${hdcPath}${copied > 1 ? `（同目录 ${copied} 个文件）` : ""}`
@@ -283,7 +290,7 @@ export async function ensureHarmonyHdcInToolsDir(
     return { id: "harmony-hdc", status: "missing", detail: "no download URL configured" };
   }
   for (const url of urls) {
-    if (await tryDownloadHarmonyHdcFromUrl(url, toolsDir, onLogLine)) {
+    if (await tryDownloadHarmonyHdcFromUrl(url, safeToolsDir, onLogLine)) {
       return { id: "harmony-hdc", status: "installed", detail: hdcPath };
     }
   }

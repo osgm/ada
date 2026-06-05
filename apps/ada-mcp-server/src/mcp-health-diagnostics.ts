@@ -1,4 +1,5 @@
 import type { AgentConfig } from "@ada/agent/types";
+import { buildMcpReadinessHints } from "./mcp-health-enrich.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -23,17 +24,23 @@ function scopedHealthSnapshot(snapshot: Record<string, unknown>, scope: "web" | 
   }
   const out: Record<string, unknown> = { ...snapshot, dependencyScope: scope, recommendedWorkflow };
   const deps = asRecord(snapshot.dependencies);
+  const packagesReady = deps.packagesReady;
+  const runtimeReady = deps.runtimeReady;
   if (scope === "web") {
     out.dependencies = {
       playwrightInstalled: deps.playwrightInstalled,
-      playwrightLaunchOk: deps.playwrightLaunchOk
+      playwrightLaunchOk: deps.playwrightLaunchOk,
+      packagesReady,
+      runtimeReady
     };
     return out;
   }
   out.dependencies = {
     hypiumDriverInstalled: deps.hypiumDriverInstalled,
     harmonyToolsDir: deps.harmonyToolsDir,
-    hdcReachable: deps.hdcReachable
+    hdcReachable: deps.hdcReachable,
+    packagesReady,
+    runtimeReady
   };
   return out;
 }
@@ -60,9 +67,26 @@ export async function handleHealthTool(
   const scoped = scopedHealthSnapshot(snapshot, scope);
   const blockers = await deps.buildHealthBlockers(snapshot, scope, config);
   const sessionPolicy = deps.buildSessionPolicy();
+  const bootstrap = asRecord(snapshot.mcpBootstrap);
+  const bootstrapActive = bootstrap.active === true;
+  let status = deps.healthStatusFromBlockers(blockers);
+  if (bootstrapActive && status === "ok") {
+    status = "degraded";
+  }
+  const readiness = buildMcpReadinessHints(snapshot, scope);
+  const bootstrapNote = bootstrapActive
+    ? `dependency bootstrap in progress (phase=${String(bootstrap.phase ?? "unknown")}, scopes=${JSON.stringify(bootstrap.scopes ?? [])})`
+    : bootstrap.lastError
+      ? `last bootstrap error: ${String(bootstrap.lastError)}`
+      : undefined;
+  const installProgress =
+    snapshot.installProgress ?? asRecord(snapshot.mcpBootstrap).installProgress ?? null;
   return deps.mcpTextResult({
     ...scoped,
-    status: deps.healthStatusFromBlockers(blockers),
+    status,
+    readiness,
+    installProgress,
+    bootstrapNote,
     blockers,
     sessionPolicy,
     routingGuide: "ada://guide/routing"

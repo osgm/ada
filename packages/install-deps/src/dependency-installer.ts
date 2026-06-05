@@ -21,12 +21,23 @@ import {
 } from "./deps-resolution.js";
 import { ensureHarmonyHdcForConfig } from "./harmony-hdc-install.js";
 import { InstallDriverTracker } from "./install-summary.js";
+import { emitInstallProgress } from "./install-progress.js";
+import { depsLogLine, wrapInstallDepsLogEmitter } from "./log-locale.js";
+import {
+  ensurePlaywrightDownloadHostSeeded,
+  resolveDefaultPlaywrightDownloadHost,
+  shouldProbeNpmRegistry,
+  shouldProbePlaywrightCdn
+} from "./download-probe-persist.js";
 import { detectBestRegistry, registryCandidateList } from "./registry-probe.js";
+import { DEFAULT_NPM_REGISTRY_CANDIDATES } from "@ada/download-probe";
 import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "@ada/download-probe";
 import { detectBestPlaywrightDownloadHost, installPlaywrightBrowsers } from "./playwright-browser-install.js";
+import { playwrightBrowsersDirHasChromium } from "./playwright-browsers-discovery.js";
 import { probeAndroidRuntime, probeIosRuntime, probeAndroidUia2Runtime, probeWdaStatus } from "@ada/runtime-probe";
 import { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
 import { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
+import { isIosHostSupported } from "./platform-support.js";
 
 export {
   legacyDepsStateFileCandidates,
@@ -72,6 +83,9 @@ interface InstallState {
   playwrightTargetsKey?: string;
   updatedAt?: string;
   depsInstallRoot?: string;
+  seededByLauncher?: boolean;
+  seededByStandalone?: boolean;
+  seededByLauncherVersion?: string;
 }
 
 function playwrightInstallPackageSpec(): string {
@@ -90,6 +104,39 @@ function playwrightTargetsKey(config: InstallDepsConfig, override?: string[]): s
         ? config.dependencies.playwrightInstallTargets
         : [config.dependencies.playwrightBrowser];
   return targets.map((x) => String(x).toLowerCase()).sort().join(",");
+}
+
+function shouldUseShell(command: string): boolean {
+  return process.platform === "win32" && !path.isAbsolute(command) && !command.includes(path.sep);
+}
+
+function commandExists(command: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(command, ["--version"], {
+      stdio: "ignore",
+      shell: shouldUseShell(command),
+      env: process.env,
+      ...(process.platform === "win32" ? ({ windowsHide: true } as const) : {})
+    });
+    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  });
+}
+
+async function resolvePackageInstallCandidates(
+  spec: string
+): Promise<Array<{ cmd: string; args: string[] }>> {
+  const out: Array<{ cmd: string; args: string[] }> = [];
+  if (await commandExists("pnpm")) {
+    out.push({ cmd: "pnpm", args: ["add", spec] });
+  }
+  if (await commandExists("npm")) {
+    out.push({ cmd: "npm", args: ["install", spec] });
+  }
+  if (out.length === 0) {
+    out.push({ cmd: "npm", args: ["install", spec] });
+  }
+  return out;
 }
 
 async function runCommand(command: string, args: string[], cwd: string): Promise<void> {
@@ -111,7 +158,9 @@ async function probeMobileRuntimes(
   onLogLine?: (line: string) => void
 ): Promise<void> {
   const checkAndroid = only === "all" || only === "mobile" || only === "android" || only === "drivers";
-  const checkIos = only === "all" || only === "mobile" || only === "ios" || only === "drivers";
+  const checkIos =
+    isIosHostSupported() &&
+    (only === "all" || only === "mobile" || only === "ios" || only === "drivers");
   if (checkAndroid) {
     const android = await probeAndroidRuntime();
     tracker.record({
@@ -124,13 +173,28 @@ async function probeMobileRuntimes(
         ? `[mobile] ${android.detail}`
         : `[mobile][warn] ${android.detail}`
     );
-    const uia2 = await probeAndroidUia2Runtime({ ensureForward: android.deviceConnected });
-    tracker.record({
-      id: "android-uia2",
-      status: uia2.reachable ? "skipped" : "missing",
-      detail: uia2.detail
-    });
-    onLogLine?.(uia2.reachable ? `[mobile] ${uia2.detail}` : `[mobile][warn] ${uia2.detail}`);
+    if (!android.adbOnPath) {
+      tracker.record({
+        id: "android-uia2",
+        status: "missing",
+        detail: "adb not on PATH"
+      });
+    } else if (!android.deviceConnected) {
+      tracker.record({
+        id: "android-uia2",
+        status: "skipped",
+        detail: "no adb device; UIA2 deferred until device connected"
+      });
+      onLogLine?.("[mobile] UIA2 probe skipped (no adb device)");
+    } else {
+      const uia2 = await probeAndroidUia2Runtime({ ensureForward: true });
+      tracker.record({
+        id: "android-uia2",
+        status: uia2.reachable ? "skipped" : "missing",
+        detail: uia2.detail
+      });
+      onLogLine?.(uia2.reachable ? `[mobile] ${uia2.detail}` : `[mobile][warn] ${uia2.detail}`);
+    }
   }
   if (checkIos) {
     const ios = await probeIosRuntime();
@@ -167,6 +231,98 @@ async function saveInstallState(state: InstallState): Promise<void> {
   await fs.writeFile(file, JSON.stringify(state, null, 2), "utf8");
 }
 
+function resolveLauncherRegistryHint(): string {
+  const explicit = process.env.ADA_MCP_LAUNCHER_REGISTRY?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (process.env.ADA_MCP_LAUNCHER_RAN === "1") {
+    return process.env.npm_config_registry?.trim() ?? "";
+  }
+  return "";
+}
+
+function scopeMarkedInState(state: InstallState, only: InstallScope): boolean {
+  const scopes = new Set(state.installedScopes ?? []);
+  if (scopes.has("all")) {
+    return true;
+  }
+  if (only === "all") {
+    return scopes.has("playwright") && scopes.has("harmony") && (scopes.has("mobile") || scopes.has("drivers"));
+  }
+  return scopes.has(only);
+}
+
+/** 已写入 install state 且包/浏览器就绪则视为完成（force 时不跳过） */
+export async function isInstallScopeComplete(
+  only: InstallScope,
+  config: InstallDepsConfig,
+  options?: Pick<EnsureInstallOptions, "force" | "playwrightInstallTargetsOverride">
+): Promise<boolean> {
+  if (options?.force) {
+    return false;
+  }
+  if (options?.playwrightInstallTargetsOverride?.length) {
+    return false;
+  }
+  const state = await loadInstallState();
+  if (!scopeMarkedInState(state, only)) {
+    return false;
+  }
+
+  const pwTargetsKey = playwrightTargetsKey(config, options?.playwrightInstallTargetsOverride);
+  const needPlaywright = only === "all" || only === "playwright";
+  const needHarmony =
+    only === "all" || only === "harmony" || only === "mobile" || only === "drivers";
+
+  if (needPlaywright) {
+    if (!isPackageAvailable("playwright")) {
+      return false;
+    }
+    const browsersPath = await resolvePlaywrightBrowsersPath({});
+    const browsersOk =
+      (state.playwrightReady && state.playwrightTargetsKey === pwTargetsKey) ||
+      (await playwrightBrowsersDirHasChromium(browsersPath));
+    if (!browsersOk) {
+      return false;
+    }
+  }
+
+  if (needHarmony) {
+    if (!isPackageAvailable("hypium-driver")) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function buildSkippedInstallSummary(
+  only: InstallScope,
+  startedAt: number,
+  state: InstallState
+): InstallSummary {
+  return {
+    scope: only,
+    force: false,
+    elapsedMs: Date.now() - startedAt,
+    requestedDrivers: [],
+    installedPackages: [],
+    skippedPackages: [
+      ...(only === "all" || only === "playwright" ? (["playwright"] as const) : []),
+      ...(only === "all" || only === "harmony" || only === "mobile" || only === "drivers"
+        ? (["hypium-driver"] as const)
+        : [])
+    ],
+    installedDrivers: [],
+    skippedDrivers: [],
+    failedDrivers: [],
+    summaryLines: [`scope ${only} already installed`],
+    bestNpmRegistry: state.bestNpmRegistry,
+    bestPlaywrightDownloadHost: state.bestPlaywrightDownloadHost
+  };
+}
+
 async function ensurePackageInstalled(
   name: "playwright" | "hypium-driver",
   spec: string,
@@ -174,19 +330,23 @@ async function ensurePackageInstalled(
   onLogLine?: (line: string) => void
 ): Promise<boolean> {
   if (!force && isPackageAvailable(name)) {
-    onLogLine?.(`[deps] ${name} 已就绪，跳过安装`);
+    onLogLine?.(
+      depsLogLine(`[deps] ${name} 已就绪，跳过安装`, `[deps] ${name} ready, skip install`)
+    );
     return false;
   }
   await ensurePackageResolution(onLogLine);
   const installCwd = getSharedDepsRoot() ?? (await resolveDepsInstallRoot());
-  const candidates: Array<{ cmd: string; args: string[] }> = [
-    { cmd: "pnpm", args: ["add", spec] },
-    { cmd: "npm", args: ["install", spec] }
-  ];
+  const candidates = await resolvePackageInstallCandidates(spec);
   let lastError: unknown;
   for (const c of candidates) {
     try {
-      onLogLine?.(`[deps] 执行 ${c.cmd} ${c.args.join(" ")}`);
+      onLogLine?.(
+        depsLogLine(
+          `[deps] 执行 ${c.cmd} ${c.args.join(" ")}`,
+          `[deps] run ${c.cmd} ${c.args.join(" ")}`
+        )
+      );
       await runCommand(c.cmd, c.args, installCwd);
       return true;
     } catch (error) {
@@ -196,7 +356,51 @@ async function ensurePackageInstalled(
   throw new Error(lastError instanceof Error ? lastError.message : `failed to install ${name}`);
 }
 
+function normalizeRegistryUrl(registry: string): string {
+  return registry.replace(/\/$/, "");
+}
+
+/**
+ * 不经 @ada-mcp/launcher 启动 mcp-server 时，写入默认 registry + Playwright CDN（跳过 bootstrap 测速）。
+ */
+export async function ensureStandaloneMcpProbeSeed(onLogLine?: (line: string) => void): Promise<void> {
+  if (process.env.ADA_MCP_LAUNCHER_RAN === "1") {
+    return;
+  }
+  const log = wrapInstallDepsLogEmitter(onLogLine);
+  const state = await loadInstallState();
+  const envReg =
+    process.env.ADA_MCP_REGISTRY?.trim() ||
+    process.env.ADA_MCP_LAUNCHER_REGISTRY?.trim() ||
+    process.env.npm_config_registry?.trim();
+  if (
+    state.seededByLauncher &&
+    state.bestNpmRegistry?.trim() &&
+    state.bestPlaywrightDownloadHost?.trim()
+  ) {
+    await applyPersistedDownloadProbeFromState(log);
+    return;
+  }
+  const registry = normalizeRegistryUrl(
+    envReg || state.bestNpmRegistry?.trim() || DEFAULT_NPM_REGISTRY_CANDIDATES[0]
+  );
+  const pwHost = resolveDefaultPlaywrightDownloadHost(registry);
+  state.bestNpmRegistry = registry;
+  state.bestPlaywrightDownloadHost = pwHost;
+  state.seededByStandalone = true;
+  process.env.npm_config_registry = registry;
+  process.env.PLAYWRIGHT_DOWNLOAD_HOST = pwHost;
+  await saveInstallState(state);
+  log?.(
+    depsLogLine(
+      `[deps] standalone MCP seed: registry=${registry} playwright=${pwHost}`,
+      `[deps] standalone MCP seed: registry=${registry} playwright=${pwHost}`
+    )
+  );
+}
+
 export async function applyPersistedDownloadProbeFromState(onLogLine?: (line: string) => void): Promise<void> {
+  const log = wrapInstallDepsLogEmitter(onLogLine);
   const state = await loadInstallState();
   if (state.bestNpmRegistry?.trim()) {
     process.env.npm_config_registry = state.bestNpmRegistry.trim();
@@ -205,8 +409,11 @@ export async function applyPersistedDownloadProbeFromState(onLogLine?: (line: st
     process.env.PLAYWRIGHT_DOWNLOAD_HOST = state.bestPlaywrightDownloadHost.trim();
   }
   if (state.bestNpmRegistry || state.bestPlaywrightDownloadHost) {
-    onLogLine?.(
-      `[deps] 复用缓存镜像: registry=${state.bestNpmRegistry ?? "(none)"} playwright=${state.bestPlaywrightDownloadHost ?? "(none)"}`
+    log?.(
+      depsLogLine(
+        `[deps] 复用缓存镜像: registry=${state.bestNpmRegistry ?? "(none)"} playwright=${state.bestPlaywrightDownloadHost ?? "(none)"}`,
+        `[deps] reuse cached mirrors: registry=${state.bestNpmRegistry ?? "(none)"} playwright=${state.bestPlaywrightDownloadHost ?? "(none)"}`
+      )
     );
   }
 }
@@ -215,8 +422,54 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
   const startedAt = Date.now();
   const only = options?.only ?? "all";
   const force = options?.force === true;
-  const onLogLine = options?.onLogLine;
+  const onLogLine = wrapInstallDepsLogEmitter(options?.onLogLine, only);
   const pwTargetsKey = playwrightTargetsKey(config, options?.playwrightInstallTargetsOverride);
+
+  emitInstallProgress({
+    status: "running",
+    phase: "scope",
+    scope: only,
+    message: `install scope: ${only}`,
+    percent: 25
+  });
+
+  if (!force && (await isInstallScopeComplete(only, config, options))) {
+    const state = await loadInstallState();
+    onLogLine?.(
+      depsLogLine(
+        `[deps] ${only} 已安装，跳过（force=true 可强制重装）`,
+        `[deps] scope ${only} already installed, skip (force=true to reinstall)`
+      )
+    );
+    return buildSkippedInstallSummary(only, startedAt, state);
+  }
+
+  if (only === "ios" && !isIosHostSupported()) {
+    const state = await loadInstallState();
+    onLogLine?.(
+      depsLogLine(
+        "[deps] iOS 依赖跳过（需 macOS 宿主机）",
+        "[deps] iOS deps skipped (requires macOS host)"
+      )
+    );
+    return {
+      scope: only,
+      force,
+      elapsedMs: Date.now() - startedAt,
+      requestedDrivers: [],
+      installedPackages: [],
+      skippedPackages: [],
+      installedDrivers: [],
+      skippedDrivers: [],
+      failedDrivers: [],
+      summaryLines: [
+        depsLogLine("iOS 需 macOS 宿主机，已跳过", "iOS requires macOS host, skipped")
+      ],
+      bestNpmRegistry: state.bestNpmRegistry,
+      bestPlaywrightDownloadHost: state.bestPlaywrightDownloadHost
+    };
+  }
+
   const tracker = new InstallDriverTracker(only);
 
   const root = await resolveWorkspaceRoot(process.cwd());
@@ -238,7 +491,19 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
 
   const needNpmInstall =
     needPlaywright || needHarmony;
-  if (needNpmInstall && (!state.bestNpmRegistry?.trim() || force)) {
+  const launcherReg = resolveLauncherRegistryHint();
+  if (launcherReg) {
+    state.bestNpmRegistry = launcherReg;
+    process.env.npm_config_registry = launcherReg;
+  }
+  if (
+    needNpmInstall &&
+    shouldProbeNpmRegistry({
+      launcherRegistryHint: launcherReg,
+      persistedRegistry: state.bestNpmRegistry,
+      force
+    })
+  ) {
     try {
       const regCandidates = registryCandidateList(
         undefined,
@@ -247,12 +512,29 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
       const probed = await detectBestRegistry(regCandidates);
       state.bestNpmRegistry = probed.best;
       process.env.npm_config_registry = probed.best;
-      onLogLine?.(`[deps] npm registry 测速结果: ${probed.best}`);
+      onLogLine?.(
+        depsLogLine(
+          `[deps] npm registry 测速结果: ${probed.best}`,
+          `[deps] npm registry probe: ${probed.best}`
+        )
+      );
     } catch (error) {
-      onLogLine?.(`[deps][warn] npm registry 测速失败: ${error instanceof Error ? error.message : String(error)}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      onLogLine?.(
+        depsLogLine(
+          `[deps][warn] npm registry 测速失败: ${msg}`,
+          `[deps][warn] npm registry probe failed: ${msg}`
+        )
+      );
     }
   } else if (state.bestNpmRegistry?.trim()) {
     process.env.npm_config_registry = state.bestNpmRegistry.trim();
+    onLogLine?.(
+      depsLogLine(
+        `[deps] 复用 launcher/state registry: ${state.bestNpmRegistry.trim()}`,
+        `[deps] reuse launcher/state registry: ${state.bestNpmRegistry.trim()}`
+      )
+    );
   }
 
   if (needPlaywright) {
@@ -265,7 +547,13 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
   }
 
   if (needPlaywright && isPackageAvailable("playwright")) {
-    if (!state.bestPlaywrightDownloadHost?.trim() || force) {
+    ensurePlaywrightDownloadHostSeeded(state, config, onLogLine);
+    if (
+      shouldProbePlaywrightCdn({
+        force,
+        hasHost: Boolean(state.bestPlaywrightDownloadHost?.trim())
+      })
+    ) {
       try {
         const candidates = [
           ...(config.dependencies.playwrightDownloadHost?.trim()
@@ -277,18 +565,52 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
           candidates.length > 0 ? candidates : [...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES]
         );
         state.bestPlaywrightDownloadHost = probed.best;
-        onLogLine?.(`[deps] Playwright CDN 测速结果: ${probed.best}`);
+        process.env.PLAYWRIGHT_DOWNLOAD_HOST = probed.best;
+        onLogLine?.(
+          depsLogLine(
+            `[deps] Playwright CDN 测速结果: ${probed.best}`,
+            `[deps] Playwright CDN probe: ${probed.best}`
+          )
+        );
       } catch (error) {
-        onLogLine?.(`[deps][warn] Playwright CDN 测速失败: ${error instanceof Error ? error.message : String(error)}`);
+        const msg = error instanceof Error ? error.message : String(error);
+        onLogLine?.(
+          depsLogLine(
+            `[deps][warn] Playwright CDN 测速失败: ${msg}`,
+            `[deps][warn] Playwright CDN probe failed: ${msg}`
+          )
+        );
       }
     }
+    const browsersPath = await resolvePlaywrightBrowsersPath({ onLogLine });
+    const stateBrowsersReady =
+      state.playwrightReady && state.playwrightTargetsKey === pwTargetsKey;
+    const hasLocalChromium =
+      !force &&
+      !options?.playwrightInstallTargetsOverride?.length &&
+      (await playwrightBrowsersDirHasChromium(browsersPath));
     const skipBrowsers =
       !force &&
       !options?.playwrightInstallTargetsOverride?.length &&
-      state.playwrightReady &&
-      state.playwrightTargetsKey === pwTargetsKey;
+      (stateBrowsersReady || hasLocalChromium);
     if (skipBrowsers) {
-      onLogLine?.("[deps] Playwright 浏览器已缓存，跳过 playwright install");
+      if (hasLocalChromium && !stateBrowsersReady) {
+        state.playwrightReady = true;
+        state.playwrightTargetsKey = pwTargetsKey;
+        onLogLine?.(
+          depsLogLine(
+            "[deps] 检测到本机已有 Playwright 浏览器，跳过 playwright install",
+            "[deps] local Playwright browsers found, skip playwright install"
+          )
+        );
+      } else {
+        onLogLine?.(
+          depsLogLine(
+            "[deps] Playwright 浏览器已缓存，跳过 playwright install",
+            "[deps] Playwright browsers cached, skip playwright install"
+          )
+        );
+      }
       tracker.record({
         id: "playwright-browsers",
         status: "skipped",
@@ -327,11 +649,17 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
       (process.env.ADA_ANDROID_UIA2_BOOTSTRAP ?? "").trim().toLowerCase()
     );
     if (bootstrapAndroid && bootstrapFlag) {
-      const { outcome } = await ensureAndroidUia2Bootstrap({ force, onLogLine });
-      tracker.record(outcome);
+      const androidForBootstrap = await probeAndroidRuntime();
+      if (androidForBootstrap.deviceConnected) {
+        const { outcome } = await ensureAndroidUia2Bootstrap({ force, onLogLine });
+        tracker.record(outcome);
+      } else {
+        onLogLine?.("[mobile] UIA2 bootstrap skipped (no adb device)");
+      }
     }
     const bootstrapIos =
-      only === "ios" || only === "mobile" || only === "drivers" || only === "all";
+      isIosHostSupported() &&
+      (only === "ios" || only === "mobile" || only === "drivers" || only === "all");
     const iosBootstrapFlag = ["1", "true", "yes"].includes(
       (process.env.ADA_IOS_WDA_BOOTSTRAP ?? "").trim().toLowerCase()
     );
@@ -343,7 +671,11 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
 
   const scopes = new Set(state.installedScopes ?? []);
   if (only === "all") {
-    ["playwright", "mobile", "android", "ios", "harmony", "drivers"].forEach((s) => scopes.add(s));
+    const allScopes = ["playwright", "mobile", "android", "harmony", "drivers"];
+    if (isIosHostSupported()) {
+      allScopes.push("ios");
+    }
+    allScopes.forEach((s) => scopes.add(s));
   } else {
     scopes.add(only);
   }
@@ -353,6 +685,15 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
   invalidateDependencyHealthCache();
 
   const driverSummary = tracker.build();
+  const failed = driverSummary.failedDrivers.length;
+  emitInstallProgress({
+    status: failed > 0 ? "warn" : "ok",
+    phase: "scope",
+    scope: only,
+    message: failed > 0 ? `scope ${only} finished with ${failed} driver(s) not ready` : `scope ${only} finished`,
+    percent: failed > 0 ? 85 : 95,
+    detail: driverSummary.summaryLines.slice(0, 3).join("; ")
+  });
   return {
     scope: only,
     force,
@@ -383,11 +724,39 @@ type DependencyHealthResult = {
   harmonyToolsDir: string | null;
   hdcReachable: boolean;
   hdcTargetsSummary: string;
+  /** npm 包 + install state 标记（不等于设备/runtime 就绪） */
+  packagesReady: {
+    playwright: boolean;
+    mobile: boolean;
+    android: boolean;
+    ios: boolean;
+    harmony: boolean;
+    all: boolean;
+  };
+  /** 探测后的真实运行时就绪 */
+  runtimeReady: {
+    web: boolean;
+    harmony: boolean;
+  };
   packageSources: {
     playwright: PackageSource;
     hypiumDriver: PackageSource;
   };
 };
+
+export async function getPackagesReadiness(
+  config: InstallDepsConfig
+): Promise<DependencyHealthResult["packagesReady"]> {
+  const [playwright, mobile, android, ios, harmony, all] = await Promise.all([
+    isInstallScopeComplete("playwright", config),
+    isInstallScopeComplete("mobile", config),
+    isInstallScopeComplete("android", config),
+    isInstallScopeComplete("ios", config),
+    isInstallScopeComplete("harmony", config),
+    isInstallScopeComplete("all", config)
+  ]);
+  return { playwright, mobile, android, ios, harmony, all };
+}
 
 const HEALTH_CACHE_OK_MS = Number(process.env.ADA_DEPS_HEALTH_CACHE_MS ?? 90_000);
 const HEALTH_CACHE_FAIL_MS = 15_000;
@@ -456,13 +825,22 @@ async function getDependencyHealthUncached(
     hdcTargetsSummary = probe.ok ? probe.output : probe.error ?? probe.output;
   }
 
+  const hypiumDriverInstalled = isPackageAvailable("hypium-driver");
+  const depsConfig = (config ?? { dependencies: {} }) as InstallDepsConfig;
+  const packagesReady = await getPackagesReadiness(depsConfig);
+
   return {
     playwrightInstalled,
     playwrightLaunchOk,
-    hypiumDriverInstalled: isPackageAvailable("hypium-driver"),
+    hypiumDriverInstalled,
     harmonyToolsDir: tools.toolsDir,
     hdcReachable,
     hdcTargetsSummary,
+    packagesReady,
+    runtimeReady: {
+      web: playwrightInstalled && playwrightLaunchOk,
+      harmony: hypiumDriverInstalled && hdcReachable
+    },
     packageSources: {
       playwright: getPackageSource("playwright"),
       hypiumDriver: getPackageSource("hypium-driver")

@@ -1,9 +1,10 @@
 import { loadConfig, maskToken } from "@ada/agent/config";
 import { loadSecret } from "@ada/agent/secrets";
-import { runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
+import { getMcpBootstrapStatus, runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 import {
   ensureDriverDependencies,
   getDependencyHealth,
+  getLatestInstallProgress,
   probeRuntimesForTasks,
   type InstallScope,
   type InstallSummary
@@ -46,9 +47,13 @@ export async function getHealthSnapshot(options?: {
   const secret = await loadSecret(config.bootstrapUI.secretsProvider);
   const includeHarmony = options?.includeHarmony ?? true;
   const deps = await getDependencyHealth(config, { includeHarmony, fresh: options?.fresh });
+  const mcpBootstrap = getMcpBootstrapStatus();
+  const installProgress = getLatestInstallProgress();
   const deviceRegistry = await loadDeviceRegistry();
   return {
     status: "ok",
+    mcpBootstrap,
+    installProgress,
     setupConfigured: Boolean(secret),
     transport: config.transport,
     graphics: config.graphics,

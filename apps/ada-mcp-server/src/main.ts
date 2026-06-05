@@ -22,11 +22,23 @@ import {
 } from "@ada/agent-core";
 import type { AgentConfig } from "@ada/agent/types";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
-import { invalidateDependencyHealthCache, type InstallScope } from "@ada/install-deps";
+import {
+  ensureStandaloneMcpProbeSeed,
+  invalidateDependencyHealthCache,
+  registerInstallProgressSink,
+  type InstallScope
+} from "@ada/install-deps";
 
-import { scheduleBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
+import { isBootstrapInstallActive, scheduleBootstrapInstallDeps, setBootstrapLogEmitter } from "@ada/agent/bootstrap-deps";
+import { ensureWinConsoleUtf8 } from "./console-encoding.js";
+import {
+  mcpEmitInstallProgress,
+  mcpLog,
+  mcpLogIfVerbose,
+  registerMcpLogServer,
+  shouldMcpLog
+} from "./mcp-log.js";
 import { loadAgentConfig } from "./config.js";
-import { mcpLog, mcpLogIfVerbose, shouldMcpLog } from "./mcp-log.js";
 import {
   closeAllSessions,
   closeSession,
@@ -450,6 +462,13 @@ function shouldExitProcessOnStdinClose(): boolean {
 }
 
 function resolveStdinDisconnectDebounceMs(): number {
+  if (isBootstrapInstallActive() || process.env.ADA_MCP_BOOTSTRAP_IN_PROGRESS === "1") {
+    const bootstrapRaw = Number(process.env.ADA_MCP_STDIN_BOOTSTRAP_DEBOUNCE_MS ?? 300_000);
+    if (Number.isFinite(bootstrapRaw)) {
+      return Math.min(Math.max(Math.floor(bootstrapRaw), 0), 600_000);
+    }
+    return 300_000;
+  }
   const raw = Number(process.env.ADA_MCP_STDIN_SHUTDOWN_DEBOUNCE_MS ?? 2000);
   if (!Number.isFinite(raw)) {
     return 2000;
@@ -497,6 +516,14 @@ function scheduleStdinDisconnect(reason: string): void {
 async function onStdinDisconnect(reason: string): Promise<void> {
   if (stdinLooksAlive()) {
     mcpLogIfVerbose(`${reason} recovered, server continues`);
+    return;
+  }
+  if (isBootstrapInstallActive() || process.env.ADA_MCP_BOOTSTRAP_IN_PROGRESS === "1") {
+    mcpLog(
+      "info",
+      `${reason} during dependency bootstrap; defer session release (install in progress)`
+    );
+    scheduleStdinDisconnect(reason);
     return;
   }
   if (shouldExitProcessOnStdinClose()) {
@@ -816,7 +843,8 @@ export function createAdaMcpProtocolServer(): Server {
     {
       capabilities: {
         tools: {},
-        resources: {}
+        resources: {},
+        logging: {}
       }
     }
   );
@@ -827,6 +855,7 @@ export function createAdaMcpProtocolServer(): Server {
 export const server = createAdaMcpProtocolServer();
 
 export async function startMcpServer(): Promise<void> {
+  ensureWinConsoleUtf8();
   installMcpStdioGuard();
   const binaryCommand = process.execPath;
   const cwd = process.cwd();
@@ -862,8 +891,14 @@ export async function startMcpServer(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  registerMcpLogServer(server, true);
+  registerInstallProgressSink((event) => mcpEmitInstallProgress(event));
+  setBootstrapLogEmitter((level, body) => {
+    mcpLog(level, body);
+  });
   mcpLogIfVerbose(`ready ${versionLabel} (stdio)`);
   wireStdinShutdownHandlers();
+  await ensureStandaloneMcpProbeSeed((line) => mcpLogIfVerbose(line));
   scheduleBootstrapInstallDeps(passedArgs);
   mcpLogIfVerbose("dependency bootstrap scheduled in background");
 }

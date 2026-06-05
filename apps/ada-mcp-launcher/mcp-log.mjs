@@ -1,6 +1,9 @@
 /**
- * Launcher stderr 分级（Host 常将 stderr 一律显示为 error）
+ * Launcher 日志：默认写 stderr（Cursor/JoyCode MCP 输出面板只展示 stderr）。
+ * 面板可能把 stderr 标成 [error]，请以行内 [ada-mcp][info|warn|error] 为准。
+ * 仅走 MCP logging、不写 stderr：ADA_MCP_LOGGING_ONLY=1
  */
+import { localizeAdaLogLine } from "./log-locale.mjs";
 
 /** @typedef {"info" | "warn" | "error"} McpLogLevel */
 
@@ -17,7 +20,7 @@ export function resolveMcpLogLevel() {
   const raw = String(process.env.ADA_MCP_LOG_LEVEL ?? "").trim().toLowerCase();
   if (raw === "info" || raw === "warn" || raw === "error") return raw;
   if (isTruthy("ADA_MCP_VERBOSE")) return "info";
-  return "error";
+  return "info";
 }
 
 /** @param {McpLogLevel} level */
@@ -28,7 +31,14 @@ export function shouldMcpLog(level) {
 /** @param {McpLogLevel} level @param {string} message */
 export function mcpLog(level, message) {
   if (!shouldMcpLog(level)) return;
-  console.error(`[ada-mcp][${level}] ${message}`);
+  if (!isTruthy("ADA_MCP_LOGGING_ONLY")) {
+    console.error(`[ada-mcp][${level}] ${localizeAdaLogLine(message)}`);
+  }
+}
+
+/** 启动摘要（版本、runner、registry），默认与测速同级可见 */
+export function mcpLogStartup(message) {
+  mcpLog("info", message);
 }
 
 /** @param {string} message */

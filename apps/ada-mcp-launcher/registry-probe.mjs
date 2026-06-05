@@ -3,6 +3,12 @@
  */
 import { pickBestDownloadProbe, probeDownloadSample } from "./download-probe.mjs";
 import { DEFAULT_NPM_REGISTRY_CANDIDATES } from "./mirror-candidates.mjs";
+import {
+  isMcpFastStartEnv,
+  probeDownloadTimeoutMs,
+  registryMetaFetchTimeoutMs,
+  registryProbeMaxTotalMs
+} from "./probe-env.mjs";
 
 export { DEFAULT_NPM_REGISTRY_CANDIDATES };
 
@@ -58,23 +64,70 @@ function registryTarballUrl(registry, packageName, version) {
   return `${base}${npmRegistryPackagePath(pkg)}/-/${tarballName}-${ver}.tgz`;
 }
 
-async function probeRegistryDownload(registry, samplePackage, sampleVersion) {
+/** ADA_MCP_REGISTRY 等：跳过测速，直接安装 */
+export function resolveForcedRegistryUrl() {
+  const raw =
+    process.env.ADA_MCP_REGISTRY?.trim() ||
+    process.env.ADA_NPM_REGISTRY?.trim() ||
+    process.env.ADA_NPM_PROXY_REGISTRY?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  return normalizeRegistryUrl(raw);
+}
+
+async function probeRegistryDownload(registry, samplePackage, sampleVersion, timeoutMs) {
   const url = registryTarballUrl(registry, samplePackage, sampleVersion);
-  return probeDownloadSample(url);
+  return probeDownloadSample(url, { timeoutMs });
 }
 
 export async function detectBestRegistry(candidates = registryCandidateList(), samplePackage) {
+  const forced = resolveForcedRegistryUrl();
+  if (forced) {
+    return {
+      best: forced,
+      candidates,
+      forced: true,
+      fastStart: isMcpFastStartEnv(),
+      probeResults: []
+    };
+  }
   const pkg = samplePackage?.trim() || "playwright";
-  const probeResults = [];
-  for (const candidate of candidates) {
-    const probe = await probeRegistryDownload(candidate, pkg, PINNED_PLAYWRIGHT_VERSION);
-    probeResults.push({ candidate, probe });
+  const perTimeoutMs = probeDownloadTimeoutMs();
+  const maxTotalMs = registryProbeMaxTotalMs();
+  const tasks = candidates.map(async (candidate) => {
+    const probe = await probeRegistryDownload(candidate, pkg, PINNED_PLAYWRIGHT_VERSION, perTimeoutMs);
+    return { candidate, probe };
+  });
+  let probeResults;
+  if (maxTotalMs > 0) {
+    const raced = await Promise.race([
+      Promise.all(tasks).then((rows) => ({ rows, timedOut: false })),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ rows: null, timedOut: true }), maxTotalMs);
+      })
+    ]);
+    if (!raced.timedOut && raced.rows) {
+      probeResults = raced.rows;
+    } else {
+      probeResults = (
+        await Promise.allSettled(tasks)
+      ).map((s, i) =>
+        s.status === "fulfilled" ? s.value : { candidate: candidates[i], probe: null }
+      );
+    }
+  } else {
+    probeResults = await Promise.all(tasks);
   }
   const bestRow = pickBestDownloadProbe(probeResults, (c) => candidates.indexOf(c));
   const best = bestRow?.candidate ?? candidates[0] ?? DEFAULT_NPM_REGISTRY_CANDIDATES[0];
   return {
     best: normalizeRegistryUrl(best),
     candidates,
+    parallel: true,
+    fastStart: isMcpFastStartEnv(),
+    probeTimeoutMs: perTimeoutMs,
+    maxTotalMs: maxTotalMs || null,
     probeResults: probeResults.map(({ candidate, probe }) => ({
       candidate,
       latency: probe?.durationMs ?? null,
@@ -91,7 +144,7 @@ export async function fetchPackageLatestVersion(packageName, registry) {
   const reg = normalizeRegistryUrl(registry);
   const url = `${reg}${npmRegistryPackagePath(packageName)}/latest`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), registryMetaFetchTimeoutMs());
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -120,7 +173,7 @@ export async function fetchPackageVersionExists(packageName, version, registry) 
   }
   const url = `${reg}${npmRegistryPackagePath(packageName)}/${encodeURIComponent(ver)}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), registryMetaFetchTimeoutMs());
   try {
     const response = await fetch(url, {
       method: "GET",

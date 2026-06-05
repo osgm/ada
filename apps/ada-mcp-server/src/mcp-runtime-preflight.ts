@@ -1,3 +1,4 @@
+import { awaitBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 import type { AgentConfig } from "@ada/agent/types";
 import { loadDeviceRegistry } from "@ada/agent-core";
 import { applyDeviceRegistryToEnv } from "@ada/runtime-probe";
@@ -93,6 +94,7 @@ export async function ensureDeviceRegistryEnvCached(): Promise<void> {
 }
 
 export async function ensureWebRuntimeReady(): Promise<void> {
+  await awaitBootstrapInstallDeps();
   await withPreflightCache("web", async () => {
     const deps = await getDependencyHealth(undefined, { includeHarmony: false });
     if (!deps.playwrightInstalled) {
@@ -113,6 +115,8 @@ export async function ensureMobileRuntimeReady(
   if (!isMobilePlatform(platform)) {
     return;
   }
+
+  await awaitBootstrapInstallDeps();
 
   await withPreflightCache(platform, async () => {
     await ensureDeviceRegistryEnvCached();

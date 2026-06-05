@@ -90,18 +90,15 @@ dependencies:
   playwrightDownloadHost: "https://cdn.playwright.dev"
   # 国内 npm 镜像（按优先级；install-deps 启动时测速选最快，无需用户配置）
   npmRegistryCandidates:
-    - "https://registry.npmjs.org" # 官方
     - "https://registry.npmmirror.com" # 阿里云 / npmmirror
-    - "https://mirrors.cloud.tencent.com/npm" # 腾讯云
-    - "https://mirrors.sjtug.sjtu.edu.cn/npm-registry" # 上海交大
-    - "https://npmreg.proxy.ustclug.org" # 中科大
     - "https://repo.huaweicloud.com/repository/npm" # 华为云
+    - "https://registry.npmjs.org" # 官方
   # 浏览器 zip CDN（按序测速，吞吐最高优先；同速时官方靠前）
   playwrightHostCandidates:
     - "https://cdn.playwright.dev"
-    - "https://playwright.azureedge.net"
     - "https://cdn.npmmirror.com/binaries/playwright"
     - "https://npmmirror.com/mirrors/playwright"
+    - "https://playwright.azureedge.net"
   # 纯血鸿蒙工具（hdc 等），相对工作区根目录；也可用环境变量 ADA_TOOLS_DIR 覆盖
   toolsDir: "tools"
   # install-deps --only=harmony / --only=all 时自动下载 hdc（支持 .zip 或直链；GitHub blob 链接会自动转 raw）

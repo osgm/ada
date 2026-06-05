@@ -5,7 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "./mirror-candidates.mjs";
-import { detectBestRegistry, registryCandidateList } from "./registry-probe.mjs";
+import { isSkipPreinstallProbeEnv } from "./probe-env.mjs";
+import { detectBestRegistry, registryCandidateList, resolveForcedRegistryUrl } from "./registry-probe.mjs";
 import { detectBestPlaywrightHost } from "./playwright-probe.mjs";
 
 function installRoot() {
@@ -17,9 +18,6 @@ function installRoot() {
 }
 
 function shouldRunProbe() {
-  if (process.env.ADA_MCP_SKIP_REGISTRY_PROBE === "1") {
-    return false;
-  }
   if (process.env.ADA_MCP_FORCE_PREINSTALL_PROBE === "1") {
     return true;
   }
@@ -40,13 +38,20 @@ function shouldRunProbe() {
 }
 
 async function main() {
-  if (!shouldRunProbe()) {
+  if (!shouldRunProbe() || isSkipPreinstallProbeEnv()) {
+    if (isSkipPreinstallProbeEnv()) {
+      console.error(
+        "[ada-mcp preinstall] skip probe (ADA_MCP_FAST_START / ADA_MCP_SKIP_PREINSTALL_PROBE / ADA_MCP_SKIP_REGISTRY_PROBE)"
+      );
+    }
     return;
   }
   const root = installRoot();
 
-  const regCandidates = registryCandidateList();
-  const reg = await detectBestRegistry(regCandidates);
+  const forcedReg = resolveForcedRegistryUrl();
+  const reg = forcedReg
+    ? { best: forcedReg, probeResults: [] }
+    : await detectBestRegistry(registryCandidateList());
   const npmrcPath = path.join(root, ".npmrc");
   const regLine = `registry=${reg.best}\n`;
   let npmrc = "";
@@ -58,7 +63,9 @@ async function main() {
   if (!npmrc.includes(`registry=${reg.best}`)) {
     fs.writeFileSync(npmrcPath, `${npmrc}${regLine}`, "utf8");
   }
-  console.error(`[ada-mcp preinstall] registry: ${reg.best}`);
+  console.error(
+    `[ada-mcp preinstall] registry: ${reg.best}${forcedReg ? " (forced ADA_MCP_REGISTRY)" : ""}`
+  );
   for (const { candidate, latency, speedKBps, bytesRead } of reg.probeResults) {
     if (speedKBps != null) {
       console.error(
@@ -69,7 +76,7 @@ async function main() {
     }
   }
 
-  /** 浏览器 CDN：按序测速，官方优先，选吞吐最高 */
+  /** 浏览器 CDN：并行测速，选吞吐最高 */
   const pw = await detectBestPlaywrightHost([...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES]);
   const hostFile = path.join(root, ".ada-mcp-playwright-host");
   fs.writeFileSync(hostFile, `${pw.best}\n`, "utf8");

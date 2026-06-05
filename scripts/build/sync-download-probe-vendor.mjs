@@ -32,20 +32,13 @@ const headerMirror = `/**
 async function main() {
   const probeSrc = await fs.readFile(path.join(distDir, "download-probe.js"), "utf8");
   const mirrorSrc = await fs.readFile(path.join(distDir, "mirror-candidates.js"), "utf8");
-  let mirrorBody = mirrorSrc.replace(
-    /export const DEFAULT_NPM_REGISTRY_CANDIDATES = \[[\s\S]*?\];/,
-    `/** 国内优先 npmmirror，其次官方；测速相同时列表靠前者优先 */
-export const DEFAULT_NPM_REGISTRY_CANDIDATES = [
-  "https://registry.npmmirror.com",
-  "https://registry.npmjs.org",
-  "https://mirrors.cloud.tencent.com/npm",
-  "https://mirrors.sjtug.sjtu.edu.cn/npm-registry",
-  "https://npmreg.proxy.ustclug.org",
-  "https://repo.huaweicloud.com/repository/npm"
-];`
-  );
-  mirrorBody = mirrorBody.replace(/\/\/# sourceMappingURL=.*\n?/g, "");
-  const probeBody = probeSrc.replace(/\/\/# sourceMappingURL=.*\n?/g, "");
+  let mirrorBody = mirrorSrc.replace(/\/\/# sourceMappingURL=.*\n?/g, "");
+  const probeBody = probeSrc
+    .replace(/\/\/# sourceMappingURL=.*\n?/g, "")
+    .replace(
+      /import \{ probeLogLine, useEnglishAdaLogs \} from "\.\/log-locale\.js";/,
+      'import { depsLogLine as probeLogLine, useEnglishAdaLogs } from "./log-locale.mjs";'
+    );
 
   await fs.writeFile(targets[0], headerProbe + probeBody, "utf8");
   await fs.writeFile(targets[1], headerProbe + probeBody, "utf8");

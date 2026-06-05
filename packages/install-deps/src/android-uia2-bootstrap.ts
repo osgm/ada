@@ -128,18 +128,22 @@ export async function ensureAndroidUia2Bootstrap(options?: EnsureAndroidUia2Opti
   const artifact: DriverInstallOutcome = { id: "android-uia2", status: "skipped", detail: "bootstrap disabled" };
 
   if (!uia2BootstrapEnabled()) {
+    const serial = await resolveAndroidDeviceSerial(options?.serial);
+    if (!serial) {
+      artifact.status = "skipped";
+      artifact.detail = "bootstrap disabled; no adb device (UIA2 deferred)";
+      return { outcome: artifact, serverUrl };
+    }
     const probe = await probeAndroidUia2Runtime({ serverUrl, serial: options?.serial, ensureForward: true });
-    artifact.detail = uia2BootstrapEnabled()
-      ? probe.detail
-      : `bootstrap disabled (set ADA_ANDROID_UIA2_BOOTSTRAP=true); ${probe.detail}`;
+    artifact.detail = `bootstrap disabled (set ADA_ANDROID_UIA2_BOOTSTRAP=true); ${probe.detail}`;
     artifact.status = probe.reachable ? "skipped" : "missing";
     return { outcome: artifact, serverUrl };
   }
 
   const serial = await resolveAndroidDeviceSerial(options?.serial);
   if (!serial) {
-    artifact.status = "missing";
-    artifact.detail = "no adb device for UIA2 bootstrap";
+    artifact.status = "skipped";
+    artifact.detail = "no adb device for UIA2 bootstrap (deferred until device connected)";
     return { outcome: artifact, serverUrl };
   }
 

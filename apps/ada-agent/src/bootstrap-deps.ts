@@ -5,8 +5,13 @@ import {
   applyPersistedDownloadProbeFromState,
   applyAdaToolsToProcessEnv,
   ensureDriverDependencies,
+  isInstallScopeComplete,
   resolveInstallContextCwd,
   type EnsureInstallOptions,
+  depsLogLine,
+  emitBootstrapPhaseProgress,
+  getLatestInstallProgress,
+  localizeAdaLogLine,
   type InstallScope
 } from "@ada/install-deps";
 import type { AgentConfig } from "./types.js";
@@ -148,26 +153,117 @@ function resolveBootstrapLogLevel(): keyof typeof MCP_LOG_RANK {
   const raw = String(process.env.ADA_MCP_LOG_LEVEL ?? "").trim().toLowerCase();
   if (raw === "info" || raw === "warn" || raw === "error") return raw;
   if (isTruthy(process.env.ADA_MCP_VERBOSE)) return "info";
-  return "error";
-}
-
-function bootstrapLineLevel(line: string): keyof typeof MCP_LOG_RANK {
-  if (/\[error\]|依赖安装未完成|bootstrap failed/i.test(line)) return "error";
-  if (/\[warn\]|warn\]|probe-miss|未完成/i.test(line)) return "warn";
+  /** 与 launcher 一致：默认展示测速、[deps]/[playwright] 安装日志 */
   return "info";
 }
 
-function bootstrapLog(line: string, onLogLine?: (line: string) => void): void {
-  if (onLogLine) {
-    onLogLine(line);
+function bootstrapLineLevel(line: string): keyof typeof MCP_LOG_RANK {
+  if (/\[error\]|bootstrap failed/i.test(line)) return "error";
+  if (/\[warn\]|warn\]|probe-miss|依赖安装未完成|未完成/i.test(line)) return "warn";
+  return "info";
+}
+
+type BootstrapLogLevel = keyof typeof MCP_LOG_RANK;
+
+let bootstrapLogEmitter: ((level: BootstrapLogLevel, body: string) => void) | null = null;
+
+export function setBootstrapLogEmitter(
+  emitter: ((level: BootstrapLogLevel, body: string) => void) | null
+): void {
+  bootstrapLogEmitter = emitter;
+}
+
+function emitBootstrapLine(level: BootstrapLogLevel, body: string): void {
+  const localized = localizeAdaLogLine(body);
+  const formatted = `[ADA-MCP][${level}] ${localized}`;
+  if (bootstrapLogEmitter) {
+    bootstrapLogEmitter(level, localized);
     return;
   }
-  const level = bootstrapLineLevel(line);
+  console.error(formatted);
+}
+
+function bootstrapLog(line: string, onLogLine?: (line: string) => void): void {
+  const localized = localizeAdaLogLine(line);
+  if (onLogLine) {
+    onLogLine(localized);
+    return;
+  }
+  const level = bootstrapLineLevel(localized);
   if (MCP_LOG_RANK[level] < MCP_LOG_RANK[resolveBootstrapLogLevel()]) {
     return;
   }
-  const body = line.replace(/^\[ADA-MCP\](\[(?:info|warn|error)\])?\s*/i, "");
-  console.error(`[ADA-MCP][${level}] ${body}`);
+  const body = localized.replace(/^\[ADA-MCP\](\[(?:info|warn|error)\])?\s*/i, "");
+  emitBootstrapLine(level, body);
+}
+
+export function isBootstrapInstallActive(): boolean {
+  return process.env.ADA_MCP_BOOTSTRAP_IN_PROGRESS === "1";
+}
+
+export type McpBootstrapStatus = {
+  active: boolean;
+  scopes: string[];
+  phase: string;
+  startedAt: string | null;
+  lastError: string | null;
+};
+
+let mcpBootstrapStatus: McpBootstrapStatus = {
+  active: false,
+  scopes: [],
+  phase: "idle",
+  startedAt: null,
+  lastError: null
+};
+
+function setBootstrapPhase(phase: string, scopes: string[] = mcpBootstrapStatus.scopes): void {
+  mcpBootstrapStatus = {
+    ...mcpBootstrapStatus,
+    active:
+      phase !== "idle" &&
+      phase !== "done" &&
+      phase !== "skipped" &&
+      phase !== "error",
+    phase,
+    scopes
+  };
+  const status =
+    phase === "error"
+      ? "error"
+      : phase === "skipped"
+        ? "skipped"
+        : phase === "done"
+          ? "ok"
+          : "running";
+  emitBootstrapPhaseProgress(phase, scopes, status);
+}
+
+/** MCP health / 工具路由：后台依赖安装状态 */
+export function getMcpBootstrapStatus(): McpBootstrapStatus & {
+  installProgress?: ReturnType<typeof getLatestInstallProgress>;
+} {
+  const latest = getLatestInstallProgress();
+  return {
+    ...mcpBootstrapStatus,
+    ...(latest ? { installProgress: latest } : {})
+  };
+}
+
+let activeBootstrapInstall: Promise<void> | null = null;
+
+/** 后台 install-deps 进行中的 Promise（stdio 握手完成后启动） */
+export function getBootstrapInstallPromise(): Promise<void> | null {
+  return activeBootstrapInstall;
+}
+
+/** 工具调用前等待进行中的 bootstrap（含 --install-deps=all） */
+export async function awaitBootstrapInstallDeps(): Promise<void> {
+  const pending = activeBootstrapInstall;
+  if (!pending) {
+    return;
+  }
+  await pending;
 }
 
 export async function runBootstrapInstallDeps(
@@ -175,6 +271,24 @@ export async function runBootstrapInstallDeps(
   options?: RunBootstrapInstallDepsOptions
 ): Promise<void> {
   const logLine = (line: string) => bootstrapLog(line, options?.onLogLine);
+  process.env.ADA_MCP_BOOTSTRAP_IN_PROGRESS = "1";
+  if (!mcpBootstrapStatus.startedAt) {
+    mcpBootstrapStatus.startedAt = new Date().toISOString();
+  }
+  try {
+    await runBootstrapInstallDepsBody(argv, options, logLine);
+  } finally {
+    delete process.env.ADA_MCP_BOOTSTRAP_IN_PROGRESS;
+  }
+}
+
+async function runBootstrapInstallDepsBody(
+  argv: string[],
+  options: RunBootstrapInstallDepsOptions | undefined,
+  logLine: (line: string) => void
+): Promise<void> {
+  mcpBootstrapStatus.lastError = null;
+  setBootstrapPhase("planning", []);
   applyPreinstallPlaywrightHostFile();
   ensureDefaultInstallTimeouts();
 
@@ -196,13 +310,35 @@ export async function runBootstrapInstallDeps(
   await applyPersistedDownloadProbeFromState((line) => logLine(line));
 
   if (plan.skip) {
+    setBootstrapPhase("skipped", []);
     logLine("[ADA-MCP] dependency bootstrap skipped (--skip-install-deps / ADA_MCP_SKIP_INSTALL_DEPS)");
     return;
   }
+
+  if (!plan.force) {
+    let allComplete = true;
+    for (const scope of plan.scopes) {
+      if (!(await isInstallScopeComplete(scope, config))) {
+        allComplete = false;
+        break;
+      }
+    }
+    if (allComplete) {
+      setBootstrapPhase("skipped", plan.scopes);
+      logLine(
+        "[ADA-MCP] dependency bootstrap skipped (already installed; use --install-deps-force or ADA_MCP_INSTALL_DEPS_FORCE=1 to reinstall)"
+      );
+      return;
+    }
+  }
+
   const label = plan.scopes.join(",");
+  setBootstrapPhase("start", plan.scopes);
   logLine(`[ADA-MCP] dependency bootstrap start (scope=${label}, force=${plan.force})`);
 
   for (const scope of plan.scopes) {
+    setBootstrapPhase(`install:${scope}`, plan.scopes);
+    logLine(`[ADA-MCP] bootstrap phase: install ${scope}`);
     logLine(`[ADA-MCP] installing: ${scope}`);
     try {
       await ensureDriverDependencies(config, {
@@ -215,21 +351,76 @@ export async function runBootstrapInstallDeps(
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
-      logLine(`[ADA-MCP][warn] ${scope} 依赖安装未完成: ${msg}`);
-      logLine("[ADA-MCP][warn] MCP 仍将启动；可设置 PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev 或 --skip-install-deps");
+      mcpBootstrapStatus.lastError = `${scope}: ${msg}`;
+      logLine(
+        depsLogLine(
+          `[ADA-MCP][warn] ${scope} 依赖安装未完成: ${msg}`,
+          `[ADA-MCP][warn] ${scope} deps install incomplete: ${msg}`
+        )
+      );
+      logLine(
+        depsLogLine(
+          "[ADA-MCP][warn] MCP 仍将启动；可设置 PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev 或 --skip-install-deps",
+          "[ADA-MCP][warn] MCP will still start; set PLAYWRIGHT_DOWNLOAD_HOST or --skip-install-deps"
+        )
+      );
     }
   }
 
+  setBootstrapPhase("done", plan.scopes);
   logLine("[ADA-MCP] dependency bootstrap done");
 }
 
-/** MCP stdio：握手完成后再装依赖，避免阻塞 Host 初始化超时 */
+/** 解析即将执行的 bootstrap scope（供 health / schedule 展示） */
+export function previewBootstrapInstallPlan(
+  argv: string[],
+  options?: Pick<RunBootstrapInstallDepsOptions, "installDepsSpec">
+): { skip: boolean; scopes: string[]; force: boolean } {
+  const argvForPlan =
+    options?.installDepsSpec !== undefined
+      ? [...argv.filter((x) => !x.startsWith("--install-deps=")), `--install-deps=${options.installDepsSpec}`]
+      : argv;
+  const plan = resolveBootstrapInstallDeps(argvForPlan);
+  if (plan.skip) {
+    return { skip: true, scopes: [], force: false };
+  }
+  return { skip: false, scopes: plan.scopes, force: plan.force };
+}
+
+/** MCP stdio：握手完成后再装依赖（含 --install-deps=all），不阻塞 Host 初始化 */
 export function scheduleBootstrapInstallDeps(
   argv: string[],
   options?: RunBootstrapInstallDepsOptions
 ): void {
-  void runBootstrapInstallDeps(argv, options).catch((error) => {
-    const msg = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
-    console.error(`[ADA-MCP][warn] background install incomplete: ${msg}`);
-  });
+  if (activeBootstrapInstall) {
+    return;
+  }
+  const planPreview = previewBootstrapInstallPlan(argv, options);
+  if (planPreview.skip) {
+    setBootstrapPhase("skipped", []);
+    activeBootstrapInstall = runBootstrapInstallDeps(argv, options).finally(() => {
+      activeBootstrapInstall = null;
+      mcpBootstrapStatus.active = false;
+    });
+    return;
+  }
+  mcpBootstrapStatus = {
+    active: true,
+    scopes: planPreview.scopes,
+    phase: "scheduled",
+    startedAt: new Date().toISOString(),
+    lastError: null
+  };
+  emitBootstrapPhaseProgress("scheduled", planPreview.scopes, "running");
+  activeBootstrapInstall = runBootstrapInstallDeps(argv, options)
+    .catch((error) => {
+      const msg = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
+      mcpBootstrapStatus.lastError = msg;
+      setBootstrapPhase("error", mcpBootstrapStatus.scopes);
+      console.error(localizeAdaLogLine(`[ADA-MCP][warn] background install incomplete: ${msg}`));
+    })
+    .finally(() => {
+      activeBootstrapInstall = null;
+      mcpBootstrapStatus.active = false;
+    });
 }

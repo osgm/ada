@@ -91,18 +91,15 @@ export const defaultConfig: AgentConfig = {
     playwrightInstallTargets: ["chromium"],
     playwrightDownloadHost: "https://cdn.playwright.dev",
     npmRegistryCandidates: [
-      "https://registry.npmjs.org",
       "https://registry.npmmirror.com",
-      "https://mirrors.cloud.tencent.com/npm",
-      "https://mirrors.sjtug.sjtu.edu.cn/npm-registry",
-      "https://npmreg.proxy.ustclug.org",
-      "https://repo.huaweicloud.com/repository/npm"
+      "https://repo.huaweicloud.com/repository/npm",
+      "https://registry.npmjs.org"
     ],
     playwrightHostCandidates: [
       "https://cdn.playwright.dev",
-      "https://playwright.azureedge.net",
       "https://cdn.npmmirror.com/binaries/playwright",
-      "https://npmmirror.com/mirrors/playwright"
+      "https://npmmirror.com/mirrors/playwright",
+      "https://playwright.azureedge.net"
     ],
     toolsDir: "tools",
     harmonyHdcDownloadUrls: [

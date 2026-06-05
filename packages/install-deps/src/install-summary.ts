@@ -1,3 +1,8 @@
+import { depsLogLine } from "./log-locale.js";
+import { isIosHostSupported } from "./platform-support.js";
+
+const IOS_DRIVER_ARTIFACTS: ReadonlySet<DriverArtifactId> = new Set(["ios-xcrun", "ios-wda"]);
+
 type InstallScopeForDrivers =
   | "all"
   | "playwright"
@@ -24,7 +29,7 @@ export interface DriverInstallOutcome {
   detail?: string;
 }
 
-const DRIVER_LABELS: Record<DriverArtifactId, string> = {
+const DRIVER_LABELS_ZH: Record<DriverArtifactId, string> = {
   "playwright-browsers": "Playwright 浏览器",
   "harmony-hdc": "Harmony hdc 工具",
   "android-adb": "Android adb 运行时",
@@ -33,27 +38,47 @@ const DRIVER_LABELS: Record<DriverArtifactId, string> = {
   "ios-wda": "iOS WebDriverAgent"
 };
 
+const DRIVER_LABELS_EN: Record<DriverArtifactId, string> = {
+  "playwright-browsers": "Playwright browsers",
+  "harmony-hdc": "Harmony hdc tools",
+  "android-adb": "Android adb runtime",
+  "android-uia2": "Android UiAutomator2 Server",
+  "ios-xcrun": "iOS toolchain (xcrun)",
+  "ios-wda": "iOS WebDriverAgent"
+};
+
 export function driverArtifactLabel(id: DriverArtifactId): string {
-  return DRIVER_LABELS[id];
+  return depsLogLine(DRIVER_LABELS_ZH[id], DRIVER_LABELS_EN[id]);
 }
 
 export function resolveRequestedDriverArtifacts(only: InstallScopeForDrivers): DriverArtifactId[] {
+  let ids: DriverArtifactId[];
   switch (only) {
     case "playwright":
-      return ["playwright-browsers"];
+      ids = ["playwright-browsers"];
+      break;
     case "harmony":
-      return ["harmony-hdc"];
+      ids = ["harmony-hdc"];
+      break;
     case "android":
-      return ["android-adb", "android-uia2"];
+      ids = ["android-adb", "android-uia2"];
+      break;
     case "ios":
-      return ["ios-xcrun", "ios-wda"];
+      ids = ["ios-xcrun", "ios-wda"];
+      break;
     case "mobile":
     case "drivers":
-      return ["harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda"];
+      ids = ["harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda"];
+      break;
     case "all":
     default:
-      return ["playwright-browsers", "harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda"];
+      ids = ["playwright-browsers", "harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda"];
+      break;
   }
+  if (!isIosHostSupported()) {
+    ids = ids.filter((id) => !IOS_DRIVER_ARTIFACTS.has(id));
+  }
+  return ids;
 }
 
 export class InstallDriverTracker {
@@ -91,20 +116,22 @@ export class InstallDriverTracker {
       const label = driverArtifactLabel(id);
       if (!outcome) {
         failedDrivers.push(id);
-        summaryLines.push(`未检查: ${label}`);
+        summaryLines.push(depsLogLine(`未检查: ${label}`, `not checked: ${label}`));
         continue;
       }
       const detail = outcome.detail?.trim();
-      const suffix = detail ? `（${detail}）` : "";
+      const suffix = detail
+        ? depsLogLine(`（${detail}）`, ` (${detail})`)
+        : "";
       if (outcome.status === "installed") {
         installedDrivers.push(id);
-        summaryLines.push(`已安装: ${label}${suffix}`);
+        summaryLines.push(depsLogLine(`已安装: ${label}${suffix}`, `installed: ${label}${suffix}`));
       } else if (outcome.status === "skipped") {
         skippedDrivers.push(id);
-        summaryLines.push(`已就绪: ${label}${suffix}`);
+        summaryLines.push(depsLogLine(`已就绪: ${label}${suffix}`, `ready: ${label}${suffix}`));
       } else {
         failedDrivers.push(id);
-        summaryLines.push(`未就绪: ${label}${suffix}`);
+        summaryLines.push(depsLogLine(`未就绪: ${label}${suffix}`, `not ready: ${label}${suffix}`));
       }
     }
 
@@ -177,16 +204,19 @@ export type InstallSummaryLike = {
 export function formatInstallSummaryText(summary: InstallSummaryLike): string[] {
   const lines: string[] = [];
   if (summary.scope) {
-    lines.push(`范围: ${summary.scope}`);
+    lines.push(depsLogLine(`范围: ${summary.scope}`, `scope: ${summary.scope}`));
   }
   if (typeof summary.elapsedMs === "number") {
-    lines.push(`耗时: ${summary.elapsedMs}ms`);
+    lines.push(depsLogLine(`耗时: ${summary.elapsedMs}ms`, `elapsed: ${summary.elapsedMs}ms`));
   }
   const pkgsInstalled = summary.installedPackages ?? [];
   const pkgsSkipped = summary.skippedPackages ?? [];
   if (pkgsInstalled.length > 0 || pkgsSkipped.length > 0) {
     lines.push(
-      `npm 包: 新装 [${pkgsInstalled.join(", ") || "—"}] · 已就绪 [${pkgsSkipped.join(", ") || "—"}]`
+      depsLogLine(
+        `npm 包: 新装 [${pkgsInstalled.join(", ") || "—"}] · 已就绪 [${pkgsSkipped.join(", ") || "—"}]`,
+        `npm packages: installed [${pkgsInstalled.join(", ") || "—"}] · ready [${pkgsSkipped.join(", ") || "—"}]`
+      )
     );
   }
   for (const line of summary.summaryLines ?? []) {
@@ -196,7 +226,7 @@ export function formatInstallSummaryText(summary: InstallSummaryLike): string[] 
   }
   const failed = summary.failedDrivers ?? [];
   if (failed.length > 0 && !(summary.summaryLines?.length ?? 0)) {
-    lines.push(`未就绪组件: ${failed.join(", ")}`);
+    lines.push(depsLogLine(`未就绪组件: ${failed.join(", ")}`, `not ready: ${failed.join(", ")}`));
   }
   return lines;
 }
@@ -221,5 +251,11 @@ export function formatInstallDepsResponse(payload: unknown): string[] {
     return formatInstallSummaryText(summaries[0]!);
   }
   const merged = mergeInstallSummaries(summaries);
-  return [`合并 ${summaries.length} 步安装结果`, ...formatInstallSummaryText(merged)];
+  return [
+    depsLogLine(
+      `合并 ${summaries.length} 步安装结果`,
+      `merged ${summaries.length} install step(s)`
+    ),
+    ...formatInstallSummaryText(merged)
+  ];
 }

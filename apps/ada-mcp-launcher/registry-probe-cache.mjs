@@ -46,7 +46,7 @@ function candidatesKey(candidates) {
  * @param {string[]} candidates
  * @returns {{ best: string, probeResults: Array<{ candidate: string, latency: number|null, speedKBps: number|null, bytesRead: number|null }>, probedAt: string } | null}
  */
-export function readRegistryProbeCache(candidates) {
+export function readRegistryProbeCache(candidates, launcherVersion) {
   const file = registryProbeCacheFilePath();
   let raw;
   try {
@@ -64,7 +64,12 @@ export function readRegistryProbeCache(candidates) {
   if (!Number.isFinite(probedAtMs)) {
     return null;
   }
-  if (Date.now() - probedAtMs > registryProbeCacheTtlMs()) {
+  const ttl = Number(parsed.ttlMs) > 0 ? Number(parsed.ttlMs) : registryProbeCacheTtlMs();
+  if (Date.now() - probedAtMs > ttl) {
+    return null;
+  }
+  const ver = String(launcherVersion ?? "").trim();
+  if (ver && parsed.launcherVersion && parsed.launcherVersion !== ver) {
     return null;
   }
   if (parsed.candidatesKey !== candidatesKey(candidates)) {
@@ -85,17 +90,18 @@ export function readRegistryProbeCache(candidates) {
 /**
  * @param {{ best: string, candidates: string[], probeResults?: unknown[] }} payload
  */
-export function writeRegistryProbeCache(payload) {
+export function writeRegistryProbeCache(payload, launcherVersion) {
   const file = registryProbeCacheFilePath();
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
   const body = {
-    version: 1,
+    version: 2,
     best: normalizeRegistryUrl(payload.best),
     candidatesKey: candidatesKey(payload.candidates),
     probeResults: payload.probeResults ?? [],
     probedAt: new Date().toISOString(),
-    ttlMs: registryProbeCacheTtlMs()
+    ttlMs: registryProbeCacheTtlMs(),
+    launcherVersion: String(launcherVersion ?? "").trim() || undefined
   };
   fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, "utf8");
 }

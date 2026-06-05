@@ -21,6 +21,54 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
+export type McpReadinessHints = {
+  mcpToolsListed: boolean;
+  bootstrapInProgress: boolean;
+  webAutomationReady: boolean;
+  mobilePackagesReady: boolean;
+  harmonyRuntimeReady: boolean;
+  hint: string;
+};
+
+export function buildMcpReadinessHints(
+  snapshot: Record<string, unknown>,
+  scope: "web" | "mobile" | "all"
+): McpReadinessHints {
+  const bootstrap = asRecord(snapshot.mcpBootstrap);
+  const deps = asRecord(snapshot.dependencies);
+  const runtimeReady = asRecord(deps.runtimeReady);
+  const packagesReady = asRecord(deps.packagesReady);
+  const bootstrapInProgress = bootstrap.active === true;
+  const webAutomationReady = runtimeReady.web === true;
+  const mobilePackagesReady = packagesReady.mobile === true;
+  const harmonyRuntimeReady = runtimeReady.harmony === true;
+
+  let hint = "MCP is connected; tool list is available.";
+  if (bootstrapInProgress) {
+    hint =
+      "MCP tools are listed, but dependency bootstrap is still running. Poll ada_health until mcpBootstrap.active is false before ada_web_action / ada_mobile_action.";
+  } else if ((scope === "web" || scope === "all") && !webAutomationReady) {
+    hint =
+      "MCP is connected; Web automation is not ready yet. Wait for bootstrap to finish or run ada_install_deps with only=playwright.";
+  } else if ((scope === "mobile" || scope === "all") && mobilePackagesReady && !harmonyRuntimeReady) {
+    hint =
+      "Mobile packages may be marked ready, but Harmony/WebDriver runtimes are not ready. Run ada_install_deps (only=harmony|mobile) and ada_devices(scan).";
+  } else if (scope === "web" && webAutomationReady) {
+    hint = "Web automation is ready; use ada_web_action.";
+  } else if (scope === "mobile" && harmonyRuntimeReady) {
+    hint = "Harmony runtime probe ok; use ada_devices then ada_mobile_action.";
+  }
+
+  return {
+    mcpToolsListed: true,
+    bootstrapInProgress,
+    webAutomationReady,
+    mobilePackagesReady,
+    harmonyRuntimeReady,
+    hint
+  };
+}
+
 export function buildSessionPolicy(): SessionPolicy {
   return {
     defaultTier: "T1",
@@ -39,6 +87,17 @@ export async function buildHealthBlockers(
   const blockers: HealthBlocker[] = [];
   const deps = asRecord(snapshot.dependencies);
   const registry = asRecord(snapshot.deviceRegistry);
+  const bootstrap = asRecord(snapshot.mcpBootstrap);
+
+  if (bootstrap.active === true) {
+    blockers.push({
+      id: "mcp-bootstrap-in-progress",
+      severity: "warning",
+      message: `Dependency bootstrap in progress (phase=${String(bootstrap.phase ?? "unknown")})`,
+      fixTool: "ada_health",
+      fixArgs: { scope }
+    });
+  }
 
   if (scope === "web" || scope === "all") {
     if (deps.playwrightInstalled === false) {

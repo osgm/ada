@@ -6,6 +6,50 @@ import { resolveGlobalAdaHomeSync } from "./deps-install-paths.js";
 import { resolveWorkspaceRoot } from "./deps-install-paths.js";
 
 const HDC_BIN = process.platform === "win32" ? "hdc.exe" : "hdc";
+const DEFAULT_TOOLS_RELATIVE = "tools";
+
+/**
+ * 配置里的 toolsDir 应为相对段（如 `tools`）。
+ * 去掉前导 `/`，避免 `path.join(workspace, "/tools")` → `/tools`（MCP cwd 为 `/` 时常见）。
+ */
+export function normalizeToolsRelativeSegment(relativeDir?: string): string {
+  const trimmed = String(relativeDir ?? "").trim();
+  if (!trimmed || trimmed === "." || trimmed === "/") {
+    return DEFAULT_TOOLS_RELATIVE;
+  }
+  const withoutLeading = trimmed.replace(/^[/\\]+/, "");
+  return withoutLeading || DEFAULT_TOOLS_RELATIVE;
+}
+
+/** 在 workspace / 上级目录下拼接 tools 路径（永不在磁盘根如 `/tools` 创建） */
+export function joinWorkspaceToolsDir(baseDir: string, relativeDir?: string): string {
+  const rel = normalizeToolsRelativeSegment(relativeDir);
+  const base = path.resolve(baseDir);
+  const parsed = path.parse(base);
+  if (base === parsed.root) {
+    return path.join(resolveGlobalAdaHomeSync(), rel);
+  }
+  return path.join(base, rel);
+}
+
+/** 是否落在文件系统根下（如 `/tools`、`C:\tools`），macOS 上 mkdir 会失败 */
+export function isFilesystemRootToolsDir(dir: string): boolean {
+  const resolved = path.resolve(dir);
+  const parsed = path.parse(resolved);
+  return path.dirname(resolved) === parsed.root;
+}
+
+export function resolveAdaHomeToolsDir(relativeDir?: string): string {
+  return path.join(resolveGlobalAdaHomeSync(), normalizeToolsRelativeSegment(relativeDir));
+}
+
+/** 写入前将 `/tools` 等不安全路径重定向到 `~/.ada/tools` */
+export function resolveSafeToolsDirForWrite(toolsDir: string, relativeDir?: string): string {
+  if (isFilesystemRootToolsDir(toolsDir)) {
+    return resolveAdaHomeToolsDir(relativeDir);
+  }
+  return path.resolve(toolsDir);
+}
 
 export type AdaToolsResolution = {
   toolsDir: string | null;
@@ -55,10 +99,11 @@ function mcpServerEntryDir(): string | null {
 
 /** 从若干起点向上查找 `<relativeDir>/` 目录（不要求已含 hdc） */
 function walkUpToolsDirs(startDir: string, relativeDir: string, maxDepth = 10): string[] {
+  const rel = normalizeToolsRelativeSegment(relativeDir);
   const out: string[] = [];
   let dir = path.resolve(startDir);
   for (let i = 0; i < maxDepth; i += 1) {
-    out.push(path.join(dir, relativeDir));
+    out.push(joinWorkspaceToolsDir(dir, rel));
     const parent = path.dirname(dir);
     if (parent === dir) {
       break;
@@ -69,11 +114,12 @@ function walkUpToolsDirs(startDir: string, relativeDir: string, maxDepth = 10): 
 }
 
 async function workspaceToolsDirs(relativeDir: string, startDirs: string[]): Promise<string[]> {
+  const rel = normalizeToolsRelativeSegment(relativeDir);
   const out: string[] = [];
   for (const start of startDirs) {
     try {
       const root = await resolveWorkspaceRoot(start);
-      out.push(path.join(root, relativeDir));
+      out.push(joinWorkspaceToolsDir(root, rel));
     } catch {
       // ignore
     }
@@ -81,16 +127,20 @@ async function workspaceToolsDirs(relativeDir: string, startDirs: string[]): Pro
   return out;
 }
 
+function filterSafeToolsDirCandidates(candidates: string[]): string[] {
+  return candidates.filter((c) => !isFilesystemRootToolsDir(c));
+}
+
 /** 按优先级收集候选 tools 目录（去重，不要求 hdc 已存在） */
 export async function collectToolsDirCandidates(options?: {
   cwd?: string;
   relativeDir?: string;
 }): Promise<string[]> {
-  const relativeDir = options?.relativeDir?.trim() || "tools";
+  const relativeDir = normalizeToolsRelativeSegment(options?.relativeDir);
   const startCwd = options?.cwd ?? resolveInstallContextCwd();
   const entryDir = mcpServerEntryDir();
   const execDir = path.dirname(process.execPath);
-  const adaHomeTools = path.join(resolveGlobalAdaHomeSync(), relativeDir);
+  const adaHomeTools = resolveAdaHomeToolsDir(relativeDir);
 
   const startDirs = uniquePaths(
     [
@@ -110,7 +160,7 @@ export async function collectToolsDirCandidates(options?: {
     adaHomeTools
   ]);
 
-  return candidates;
+  return filterSafeToolsDirCandidates(candidates);
 }
 
 /** 解析含 hdc 的 tools 目录；找不到 hdc 时返回 null */
@@ -148,7 +198,12 @@ export async function resolveDefaultToolsDir(options?: {
       // not found
     }
   }
-  return candidates[0] ?? null;
+  const safe = filterSafeToolsDirCandidates(candidates);
+  return safe[0] ?? adaHomeToolsFromOptions(options);
+}
+
+function adaHomeToolsFromOptions(options?: { relativeDir?: string }): string {
+  return resolveAdaHomeToolsDir(options?.relativeDir);
 }
 
 export function resolveHdcExecutable(toolsDir: string): string {
@@ -168,11 +223,16 @@ export async function applyAdaToolsToProcessEnv(options?: {
   relativeDir?: string;
   onLogLine?: (line: string) => void;
 }): Promise<AdaToolsResolution> {
+  const { depsLogLine, wrapInstallDepsLogEmitter } = await import("./log-locale.js");
+  const onLogLine = wrapInstallDepsLogEmitter(options?.onLogLine);
+  const relativeDir = normalizeToolsRelativeSegment(options?.relativeDir);
   const explicitToolsDir = process.env.ADA_TOOLS_DIR?.trim();
-  const toolsDir =
+  let toolsDir =
     (explicitToolsDir ? path.resolve(explicitToolsDir) : null) ??
-    (await resolveAdaToolsDir(options)) ??
-    (await resolveDefaultToolsDir(options));
+    (await resolveAdaToolsDir({ ...options, relativeDir })) ??
+    (await resolveDefaultToolsDir({ ...options, relativeDir }));
+
+  toolsDir = toolsDir ? resolveSafeToolsDirForWrite(toolsDir, relativeDir) : null;
 
   if (!toolsDir) {
     return { toolsDir: null, hdcPath: null, pathPrepended: false, hdcPresent: false };
@@ -198,9 +258,15 @@ export async function applyAdaToolsToProcessEnv(options?: {
     pathPrepended = true;
   }
 
-  const hdcNote = hdcPresent ? path.basename(hdcPath) : `${path.basename(hdcPath)}（未检测到，已仍设置 ADA_TOOLS_DIR）`;
-  options?.onLogLine?.(
-    `[harmony] 使用工具目录 ${toolsDir}（hdc=${hdcNote}${pathPrepended ? "，已加入 PATH" : ""}）`
+  const hdcNote = hdcPresent
+    ? path.basename(hdcPath)
+    : `${path.basename(hdcPath)} (not found, ADA_TOOLS_DIR still set)`;
+  const pathNote = pathPrepended ? ", prepended to PATH" : "";
+  onLogLine?.(
+    depsLogLine(
+      `[harmony] 使用工具目录 ${toolsDir}（hdc=${hdcNote}${pathPrepended ? "，已加入 PATH" : ""}）`,
+      `[harmony] tools dir ${toolsDir} (hdc=${hdcNote}${pathNote})`
+    )
   );
 
   return { toolsDir, hdcPath, pathPrepended, hdcPresent };

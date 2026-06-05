@@ -31,6 +31,21 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// ../../packages/install-deps/src/install-progress.ts
+var init_install_progress = __esm({
+  "../../packages/install-deps/src/install-progress.ts"() {
+    "use strict";
+  }
+});
+
+// ../../packages/install-deps/src/log-locale.ts
+var init_log_locale = __esm({
+  "../../packages/install-deps/src/log-locale.ts"() {
+    "use strict";
+    init_install_progress();
+  }
+});
+
 // ../../packages/core-runtime/src/index.ts
 async function resolveWorkspaceRoot(configRelativePath, startDir = process.cwd()) {
   const exeDir = import_node_path.default.dirname(process.execPath);
@@ -66,6 +81,13 @@ var init_src = __esm({
   }
 });
 
+// ../../packages/install-deps/src/playwright-browsers-discovery.ts
+var init_playwright_browsers_discovery = __esm({
+  "../../packages/install-deps/src/playwright-browsers-discovery.ts"() {
+    "use strict";
+  }
+});
+
 // ../../packages/install-deps/src/deps-install-paths.ts
 async function resolveWorkspaceRoot2(startDir = process.cwd()) {
   return resolveWorkspaceRoot(DEFAULT_CONFIG_RELATIVE, startDir);
@@ -91,11 +113,38 @@ var init_deps_install_paths = __esm({
     import_node_os = __toESM(require("node:os"), 1);
     import_node_path2 = __toESM(require("node:path"), 1);
     init_src();
+    init_playwright_browsers_discovery();
+    init_log_locale();
     DEFAULT_CONFIG_RELATIVE = import_node_path2.default.join("config", "default.yaml");
   }
 });
 
 // ../../packages/install-deps/src/tools-paths.ts
+function normalizeToolsRelativeSegment(relativeDir) {
+  const trimmed = String(relativeDir ?? "").trim();
+  if (!trimmed || trimmed === "." || trimmed === "/") {
+    return DEFAULT_TOOLS_RELATIVE;
+  }
+  const withoutLeading = trimmed.replace(/^[/\\]+/, "");
+  return withoutLeading || DEFAULT_TOOLS_RELATIVE;
+}
+function joinWorkspaceToolsDir(baseDir, relativeDir) {
+  const rel = normalizeToolsRelativeSegment(relativeDir);
+  const base = import_node_path3.default.resolve(baseDir);
+  const parsed = import_node_path3.default.parse(base);
+  if (base === parsed.root) {
+    return import_node_path3.default.join(resolveGlobalAdaHomeSync(), rel);
+  }
+  return import_node_path3.default.join(base, rel);
+}
+function isFilesystemRootToolsDir(dir) {
+  const resolved = import_node_path3.default.resolve(dir);
+  const parsed = import_node_path3.default.parse(resolved);
+  return import_node_path3.default.dirname(resolved) === parsed.root;
+}
+function resolveAdaHomeToolsDir(relativeDir) {
+  return import_node_path3.default.join(resolveGlobalAdaHomeSync(), normalizeToolsRelativeSegment(relativeDir));
+}
 async function fileExists(filePath) {
   try {
     await import_promises2.default.access(filePath);
@@ -132,10 +181,11 @@ function mcpServerEntryDir() {
   }
 }
 function walkUpToolsDirs(startDir, relativeDir, maxDepth = 10) {
+  const rel = normalizeToolsRelativeSegment(relativeDir);
   const out = [];
   let dir = import_node_path3.default.resolve(startDir);
   for (let i = 0; i < maxDepth; i += 1) {
-    out.push(import_node_path3.default.join(dir, relativeDir));
+    out.push(joinWorkspaceToolsDir(dir, rel));
     const parent = import_node_path3.default.dirname(dir);
     if (parent === dir) {
       break;
@@ -145,22 +195,26 @@ function walkUpToolsDirs(startDir, relativeDir, maxDepth = 10) {
   return out;
 }
 async function workspaceToolsDirs(relativeDir, startDirs) {
+  const rel = normalizeToolsRelativeSegment(relativeDir);
   const out = [];
   for (const start of startDirs) {
     try {
       const root = await resolveWorkspaceRoot2(start);
-      out.push(import_node_path3.default.join(root, relativeDir));
+      out.push(joinWorkspaceToolsDir(root, rel));
     } catch {
     }
   }
   return out;
 }
+function filterSafeToolsDirCandidates(candidates) {
+  return candidates.filter((c) => !isFilesystemRootToolsDir(c));
+}
 async function collectToolsDirCandidates(options) {
-  const relativeDir = options?.relativeDir?.trim() || "tools";
+  const relativeDir = normalizeToolsRelativeSegment(options?.relativeDir);
   const startCwd = options?.cwd ?? resolveInstallContextCwd();
   const entryDir = mcpServerEntryDir();
   const execDir = import_node_path3.default.dirname(process.execPath);
-  const adaHomeTools = import_node_path3.default.join(resolveGlobalAdaHomeSync(), relativeDir);
+  const adaHomeTools = resolveAdaHomeToolsDir(relativeDir);
   const startDirs = uniquePaths(
     [
       process.env.ADA_TOOLS_DIR?.trim(),
@@ -177,7 +231,7 @@ async function collectToolsDirCandidates(options) {
     ...startDirs.flatMap((dir) => walkUpToolsDirs(dir, relativeDir)),
     adaHomeTools
   ]);
-  return candidates;
+  return filterSafeToolsDirCandidates(candidates);
 }
 async function resolveAdaToolsDir(options) {
   for (const candidate of await collectToolsDirCandidates(options)) {
@@ -202,9 +256,13 @@ async function resolveDefaultToolsDir(options) {
     } catch {
     }
   }
-  return candidates[0] ?? null;
+  const safe = filterSafeToolsDirCandidates(candidates);
+  return safe[0] ?? adaHomeToolsFromOptions(options);
 }
-var import_promises2, import_node_path3, HDC_BIN;
+function adaHomeToolsFromOptions(options) {
+  return resolveAdaHomeToolsDir(options?.relativeDir);
+}
+var import_promises2, import_node_path3, HDC_BIN, DEFAULT_TOOLS_RELATIVE;
 var init_tools_paths = __esm({
   "../../packages/install-deps/src/tools-paths.ts"() {
     "use strict";
@@ -214,6 +272,7 @@ var init_tools_paths = __esm({
     init_deps_install_paths();
     init_deps_install_paths();
     HDC_BIN = process.platform === "win32" ? "hdc.exe" : "hdc";
+    DEFAULT_TOOLS_RELATIVE = "tools";
   }
 });
 
@@ -222,6 +281,7 @@ var init_deps_resolution = __esm({
   "../../packages/install-deps/src/deps-resolution.ts"() {
     "use strict";
     init_deps_install_paths();
+    init_log_locale();
   }
 });
 
@@ -233,9 +293,25 @@ var init_harmony_hdc_install = __esm({
   }
 });
 
+// ../../packages/install-deps/src/platform-support.ts
+var init_platform_support = __esm({
+  "../../packages/install-deps/src/platform-support.ts"() {
+    "use strict";
+  }
+});
+
 // ../../packages/install-deps/src/install-summary.ts
 var init_install_summary = __esm({
   "../../packages/install-deps/src/install-summary.ts"() {
+    "use strict";
+    init_log_locale();
+    init_platform_support();
+  }
+});
+
+// ../../packages/download-probe/src/log-locale.ts
+var init_log_locale2 = __esm({
+  "../../packages/download-probe/src/log-locale.ts"() {
     "use strict";
   }
 });
@@ -244,6 +320,7 @@ var init_install_summary = __esm({
 var init_download_probe = __esm({
   "../../packages/download-probe/src/download-probe.ts"() {
     "use strict";
+    init_log_locale2();
   }
 });
 
@@ -259,6 +336,15 @@ var init_src2 = __esm({
   "../../packages/download-probe/src/index.ts"() {
     init_download_probe();
     init_mirror_candidates();
+  }
+});
+
+// ../../packages/install-deps/src/download-probe-persist.ts
+var init_download_probe_persist = __esm({
+  "../../packages/install-deps/src/download-probe-persist.ts"() {
+    "use strict";
+    init_src2();
+    init_log_locale();
   }
 });
 
@@ -605,12 +691,18 @@ var init_dependency_installer = __esm({
     init_deps_resolution();
     init_harmony_hdc_install();
     init_install_summary();
+    init_install_progress();
+    init_log_locale();
+    init_download_probe_persist();
     init_registry_probe();
     init_src2();
+    init_src2();
     init_playwright_browser_install();
+    init_playwright_browsers_discovery();
     init_src3();
     init_android_uia2_bootstrap();
     init_ios_wda_bootstrap();
+    init_platform_support();
     init_deps_install_paths();
     HEALTH_CACHE_OK_MS = Number(process.env.ADA_DEPS_HEALTH_CACHE_MS ?? 9e4);
     PLAYWRIGHT_LAUNCH_OK_MS = Number(process.env.ADA_PLAYWRIGHT_LAUNCH_CACHE_MS ?? 12e4);
@@ -1426,7 +1518,8 @@ async function runMobileCustomAction(rawAction, ctx, options) {
   }
   if (action === "smart_wait") {
     const payload = options?.payload ?? {};
-    const waitBlock = payload.wait ?? payload.custom?.wait;
+    const custom = typeof payload.custom === "object" && payload.custom !== null ? payload.custom : void 0;
+    const waitBlock = payload.wait ?? custom?.wait;
     const fallbackMs = typeof waitBlock?.timeoutMs === "number" ? waitBlock.timeoutMs : typeof waitBlock?.maxMs === "number" ? waitBlock.maxMs : typeof payload.settleMs === "number" ? payload.settleMs : 8e3;
     await recipeSettleDelay(ctx, payload, fallbackMs);
     return { handled: true, value: "ok" };
@@ -1894,16 +1987,21 @@ function buildIosRecipeContext(observe, control, screen, hooks) {
 }
 
 // ../../packages/install-deps/src/index.ts
+init_log_locale();
+init_install_progress();
 init_dependency_installer();
 init_deps_install_paths();
+init_playwright_browsers_discovery();
 init_deps_resolution();
 init_tools_paths();
 init_registry_probe();
+init_download_probe_persist();
 init_install_summary();
 init_playwright_browser_install();
 init_harmony_hdc_install();
 init_android_uia2_bootstrap();
 init_ios_wda_bootstrap();
+init_platform_support();
 
 // ../../packages/install-deps/src/mobile-server-restart.ts
 init_src3();

@@ -2,6 +2,11 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { resolveWorkspaceRoot as resolveWorkspaceRootCore } from "@ada/core-runtime";
+import {
+  discoverPlaywrightBrowsersPath,
+  isPlaywrightBrowsersAutoDiscoverEnabled
+} from "./playwright-browsers-discovery.js";
+import { depsLogLine } from "./log-locale.js";
 
 const DEFAULT_CONFIG_RELATIVE = path.join("config", "default.yaml");
 
@@ -55,12 +60,37 @@ export async function resolveDepsStateFilePath(): Promise<string> {
   return resolveDepsStateFilePathSync();
 }
 
-/** Playwright 浏览器缓存目录（各入口共用，避免重复下载） */
-export async function resolvePlaywrightBrowsersPath(): Promise<string> {
+export type ResolvePlaywrightBrowsersPathOptions = {
+  onLogLine?: (line: string) => void;
+};
+
+/**
+ * Playwright 浏览器缓存目录（各入口共用）。
+ * 未设置 PLAYWRIGHT_BROWSERS_PATH 时，默认扫描 Windows / macOS / Linux 常见 ms-playwright 路径并复用已有浏览器。
+ */
+export async function resolvePlaywrightBrowsersPath(
+  options?: ResolvePlaywrightBrowsersPathOptions
+): Promise<string> {
   const explicit = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim();
   if (explicit) {
     return path.resolve(explicit);
   }
+
+  if (isPlaywrightBrowsersAutoDiscoverEnabled()) {
+    const discovered = await discoverPlaywrightBrowsersPath();
+    if (discovered) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = discovered.path;
+      process.env.ADA_PLAYWRIGHT_BROWSERS_FROM = "auto-discover";
+      options?.onLogLine?.(
+        depsLogLine(
+          `[deps] 复用已有 Playwright 浏览器目录: ${discovered.path} (${discovered.browserKinds.join(", ")})`,
+          `[deps] reuse existing Playwright browsers: ${discovered.path} (${discovered.browserKinds.join(", ")})`
+        )
+      );
+      return discovered.path;
+    }
+  }
+
   const adaHome = await resolveGlobalAdaHome();
   return path.join(adaHome, "playwright-browsers");
 }

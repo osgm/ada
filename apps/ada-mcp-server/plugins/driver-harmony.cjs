@@ -941,7 +941,8 @@ async function runMobileCustomAction(rawAction, ctx, options) {
   }
   if (action === "smart_wait") {
     const payload = options?.payload ?? {};
-    const waitBlock = payload.wait ?? payload.custom?.wait;
+    const custom = typeof payload.custom === "object" && payload.custom !== null ? payload.custom : void 0;
+    const waitBlock = payload.wait ?? custom?.wait;
     const fallbackMs = typeof waitBlock?.timeoutMs === "number" ? waitBlock.timeoutMs : typeof waitBlock?.maxMs === "number" ? waitBlock.maxMs : typeof payload.settleMs === "number" ? payload.settleMs : 8e3;
     await recipeSettleDelay(ctx, payload, fallbackMs);
     return { handled: true, value: "ok" };
