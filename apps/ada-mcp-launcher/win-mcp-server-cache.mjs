@@ -1,5 +1,6 @@
 /**
- * Windows npx 回退：将 mcp-server 安装到 ~/.ada/mcp-server-run/<pkgSpec>，避免每次 mkdtemp + 全量 npm install。
+ * npx 稳定安装缓存：将 mcp-server 安装到 ~/.ada/mcp-server-run/<pkgSpec>，
+ * 避免 npm _npx 并发 tar 损坏与重复全量安装。
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -106,7 +107,7 @@ export function parsePkgSpecVersion(pkgSpec) {
   return ver;
 }
 
-/** Windows npx 缓存：安装中途 cli 可能已落盘，但 zod 等依赖尚未链接完毕 */
+/** 安装缓存：cli 可能已落盘，但 zod 等依赖尚未链接完毕 */
 const CRITICAL_MCP_SERVER_DEPS = ["zod", "jimp", "@modelcontextprotocol/sdk", "express", "playwright"];
 
 /** @param {string} installDir */

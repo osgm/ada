@@ -48,6 +48,11 @@ function isTruthyEnv(name) {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
+/** npx 走 ~/.ada/mcp-server-run；ADA_MCP_DISABLE_NPX_INSTALL_CACHE=1 恢复原生 npx */
+function shouldUseMcpServerInstallCache(runner) {
+  return runner === "npx" && !isTruthyEnv("ADA_MCP_DISABLE_NPX_INSTALL_CACHE");
+}
+
 function readJsonFile(filePath) {
   let raw = fs.readFileSync(filePath, "utf8");
   if (raw.charCodeAt(0) === 0xfeff) {
@@ -434,13 +439,15 @@ async function resolvePackageRunner(outerInvocation) {
     return raw;
   }
   if (outerInvocation === "npx") {
-    if (process.platform === "win32" && !isTruthyEnv("ADA_MCP_FORCE_NPX")) {
+    if (shouldUseMcpServerInstallCache("npx")) {
       const hintVer = process.env.ADA_MCP_SERVER_VERSION?.trim() || MIN_MCP_SERVER_VERSION;
       const hintSpec = `${MCP_SERVER_PKG}@${hintVer}`;
       if (isMcpServerCacheReady(mcpServerCacheDir(hintSpec), hintSpec)) {
-        mcpLogIfVerbose("Windows: reuse ~/.ada/mcp-server-run cache via npx fallback");
+        mcpLogIfVerbose("npx: reuse ~/.ada/mcp-server-run install cache");
         return "npx";
       }
+    }
+    if (process.platform === "win32" && !isTruthyEnv("ADA_MCP_FORCE_NPX")) {
       if (
         isTruthyEnv("ADA_MCP_WINDOWS_PREFER_PNPM") &&
         (await commandAvailable(runnerCommand("pnpm")))
@@ -467,14 +474,14 @@ async function resolvePackageRunner(outerInvocation) {
 }
 
 /**
- * Windows + npx：npx 无法可靠执行 bin，临时 npm install 后用 node 跑 dist/cli.cjs。
- * node.exe 必须直接 spawn（勿经 cmd /s /c，否则带空格路径会被错误加引号）。
+ * npx 稳定缓存：npm install 到 ~/.ada/mcp-server-run 后用 node 跑 dist/cli.cjs。
+ * Windows 上 node.exe 必须直接 spawn（勿经 cmd /s /c，否则带空格路径会被错误加引号）。
  */
-function writeWinNpxInstallPackageJson(tmpDir) {
+function writeMcpServerInstallPackageJson(tmpDir) {
   const body = {
     name: "ada-mcp-run",
     private: true,
-    description: "ephemeral install root for Windows npx fallback",
+    description: "ephemeral install root for npx install cache",
     overrides: {
       zod: "3.25.76",
       glob: "^13.0.0"
@@ -503,7 +510,7 @@ async function spawnMcpServerViaNodeInstall(pkgSpec, extra, options) {
   const cli = mcpServerCliPath(installDir);
 
   if (isMcpServerCacheReady(installDir, pkgSpec)) {
-    mcpLogStartup(`Windows npx fallback: reuse cached ${pkgSpec}`);
+    mcpLogStartup(`npx install cache: reuse cached ${pkgSpec}`);
     return spawnNodeMcpServerCli(cli, extra, options);
   }
 
@@ -515,15 +522,15 @@ async function spawnMcpServerViaNodeInstall(pkgSpec, extra, options) {
     }
     fs.mkdirSync(installDir, { recursive: true });
     if (fs.existsSync(cli) && !areMcpServerDepsPresent(installDir)) {
-      mcpLog("warn", `Windows npx cache incomplete (missing deps), reinstalling ${pkgSpec}`);
+      mcpLog("warn", `mcp-server install cache incomplete (missing deps), reinstalling ${pkgSpec}`);
       try {
         fs.rmSync(path.join(installDir, "node_modules"), { recursive: true, force: true });
       } catch {
         // ignore
       }
     }
-    writeWinNpxInstallPackageJson(installDir);
-    mcpLog("info", `Windows npx fallback: npm install ${pkgSpec} (cache ${installDir})`);
+    writeMcpServerInstallPackageJson(installDir);
+    mcpLog("info", `npx install cache: npm install ${pkgSpec} (cache ${installDir})`);
     const installEnv = runnerChildEnv({
       ...options.env,
       npm_config_loglevel: "silent"
@@ -540,7 +547,7 @@ async function spawnMcpServerViaNodeInstall(pkgSpec, extra, options) {
     { isReady: () => isMcpServerCacheReady(installDir, pkgSpec) }
   );
 
-  mcpLogStartup(`Windows npx fallback: cached ${pkgSpec}`);
+  mcpLogStartup(`npx install cache: cached ${pkgSpec}`);
   return spawnNodeMcpServerCli(cli, extra, options);
 }
 
@@ -730,8 +737,8 @@ async function mainLauncherBody() {
   });
 
   writeLauncherInflight("spawn-mcp-server");
-  const useWinNpxFallback = process.platform === "win32" && runner === "npx";
-  const child = useWinNpxFallback
+  const useMcpServerInstallCache = shouldUseMcpServerInstallCache(runner);
+  const child = useMcpServerInstallCache
     ? await spawnMcpServerViaNodeInstall(pkgSpec, extra, { cwd, env: childEnv })
     : spawnRunner(cmd, childArgs, {
         stdio: "inherit",
