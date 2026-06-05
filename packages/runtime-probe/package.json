@@ -14,5 +14,8 @@
     "build": "tsc -p tsconfig.json --noCheck",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.6.0"
+  }
 }
