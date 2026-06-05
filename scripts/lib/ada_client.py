@@ -680,7 +680,7 @@ class ElementHandle:
         elif self.platform == "android":
             extra = {"locator": self.spec, "inputOp": "clear", "androidInputOp": "clear"}
         elif self.platform == "ios":
-            extra = {"locator": self.spec, "text": ""}
+            extra = {"locator": self.spec, "inputOp": "clear", "iosInputOp": "clear"}
         else:
             raise RuntimeError(f'clear() 当前不支持平台 "{self.platform}"')
         must_ok(self._invoke("type", extra), "clear")

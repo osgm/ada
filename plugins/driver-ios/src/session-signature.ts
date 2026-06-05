@@ -5,12 +5,14 @@ export function serverUrlOf(payload: IOSPayload): string {
 }
 
 export function capsOf(payload: IOSPayload): Record<string, unknown> {
-  return (
-    payload.capabilities ?? {
-      platformName: "iOS",
-      automationName: "XCUITest"
-    }
-  );
+  const base: Record<string, unknown> = { ...(payload.capabilities ?? {}) };
+  if (!base.platformName) base.platformName = "iOS";
+  if (!base.automationName) base.automationName = "XCUITest";
+  const bundleId = String(payload.bundleId ?? payload.appId ?? "").trim();
+  if (bundleId && !base.bundleId) base.bundleId = bundleId;
+  const udid = String(base.udid ?? process.env.ADA_IOS_DEVICE_UDID ?? "").trim();
+  if (udid) base.udid = udid;
+  return base;
 }
 
 /** Single source of truth for plugin + adapter session identity. */

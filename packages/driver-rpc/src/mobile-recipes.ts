@@ -2,6 +2,7 @@ import {
   extractHarmonyDumpPath,
   findUiNode,
   parseAndroidHierarchy,
+  parseIosHierarchy,
   parseHarmonyLayoutJson,
   pickNodeByTextHints,
   type ScreenSize,
@@ -448,4 +449,4 @@ export async function recipeFillSearch(
   });
 }
 
-export { extractHarmonyDumpPath, parseAndroidHierarchy, parseHarmonyLayoutJson };
+export { extractHarmonyDumpPath, parseAndroidHierarchy, parseIosHierarchy, parseHarmonyLayoutJson };

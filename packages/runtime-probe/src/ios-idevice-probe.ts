@@ -8,6 +8,7 @@ export function ideviceBootstrapEnabled(): boolean {
 export async function probeIosIdeviceRuntime(): Promise<{
   hostSupported: boolean;
   ideviceinstallerOk: boolean;
+  afcclientOk: boolean;
   brewOnPath: boolean;
   detail: string;
   installHint: string;
@@ -16,21 +17,24 @@ export async function probeIosIdeviceRuntime(): Promise<{
     return {
       hostSupported: false,
       ideviceinstallerOk: false,
+      afcclientOk: false,
       brewOnPath: false,
-      detail: "ideviceinstaller requires macOS host",
+      detail: "libimobiledevice tools require macOS host",
       installHint: ""
     };
   }
 
   const ideviceinstallerOk = await commandExists("ideviceinstaller");
+  const afcclientOk = await commandExists("afcclient");
   const brewOnPath = await commandExists("brew");
 
-  if (ideviceinstallerOk) {
+  if (ideviceinstallerOk && afcclientOk) {
     return {
       hostSupported: true,
       ideviceinstallerOk: true,
+      afcclientOk: true,
       brewOnPath,
-      detail: "ideviceinstaller on PATH",
+      detail: "libimobiledevice on PATH (ideviceinstaller + afcclient)",
       installHint: ""
     };
   }
@@ -39,12 +43,16 @@ export async function probeIosIdeviceRuntime(): Promise<{
     ? "brew install libimobiledevice ideviceinstaller (or MCP --install-deps=ios|all on macOS)"
     : "install Homebrew, then: brew install libimobiledevice ideviceinstaller (or --install-deps=ios|all)";
 
+  const parts: string[] = [];
+  if (!ideviceinstallerOk) parts.push("ideviceinstaller missing (installApp/listApps)");
+  if (!afcclientOk) parts.push("afcclient missing (pushFile/pullFile)");
+
   return {
     hostSupported: true,
-    ideviceinstallerOk: false,
+    ideviceinstallerOk,
+    afcclientOk,
     brewOnPath,
-    detail:
-      "ideviceinstaller not on PATH (optional for WDA UI automation; needed for deviceAdmin installApp/listApps)",
+    detail: parts.length ? parts.join("; ") : "libimobiledevice tools not on PATH",
     installHint
   };
 }

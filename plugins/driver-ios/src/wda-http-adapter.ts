@@ -30,18 +30,10 @@ import type {
 } from "./adapter.js";
 import { capsOf, iosSessionSignature, serverUrlOf } from "./session-signature.js";
 import { executeIosDeviceAdmin } from "./device-admin.js";
+import { iosLocatorToUsing, isIosClearTypeOp } from "./ios-locator.js";
 
 function fail(command: CommandEnvelope, code: string, message: string): CommandResult {
   return { requestId: command.requestId, success: false, errorCode: code, errorMessage: message };
-}
-
-function escapeXpathLiteral(value: string): string {
-  if (!value.includes('"')) return `"${value}"`;
-  if (!value.includes("'")) return `'${value}'`;
-  return `concat(${value
-    .split('"')
-    .map((part, i) => (i === 0 ? `"${part}"` : `, '"', "${part}"`))
-    .join("")})`;
 }
 
 function ensurePoint(v?: [number, number]): [number, number] | null {
@@ -82,20 +74,9 @@ async function findElement(
   }
   const locator = payload.locator;
   if (!locator) return { ok: false, code: "IOS_LOCATOR_MISSING", message: "missing locator or point" };
-  let using = "";
-  let value = "";
-  if (locator.id) {
-    using = "id";
-    value = locator.id;
-  } else if (locator.accessibilityId) {
-    using = "accessibility id";
-    value = locator.accessibilityId;
-  } else if (locator.xpath) {
-    using = "xpath";
-    value = locator.xpath;
-  } else {
-    return { ok: false, code: "IOS_LOCATOR_UNSUPPORTED", message: "unsupported locator type" };
-  }
+  const mapped = iosLocatorToUsing(locator);
+  if (!mapped) return { ok: false, code: "IOS_LOCATOR_UNSUPPORTED", message: "unsupported locator type" };
+  const { using, value } = mapped;
   const res = await retryAsync(
     () => wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/element`, { using, value }),
     { attempts: 3, delayMs: 500 }
@@ -442,6 +423,22 @@ export class WdaClientAdapter implements IOSAdapter {
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "click" } };
     }
     if (command.command === "type") {
+      if (isIosClearTypeOp(payload)) {
+        const clickRes = await wdaFetch(
+          "POST",
+          `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/click`
+        );
+        if (!clickRes.ok) return fail(command, "IOS_CLEAR_CLICK_FAILED", JSON.stringify(clickRes.raw ?? {}));
+        const clearRes = await wdaFetch(
+          "POST",
+          `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/clear`
+        );
+        if (!clearRes.ok) {
+          await control.type(el.elementId, "");
+        }
+        invalidateElementCache(session);
+        return { requestId: command.requestId, success: true, data: { driver: "ios", command: "type", inputOp: "clear" } };
+      }
       const text = String(payload.text ?? "");
       await control.type(el.elementId, text);
       invalidateElementCache(session);

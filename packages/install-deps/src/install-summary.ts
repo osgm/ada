@@ -37,7 +37,7 @@ const DRIVER_LABELS_ZH: Record<DriverArtifactId, string> = {
   "android-uia2": "Android UiAutomator2 Server",
   "ios-xcrun": "iOS 工具链 (xcrun)",
   "ios-wda": "iOS WebDriverAgent",
-  "ios-idevice": "iOS ideviceinstaller (真机装包)"
+  "ios-idevice": "iOS libimobiledevice（ideviceinstaller + afcclient）"
 };
 
 const DRIVER_LABELS_EN: Record<DriverArtifactId, string> = {
@@ -47,7 +47,7 @@ const DRIVER_LABELS_EN: Record<DriverArtifactId, string> = {
   "android-uia2": "Android UiAutomator2 Server",
   "ios-xcrun": "iOS toolchain (xcrun)",
   "ios-wda": "iOS WebDriverAgent",
-  "ios-idevice": "iOS ideviceinstaller (device IPA install)"
+  "ios-idevice": "iOS libimobiledevice (ideviceinstaller + afcclient)"
 };
 
 export function driverArtifactLabel(id: DriverArtifactId): string {

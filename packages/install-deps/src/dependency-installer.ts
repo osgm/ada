@@ -220,11 +220,11 @@ async function probeMobileRuntimes(
     const idevice = await probeIosIdeviceRuntime();
     tracker.record({
       id: "ios-idevice",
-      status: idevice.ideviceinstallerOk ? "skipped" : "missing",
+      status: idevice.ideviceinstallerOk && idevice.afcclientOk ? "skipped" : "missing",
       detail: idevice.detail
     });
     onLogLine?.(ready ? `[mobile] ${wda.detail}` : `[mobile][warn] ${ios.detail}; ${wda.detail}`);
-    if (!idevice.ideviceinstallerOk && idevice.installHint) {
+    if ((!idevice.ideviceinstallerOk || !idevice.afcclientOk) && idevice.installHint) {
       onLogLine?.(`[ios][hint] ${idevice.installHint}`);
     }
   }

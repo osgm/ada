@@ -53,7 +53,7 @@ export async function ensureIosIdeviceBootstrap(options?: EnsureIosIdeviceOption
   }
 
   const probe = await probeIosIdeviceRuntime();
-  if (probe.ideviceinstallerOk && !options?.force) {
+  if (probe.ideviceinstallerOk && probe.afcclientOk && !options?.force) {
     artifact.detail = probe.detail;
     return { outcome: artifact };
   }
@@ -82,12 +82,12 @@ export async function ensureIosIdeviceBootstrap(options?: EnsureIosIdeviceOption
       await runCommand("brew", ["install", "libimobiledevice", "ideviceinstaller"], onLogLine);
     }
     const after = await probeIosIdeviceRuntime();
-    if (after.ideviceinstallerOk) {
+    if (after.ideviceinstallerOk && after.afcclientOk) {
       artifact.status = "installed";
-      artifact.detail = "ideviceinstaller installed via Homebrew";
+      artifact.detail = "libimobiledevice installed via Homebrew (ideviceinstaller + afcclient)";
     } else {
       artifact.status = "missing";
-      artifact.detail = "brew install finished but ideviceinstaller still not on PATH";
+      artifact.detail = "brew install finished but libimobiledevice tools still incomplete on PATH";
       if (useHead) {
         artifact.detail += "; try ADA_IOS_LIBIMOBILEDEVICE_HEAD=1 if Xcode pairing fails";
       }

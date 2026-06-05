@@ -291,6 +291,7 @@ export {
   findUiNode,
   normalizedSwipePoints,
   parseAndroidHierarchy,
+  parseIosHierarchy,
   parseHarmonyLayoutJson,
   extractHarmonyDumpPath,
   type UiNode,

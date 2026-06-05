@@ -146,7 +146,7 @@ function makeFindHandle(platform, sessionId, base, run) {
           return;
         }
         if (platform === "ios") {
-          await run("type", { locator, text: "" });
+          await run("type", { locator, inputOp: "clear", iosInputOp: "clear" });
           return;
         }
         throw new Error(`clear() 当前不支持平台 "${platform}"`);

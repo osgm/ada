@@ -743,10 +743,14 @@ function serverUrlOf(payload) {
   return String(payload.serverUrl ?? process.env.ADA_WDA_SERVER_URL ?? "http://127.0.0.1:8100").replace(/\/$/, "");
 }
 function capsOf(payload) {
-  return payload.capabilities ?? {
-    platformName: "iOS",
-    automationName: "XCUITest"
-  };
+  const base = { ...payload.capabilities ?? {} };
+  if (!base.platformName) base.platformName = "iOS";
+  if (!base.automationName) base.automationName = "XCUITest";
+  const bundleId = String(payload.bundleId ?? payload.appId ?? "").trim();
+  if (bundleId && !base.bundleId) base.bundleId = bundleId;
+  const udid = String(base.udid ?? process.env.ADA_IOS_DEVICE_UDID ?? "").trim();
+  if (udid) base.udid = udid;
+  return base;
 }
 function iosSessionSignature(payload) {
   return JSON.stringify({
@@ -866,51 +870,48 @@ function uiHeuristicsFromEnv(env = process.env) {
   };
 }
 
-// ../../packages/mobile-ui/src/bounds.ts
-function parseBoundsString(bounds) {
-  const m = String(bounds ?? "").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
-  if (!m) return null;
-  const x1 = Number(m[1]);
-  const y1 = Number(m[2]);
-  const x2 = Number(m[3]);
-  const y2 = Number(m[4]);
-  if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
-  return {
-    x1,
-    y1,
-    x2,
-    y2,
-    w: x2 - x1,
-    h: y2 - y1,
-    cx: Math.round((x1 + x2) / 2),
-    cy: Math.round((y1 + y2) / 2)
-  };
+// ../../packages/mobile-ui/src/ios.ts
+function readAttr(tag, name) {
+  const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return m?.[1] ?? "";
 }
-
-// ../../packages/mobile-ui/src/android.ts
-function parseAndroidHierarchy(xml) {
+function readIntAttr(tag, name) {
+  const n = Number(readAttr(tag, name));
+  return Number.isFinite(n) ? n : 0;
+}
+function parseIosHierarchy(xml) {
   const nodes = [];
-  const tagRe = /<node\b[^>]*>/g;
+  const tagRe = /<XCUIElementType[A-Za-z]+[^>]*>/g;
   let m;
   while ((m = tagRe.exec(xml)) !== null) {
     const tag = m[0];
-    const bounds = tag.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
-    if (!bounds) continue;
-    const b = parseBoundsString(`[${bounds[1]},${bounds[2]}][${bounds[3]},${bounds[4]}]`);
-    if (!b) continue;
-    const text = (tag.match(/\btext="([^"]*)"/) || [])[1] ?? "";
-    const desc = (tag.match(/\bcontent-desc="([^"]*)"/) || [])[1] ?? "";
-    const id = (tag.match(/\bresource-id="([^"]*)"/) || [])[1] ?? "";
-    const clickable = /clickable="true"/.test(tag);
+    const x = readIntAttr(tag, "x");
+    const y = readIntAttr(tag, "y");
+    const w = readIntAttr(tag, "width");
+    const h = readIntAttr(tag, "height");
+    if (w <= 0 || h <= 0) continue;
+    const name = readAttr(tag, "name");
+    const label = readAttr(tag, "label");
+    const value = readAttr(tag, "value");
+    const type = readAttr(tag, "type");
+    const text = label || name || value;
+    const desc = label && name && label !== name ? name : "";
+    const id = name && name !== text ? name : "";
+    const accessible = readAttr(tag, "accessible") === "true";
+    const visible = readAttr(tag, "visible");
+    if (visible === "false") continue;
+    const cx = Math.round(x + w / 2);
+    const cy = Math.round(y + h / 2);
+    const clickable = accessible || /Button|SearchField|TextField|Cell|Link|Switch|Tab/i.test(type) || /Button|SearchField|TextField/i.test(tag);
     nodes.push({
       text,
       desc,
       id,
-      type: "",
+      type,
       clickable,
-      focused: /focused="true"/.test(tag),
-      point: [b.cx, b.cy],
-      bounds: { x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2, w: b.w, h: b.h }
+      focused: false,
+      point: [cx, cy],
+      bounds: { x1: x, y1: y, x2: x + w, y2: y + h, w, h }
     });
   }
   return nodes;
@@ -1736,8 +1737,8 @@ var ElementIdCache = class {
 function isHttpServerUrl(value) {
   return /^https?:\/\//i.test(value.trim());
 }
-function resolveMobileHttpPath(baseUrl, path7, sessionId) {
-  const trimmed = path7.trim();
+function resolveMobileHttpPath(baseUrl, path8, sessionId) {
+  const trimmed = path8.trim();
   if (isHttpServerUrl(trimmed)) {
     return trimmed;
   }
@@ -2017,7 +2018,7 @@ function buildIosRecipeContext(observe, control, screen, hooks) {
     },
     async dumpUi() {
       const raw = await this.getDumpRaw();
-      return parseAndroidHierarchy(raw);
+      return parseIosHierarchy(raw);
     },
     async clickPoint(point) {
       dumpCache.invalidate();
@@ -2076,12 +2077,160 @@ init_src3();
 
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
 init_src3();
-var import_promises4 = __toESM(require("node:fs/promises"), 1);
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_promises5 = __toESM(require("node:fs/promises"), 1);
+var import_node_path7 = __toESM(require("node:path"), 1);
 
 // ../../plugins/driver-ios/src/device-admin.ts
+var import_node_child_process4 = require("node:child_process");
+var import_node_path6 = __toESM(require("node:path"), 1);
+
+// ../../plugins/driver-ios/src/ios-afc-client.ts
 var import_node_child_process3 = require("node:child_process");
+var import_promises4 = __toESM(require("node:fs/promises"), 1);
 var import_node_path5 = __toESM(require("node:path"), 1);
+var CONTAINER_PATH_RE = /^@([^:]+):([^/]+)\/(.+)$/;
+var BUNDLE_PATH_RE = /^@([^:]+):(.+)$/s;
+var BUNDLE_ONLY_RE = /^@([^:]+)$/;
+function parseIosRemotePath(remotePath, fallbackBundleId) {
+  const raw = String(remotePath ?? "").trim();
+  if (!raw) return { ok: false, message: "remotePath required" };
+  const explicitContainer = raw.match(CONTAINER_PATH_RE);
+  if (explicitContainer) {
+    const kind = explicitContainer[2].trim().toLowerCase();
+    const bundleId2 = explicitContainer[1].trim();
+    const rest = explicitContainer[3].trim();
+    if (kind === "documents" || kind === "document") {
+      return { ok: true, parsed: { bundleId: bundleId2, container: "documents", devicePath: rest } };
+    }
+    if (kind === "container") {
+      return { ok: true, parsed: { bundleId: bundleId2, container: "container", devicePath: rest } };
+    }
+    return {
+      ok: true,
+      parsed: { bundleId: bundleId2, container: "documents", devicePath: `${kind}/${rest}` }
+    };
+  }
+  const bundlePath = raw.match(BUNDLE_PATH_RE);
+  if (bundlePath) {
+    return {
+      ok: true,
+      parsed: {
+        bundleId: bundlePath[1].trim(),
+        container: "documents",
+        devicePath: bundlePath[2].trim()
+      }
+    };
+  }
+  const bundleOnly = raw.match(BUNDLE_ONLY_RE);
+  if (bundleOnly) {
+    return { ok: false, message: "remotePath must include file path after @bundleId:..." };
+  }
+  if (raw.startsWith("@")) {
+    return { ok: false, message: `invalid iOS remotePath: ${raw}` };
+  }
+  const bundleId = fallbackBundleId?.trim();
+  if (bundleId) {
+    const devicePath = raw.replace(/^\/+/, "");
+    return { ok: true, parsed: { bundleId, container: "documents", devicePath } };
+  }
+  return { ok: true, parsed: { container: "afc", devicePath: raw.replace(/^\/+/, "") } };
+}
+function resolveIosDeviceUdid2(payload) {
+  const caps = payload.capabilities ?? {};
+  return String(caps.udid ?? payload.udid ?? process.env.ADA_IOS_DEVICE_UDID ?? "").trim();
+}
+function buildAfcClientArgs(options) {
+  const args = [];
+  const udid = options.udid?.trim();
+  if (udid) args.push("-u", udid);
+  const devicePath = (options.devicePath ?? options.parsed.devicePath).trim();
+  const { parsed } = options;
+  if (parsed.container === "documents" && parsed.bundleId) {
+    args.push("--documents", parsed.bundleId);
+  } else if (parsed.container === "container" && parsed.bundleId) {
+    args.push("--container", parsed.bundleId);
+  }
+  if (options.verb === "put") {
+    args.push("put", options.localPath, devicePath);
+  } else {
+    args.push("get", devicePath, options.localPath);
+  }
+  return args;
+}
+async function runAfcClient(args) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process3.spawn)("afcclient", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (d) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on("data", (d) => {
+      stderr += d.toString();
+    });
+    child.on("close", (code) => resolve({ ok: code === 0, stdout, stderr }));
+    child.on("error", (e) => resolve({ ok: false, stdout: "", stderr: String(e) }));
+  });
+}
+async function iosAfcPush(options) {
+  if (process.platform !== "darwin") {
+    return { ok: false, code: "IOS_AFC_HOST_UNSUPPORTED", message: "afcclient requires macOS host" };
+  }
+  const localPath = import_node_path5.default.resolve(options.localPath);
+  try {
+    await import_promises4.default.access(localPath);
+  } catch {
+    return { ok: false, code: "IOS_PUSH_LOCAL_MISSING", message: `local file not found: ${localPath}` };
+  }
+  const parsedRemote = parseIosRemotePath(options.remotePath, options.fallbackBundleId);
+  if (!parsedRemote.ok) {
+    return { ok: false, code: "IOS_PUSH_REMOTE_INVALID", message: parsedRemote.message };
+  }
+  const args = buildAfcClientArgs({
+    udid: options.udid,
+    parsed: parsedRemote.parsed,
+    verb: "put",
+    localPath
+  });
+  const res = await runAfcClient(args);
+  if (!res.ok) {
+    const hint = res.stderr.includes("ENOENT") || res.stderr.includes("not found") ? " (install: brew install libimobiledevice)" : "";
+    return {
+      ok: false,
+      code: res.stderr.includes("ENOENT") && res.stderr.includes("afcclient") ? "IOS_AFCCLIENT_MISSING" : "IOS_PUSH_FAILED",
+      message: (res.stderr || res.stdout || "afcclient put failed").trim() + hint
+    };
+  }
+  return { ok: true };
+}
+async function iosAfcPull(options) {
+  if (process.platform !== "darwin") {
+    return { ok: false, code: "IOS_AFC_HOST_UNSUPPORTED", message: "afcclient requires macOS host" };
+  }
+  const localPath = import_node_path5.default.resolve(options.localPath);
+  await import_promises4.default.mkdir(import_node_path5.default.dirname(localPath), { recursive: true });
+  const parsedRemote = parseIosRemotePath(options.remotePath, options.fallbackBundleId);
+  if (!parsedRemote.ok) {
+    return { ok: false, code: "IOS_PULL_REMOTE_INVALID", message: parsedRemote.message };
+  }
+  const args = buildAfcClientArgs({
+    udid: options.udid,
+    parsed: parsedRemote.parsed,
+    verb: "get",
+    localPath
+  });
+  const res = await runAfcClient(args);
+  if (!res.ok) {
+    return {
+      ok: false,
+      code: res.stderr.includes("ENOENT") && res.stderr.includes("afcclient") ? "IOS_AFCCLIENT_MISSING" : "IOS_PULL_FAILED",
+      message: (res.stderr || res.stdout || "afcclient get failed").trim()
+    };
+  }
+  return { ok: true };
+}
+
+// ../../plugins/driver-ios/src/device-admin.ts
 var IOS_SYSTEM_PREFIXES = ["com.apple.", "com.google."];
 function isIosSystemBundle(bundle) {
   const b = String(bundle).trim();
@@ -2119,7 +2268,7 @@ async function wdaPost(session, wdaFetch, subPath, body) {
 }
 async function runHostTool(bin, args) {
   return new Promise((resolve) => {
-    const child = (0, import_node_child_process3.spawn)(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = (0, import_node_child_process4.spawn)(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (d) => {
@@ -2173,7 +2322,7 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminSuccess(command, action, { appId, installed: packages.includes(appId) });
     }
     case "installApp": {
-      const localPath = import_node_path5.default.resolve(String(payload.path ?? payload.localPath ?? ""));
+      const localPath = import_node_path6.default.resolve(String(payload.path ?? payload.localPath ?? ""));
       if (!localPath) return deviceAdminFail(command, "IOS_INSTALL_PATH_MISSING", "path required");
       const res = await runHostTool("ideviceinstaller", ["-i", localPath]);
       if (!res.ok) return deviceAdminFail(command, "IOS_INSTALL_FAILED", res.stderr || res.stdout);
@@ -2189,13 +2338,36 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       }
       return deviceAdminSuccess(command, action, { appId, output: res.stdout.trim() });
     }
-    case "pushFile":
-    case "pullFile":
-      return deviceAdminFail(
-        command,
-        "IOS_FILE_TRANSFER_UNSUPPORTED",
-        "use host tools (ifuse/devicectl) or MCP invoke; not in deviceAdmin yet"
-      );
+    case "pushFile": {
+      const localPath = import_node_path6.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const remotePath = String(payload.remotePath ?? "").trim();
+      if (!localPath || !remotePath) {
+        return deviceAdminFail(command, "IOS_PUSH_PATHS_MISSING", "localPath and remotePath required");
+      }
+      const push = await iosAfcPush({
+        localPath,
+        remotePath,
+        udid: resolveIosDeviceUdid2(payload),
+        fallbackBundleId: appId || String(payload.bundleId ?? "")
+      });
+      if (!push.ok) return deviceAdminFail(command, push.code, push.message);
+      return deviceAdminSuccess(command, action, { localPath, remotePath, tool: "afcclient" });
+    }
+    case "pullFile": {
+      const localPath = import_node_path6.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const remotePath = String(payload.remotePath ?? "").trim();
+      if (!localPath || !remotePath) {
+        return deviceAdminFail(command, "IOS_PULL_PATHS_MISSING", "localPath and remotePath required");
+      }
+      const pull = await iosAfcPull({
+        remotePath,
+        localPath,
+        udid: resolveIosDeviceUdid2(payload),
+        fallbackBundleId: appId || String(payload.bundleId ?? "")
+      });
+      if (!pull.ok) return deviceAdminFail(command, pull.code, pull.message);
+      return deviceAdminSuccess(command, action, { localPath, remotePath, tool: "afcclient" });
+    }
     case "shell":
     case "hdc":
       return deviceAdminFail(command, "IOS_SHELL_UNSUPPORTED", "iOS has no adb/hdc shell; use WDA invoke");
@@ -2377,6 +2549,30 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
   }
 }
 
+// ../../plugins/driver-ios/src/ios-locator.ts
+function escapeXpathLiteral(value) {
+  if (!value.includes('"')) return `"${value}"`;
+  if (!value.includes("'")) return `'${value}'`;
+  return `concat(${value.split('"').map((part, i) => i === 0 ? `"${part}"` : `, '"', "${part}"`).join("")})`;
+}
+function iosLocatorToUsing(locator) {
+  if (locator.id) return { using: "id", value: locator.id };
+  if (locator.accessibilityId) return { using: "accessibility id", value: locator.accessibilityId };
+  if (locator.xpath) return { using: "xpath", value: locator.xpath };
+  if (locator.text) {
+    const lit = escapeXpathLiteral(String(locator.text));
+    return {
+      using: "xpath",
+      value: `//*[contains(@label, ${lit}) or contains(@name, ${lit}) or contains(@value, ${lit})]`
+    };
+  }
+  return null;
+}
+function isIosClearTypeOp(payload) {
+  const p = payload;
+  return p.inputOp === "clear" || p.iosInputOp === "clear" || payload.text === "" && Boolean(payload.locator);
+}
+
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
 function fail(command, code, message) {
   return { requestId: command.requestId, success: false, errorCode: code, errorMessage: message };
@@ -2406,20 +2602,9 @@ async function findElement(session, payload, wdaFetch) {
   }
   const locator = payload.locator;
   if (!locator) return { ok: false, code: "IOS_LOCATOR_MISSING", message: "missing locator or point" };
-  let using = "";
-  let value = "";
-  if (locator.id) {
-    using = "id";
-    value = locator.id;
-  } else if (locator.accessibilityId) {
-    using = "accessibility id";
-    value = locator.accessibilityId;
-  } else if (locator.xpath) {
-    using = "xpath";
-    value = locator.xpath;
-  } else {
-    return { ok: false, code: "IOS_LOCATOR_UNSUPPORTED", message: "unsupported locator type" };
-  }
+  const mapped = iosLocatorToUsing(locator);
+  if (!mapped) return { ok: false, code: "IOS_LOCATOR_UNSUPPORTED", message: "unsupported locator type" };
+  const { using, value } = mapped;
   const res = await retryAsync(
     () => wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/element`, { using, value }),
     { attempts: 3, delayMs: 500 }
@@ -2574,8 +2759,8 @@ var WdaClientAdapter = class _WdaClientAdapter {
       screenshot: async (outputPath) => {
         const res = await wdaFetch("GET", `${session.serverUrl}/session/${session.sessionId}/screenshot`);
         if (!res.ok || typeof res.value !== "string") throw new Error(JSON.stringify(res.raw ?? {}));
-        await import_promises4.default.mkdir(import_node_path6.default.dirname(outputPath), { recursive: true });
-        await import_promises4.default.writeFile(outputPath, Buffer.from(res.value, "base64"));
+        await import_promises5.default.mkdir(import_node_path7.default.dirname(outputPath), { recursive: true });
+        await import_promises5.default.writeFile(outputPath, Buffer.from(res.value, "base64"));
         return outputPath;
       },
       pageSource: async () => {
@@ -2600,7 +2785,7 @@ var WdaClientAdapter = class _WdaClientAdapter {
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "pressHome" } };
     }
     if (command.command === "screenshot") {
-      const output = payload.screenshotPath ?? import_node_path6.default.join(process.cwd(), "artifacts", `${command.requestId}-ios.png`);
+      const output = payload.screenshotPath ?? import_node_path7.default.join(process.cwd(), "artifacts", `${command.requestId}-ios.png`);
       await observe.screenshot(output);
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "screenshot", screenshot: output } };
     }
@@ -2747,6 +2932,22 @@ var WdaClientAdapter = class _WdaClientAdapter {
       return { requestId: command.requestId, success: true, data: { driver: "ios", command: "click" } };
     }
     if (command.command === "type") {
+      if (isIosClearTypeOp(payload)) {
+        const clickRes = await wdaFetch(
+          "POST",
+          `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/click`
+        );
+        if (!clickRes.ok) return fail(command, "IOS_CLEAR_CLICK_FAILED", JSON.stringify(clickRes.raw ?? {}));
+        const clearRes = await wdaFetch(
+          "POST",
+          `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/clear`
+        );
+        if (!clearRes.ok) {
+          await control.type(el.elementId, "");
+        }
+        invalidateElementCache(session);
+        return { requestId: command.requestId, success: true, data: { driver: "ios", command: "type", inputOp: "clear" } };
+      }
       const text = String(payload.text ?? "");
       await control.type(el.elementId, text);
       invalidateElementCache(session);

@@ -149,6 +149,7 @@ export async function runDoctor(
       wdaReady: wdaStatus?.ready ?? false,
       wdaBootstrapHint: "set ADA_IOS_WDA_BOOTSTRAP=true to xcodebuild WebDriverAgentRunner",
       ideviceinstallerOk: ideviceProbe?.ideviceinstallerOk ?? false,
+      afcclientOk: ideviceProbe?.afcclientOk ?? false,
       ideviceInstallHint: ideviceProbe?.installHint ?? "",
       ideviceBootstrapHint:
         "use --install-deps=ios|all on macOS, or ADA_IOS_IDEVICE_BOOTSTRAP=true to brew install libimobiledevice ideviceinstaller",

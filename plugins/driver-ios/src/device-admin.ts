@@ -8,6 +8,7 @@ import {
 } from "@ada/driver-rpc";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { iosAfcPull, iosAfcPush, resolveIosDeviceUdid } from "./ios-afc-client.js";
 
 type WdaFetch = (
   method: string,
@@ -146,13 +147,36 @@ export async function executeIosDeviceAdmin(
       }
       return deviceAdminSuccess(command, action, { appId, output: res.stdout.trim() });
     }
-    case "pushFile":
-    case "pullFile":
-      return deviceAdminFail(
-        command,
-        "IOS_FILE_TRANSFER_UNSUPPORTED",
-        "use host tools (ifuse/devicectl) or MCP invoke; not in deviceAdmin yet"
-      );
+    case "pushFile": {
+      const localPath = path.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const remotePath = String(payload.remotePath ?? "").trim();
+      if (!localPath || !remotePath) {
+        return deviceAdminFail(command, "IOS_PUSH_PATHS_MISSING", "localPath and remotePath required");
+      }
+      const push = await iosAfcPush({
+        localPath,
+        remotePath,
+        udid: resolveIosDeviceUdid(payload),
+        fallbackBundleId: appId || String(payload.bundleId ?? "")
+      });
+      if (!push.ok) return deviceAdminFail(command, push.code, push.message);
+      return deviceAdminSuccess(command, action, { localPath, remotePath, tool: "afcclient" });
+    }
+    case "pullFile": {
+      const localPath = path.resolve(String(payload.localPath ?? payload.path ?? ""));
+      const remotePath = String(payload.remotePath ?? "").trim();
+      if (!localPath || !remotePath) {
+        return deviceAdminFail(command, "IOS_PULL_PATHS_MISSING", "localPath and remotePath required");
+      }
+      const pull = await iosAfcPull({
+        remotePath,
+        localPath,
+        udid: resolveIosDeviceUdid(payload),
+        fallbackBundleId: appId || String(payload.bundleId ?? "")
+      });
+      if (!pull.ok) return deviceAdminFail(command, pull.code, pull.message);
+      return deviceAdminSuccess(command, action, { localPath, remotePath, tool: "afcclient" });
+    }
     case "shell":
     case "hdc":
       return deviceAdminFail(command, "IOS_SHELL_UNSUPPORTED", "iOS has no adb/hdc shell; use WDA invoke");

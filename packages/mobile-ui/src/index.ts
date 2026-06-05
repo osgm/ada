@@ -7,5 +7,6 @@ export {
 } from "./heuristics-config.js";
 export { parseBoundsString, isTruthyAttr } from "./bounds.js";
 export { parseAndroidHierarchy } from "./android.js";
+export { parseIosHierarchy } from "./ios.js";
 export { parseHarmonyLayoutJson, walkHarmonyTree, extractHarmonyDumpPath } from "./harmony.js";
 export { findUiNode, normalizedSwipePoints, pickNodeByTextHints } from "./heuristics.js";

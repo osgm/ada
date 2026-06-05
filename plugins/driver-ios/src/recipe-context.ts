@@ -1,4 +1,4 @@
-import { parseAndroidHierarchy, UiDumpCache, type MobileRecipeContext, type ScreenSize } from "@ada/driver-rpc";
+import { parseIosHierarchy, UiDumpCache, type MobileRecipeContext, type ScreenSize } from "@ada/driver-rpc";
 import type { UiHeuristicsConfig } from "@ada/mobile-ui";
 import type { IOSControlChannel, IOSObserveChannel } from "./adapter.js";
 
@@ -28,7 +28,7 @@ export function buildIosRecipeContext(
     },
     async dumpUi() {
       const raw = await this.getDumpRaw!();
-      return parseAndroidHierarchy(raw);
+      return parseIosHierarchy(raw);
     },
     async clickPoint(point) {
       dumpCache.invalidate();

@@ -11,6 +11,8 @@ export interface IOSPayload {
   elementId?: string;
   screenshotPath?: string;
   locator?: { id?: string; text?: string; accessibilityId?: string; xpath?: string };
+  inputOp?: string;
+  iosInputOp?: string;
   excludePackages?: string[];
   timeoutMs?: number;
   durationMs?: number;
