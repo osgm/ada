@@ -92,7 +92,8 @@ export { installPlaywrightBrowsers, detectBestPlaywrightDownloadHost } from "./p
 export { ensureHarmonyHdcForConfig } from "./harmony-hdc-install.js";
 export { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
 export { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
-export { isIosHostSupported } from "./platform-support.js";
+export { ensureIosIdeviceBootstrap } from "./ios-idevice-bootstrap.js";
+export { isIosHostSupported, isIosFullInstallScope } from "./platform-support.js";
 export { restartAndroidUia2Server, restartIosWdaServer } from "./mobile-server-restart.js";
 export { probeHarmonyRuntime } from "./harmony-runtime-probe.js";
 export { probeRuntimesForTasks, type TaskRuntimeProbe } from "./task-runtime-probe.js";

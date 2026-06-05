@@ -996,7 +996,9 @@ var DEVICE_ADMIN_ACTIONS = [
   "setOrientation",
   "startScreenRecord",
   "stopScreenRecord",
-  "reboot"
+  "reboot",
+  "killAllApps",
+  "wake"
 ];
 function readDeviceAdminAction(payload) {
   const raw = String(payload.action ?? "").trim();
@@ -1024,7 +1026,11 @@ function readDeviceAdminAction(payload) {
     startscreenrecord: "startScreenRecord",
     stopscreenrecord: "stopScreenRecord",
     clearappdata: "clearAppData",
-    currentapp: "currentApp"
+    currentapp: "currentApp",
+    killallapps: "killAllApps",
+    killall: "killAllApps",
+    wake: "wake",
+    wakeup: "wake"
   };
   if (DEVICE_ADMIN_ACTIONS.includes(raw)) return raw;
   return aliases[lower] ?? null;

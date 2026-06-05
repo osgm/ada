@@ -4,7 +4,14 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { AgentConfig } from "./types.js";
 import { getDependencyHealth, probeHarmonyRuntime } from "@ada/install-deps";
-import { commandExists, probeAndroidRuntime, probeIosRuntime, probeAndroidUia2Runtime, probeWdaStatus } from "@ada/runtime-probe";
+import {
+  commandExists,
+  probeAndroidRuntime,
+  probeIosRuntime,
+  probeAndroidUia2Runtime,
+  probeIosIdeviceRuntime,
+  probeWdaStatus
+} from "@ada/runtime-probe";
 import { listBuiltInPluginManifests } from "./plugin-registry.js";
 import { resolveWorkspaceRoot } from "./config.js";
 
@@ -93,6 +100,7 @@ export async function runDoctor(
         detail: "ios not in scope"
       };
   const wdaStatus = iosEnabled ? await probeWdaStatus(iosProbe.wdaUrl) : null;
+  const ideviceProbe = iosEnabled ? await probeIosIdeviceRuntime() : null;
   const javaRuntime =
     androidEnabled || harmonyEnabled
       ? await checkJavaRuntime()
@@ -140,6 +148,10 @@ export async function runDoctor(
       wdaReachable: iosProbe.wdaReachable,
       wdaReady: wdaStatus?.ready ?? false,
       wdaBootstrapHint: "set ADA_IOS_WDA_BOOTSTRAP=true to xcodebuild WebDriverAgentRunner",
+      ideviceinstallerOk: ideviceProbe?.ideviceinstallerOk ?? false,
+      ideviceInstallHint: ideviceProbe?.installHint ?? "",
+      ideviceBootstrapHint:
+        "use --install-deps=ios|all on macOS, or ADA_IOS_IDEVICE_BOOTSTRAP=true to brew install libimobiledevice ideviceinstaller",
       detail: !iosEnabled ? "ios not in monitoring.platforms" : (wdaStatus?.detail ?? iosProbe.detail)
     },
     javaRuntime: {

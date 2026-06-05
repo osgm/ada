@@ -108,21 +108,13 @@ function createMcpMobileRunners(client, platform, sessionId, cfg) {
   };
 
   const killAllApps = async (opts = {}) => {
-    if (platform === "ios") {
-      return {
-        success: true,
-        cleared: false,
-        businessCode: "APPS_NONE",
-        killedCount: 0,
-        failedCount: 0,
-        packages: [],
-        listSource: "ios-unsupported",
-        hits: ["kill:ios-not-supported"]
-      };
-    }
     const mcpRun = createMcpActionRun(run);
     if (platform === "android") {
       return androidKillAllAppsViaRun(mcpRun, payload, opts);
+    }
+    if (platform === "ios") {
+      const { iosKillAllAppsViaRun } = await import("./mobile-kill-all-apps.mjs");
+      return iosKillAllAppsViaRun(mcpRun, opts);
     }
     return harmonyKillAllApps(mcpRun, payload, opts);
   };
@@ -133,7 +125,7 @@ function createMcpMobileRunners(client, platform, sessionId, cfg) {
       return;
     }
     if (platform === "ios") {
-      await run("pressHome");
+      await run("deviceAdmin", { action: "wake" });
       return;
     }
     await run("custom", { custom: { action: "shell", command: "power-shell wakeup" } });

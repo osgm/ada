@@ -497,6 +497,14 @@ var init_ios_wda_probe = __esm({
   }
 });
 
+// ../../packages/runtime-probe/src/ios-idevice-probe.ts
+var init_ios_idevice_probe = __esm({
+  "../../packages/runtime-probe/src/ios-idevice-probe.ts"() {
+    "use strict";
+    init_runtime_probe();
+  }
+});
+
 // ../../packages/runtime-probe/src/device-scan.ts
 var init_device_scan = __esm({
   "../../packages/runtime-probe/src/device-scan.ts"() {
@@ -534,6 +542,7 @@ var init_src3 = __esm({
     init_runtime_probe();
     init_android_uia2_probe();
     init_ios_wda_probe();
+    init_ios_idevice_probe();
     init_device_scan();
     init_device_registry();
     init_device_display();
@@ -571,13 +580,11 @@ async function runCommand(command, args, cwd) {
     child.on("error", reject);
   });
 }
-async function ensureWdaSources(toolsDir, onLogLine) {
+async function ensureWdaSources(toolsDir, onLogLine, options) {
   const dir = import_node_path4.default.join(toolsDir, "wda", "WebDriverAgent");
   const project = import_node_path4.default.join(dir, "WebDriverAgent.xcodeproj");
   if (await pathExists(project)) return project;
-  const cloneEnabled = ["1", "true", "yes"].includes(
-    (process.env.ADA_IOS_WDA_CLONE ?? "").trim().toLowerCase()
-  );
+  const cloneEnabled = options?.allowClone === true || ["1", "true", "yes"].includes((process.env.ADA_IOS_WDA_CLONE ?? "").trim().toLowerCase());
   if (!cloneEnabled) {
     throw new Error(
       "WebDriverAgent project not found; set ADA_WDA_PROJECT_PATH or ADA_IOS_WDA_CLONE=true to clone into tools/wda"
@@ -624,6 +631,9 @@ async function waitForWdaReady(serverUrl, timeoutMs, onLogLine) {
   }
   return false;
 }
+function wdaBootstrapAllowed(options) {
+  return wdaBootstrapEnabled() || options?.scopeInstall === true;
+}
 async function ensureIosWdaBootstrap(options) {
   const onLogLine = options?.onLogLine;
   const wdaUrl = defaultWdaServerUrl();
@@ -634,8 +644,8 @@ async function ensureIosWdaBootstrap(options) {
     return { outcome: artifact, wdaUrl };
   }
   const probe = await probeWdaStatus(wdaUrl);
-  if (!wdaBootstrapEnabled()) {
-    artifact.detail = `bootstrap disabled (set ADA_IOS_WDA_BOOTSTRAP=true); ${probe.detail}`;
+  if (!wdaBootstrapAllowed(options)) {
+    artifact.detail = `bootstrap disabled (use --install-deps=ios|all or ADA_IOS_WDA_BOOTSTRAP=true); ${probe.detail}`;
     artifact.status = probe.ready ? "skipped" : "missing";
     return { outcome: artifact, wdaUrl };
   }
@@ -645,7 +655,9 @@ async function ensureIosWdaBootstrap(options) {
   }
   try {
     const toolsDir = await resolveDefaultToolsDir() ?? import_node_path4.default.join(process.cwd(), "tools");
-    const projectPath = await ensureWdaSources(toolsDir, onLogLine);
+    const projectPath = await ensureWdaSources(toolsDir, onLogLine, {
+      allowClone: options?.scopeInstall === true
+    });
     const udid = await resolveIosDeviceUdid();
     const destination = buildWdaXcodeDestination(udid);
     onLogLine?.(`[ios-wda] destination=${destination}`);
@@ -680,6 +692,14 @@ var init_ios_wda_bootstrap = __esm({
   }
 });
 
+// ../../packages/install-deps/src/ios-idevice-bootstrap.ts
+var init_ios_idevice_bootstrap = __esm({
+  "../../packages/install-deps/src/ios-idevice-bootstrap.ts"() {
+    "use strict";
+    init_src3();
+  }
+});
+
 // ../../packages/install-deps/src/dependency-installer.ts
 var HEALTH_CACHE_OK_MS, PLAYWRIGHT_LAUNCH_OK_MS;
 var init_dependency_installer = __esm({
@@ -702,6 +722,7 @@ var init_dependency_installer = __esm({
     init_src3();
     init_android_uia2_bootstrap();
     init_ios_wda_bootstrap();
+    init_ios_idevice_bootstrap();
     init_platform_support();
     init_deps_install_paths();
     HEALTH_CACHE_OK_MS = Number(process.env.ADA_DEPS_HEALTH_CACHE_MS ?? 9e4);
@@ -1573,7 +1594,9 @@ var DEVICE_ADMIN_ACTIONS = [
   "setOrientation",
   "startScreenRecord",
   "stopScreenRecord",
-  "reboot"
+  "reboot",
+  "killAllApps",
+  "wake"
 ];
 function readDeviceAdminAction(payload) {
   const raw = String(payload.action ?? "").trim();
@@ -1601,7 +1624,11 @@ function readDeviceAdminAction(payload) {
     startscreenrecord: "startScreenRecord",
     stopscreenrecord: "stopScreenRecord",
     clearappdata: "clearAppData",
-    currentapp: "currentApp"
+    currentapp: "currentApp",
+    killallapps: "killAllApps",
+    killall: "killAllApps",
+    wake: "wake",
+    wakeup: "wake"
   };
   if (DEVICE_ADMIN_ACTIONS.includes(raw)) return raw;
   return aliases[lower] ?? null;
@@ -1870,6 +1897,35 @@ function resolveSwipeDurationMs(payload, options = {}) {
   return options.fallbackMs ?? SWIPE_DURATION_MS.normal;
 }
 
+// ../../packages/driver-rpc/src/pinch-gesture.ts
+function buildDualPointerPinchActions(ends, durationMs) {
+  const ms = Math.max(50, Math.round(durationMs));
+  return [
+    {
+      type: "pointer",
+      id: "finger1",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x: ends.finger1Start[0], y: ends.finger1Start[1] },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerMove", duration: ms, x: ends.finger1End[0], y: ends.finger1End[1] },
+        { type: "pointerUp", button: 0 }
+      ]
+    },
+    {
+      type: "pointer",
+      id: "finger2",
+      parameters: { pointerType: "touch" },
+      actions: [
+        { type: "pointerMove", duration: 0, x: ends.finger2Start[0], y: ends.finger2Start[1] },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerMove", duration: ms, x: ends.finger2End[0], y: ends.finger2End[1] },
+        { type: "pointerUp", button: 0 }
+      ]
+    }
+  ];
+}
+
 // ../../packages/driver-rpc/src/pinch-payload.ts
 function ensurePoint(v) {
   if (!Array.isArray(v) || v.length < 2) return null;
@@ -2001,6 +2057,7 @@ init_playwright_browser_install();
 init_harmony_hdc_install();
 init_android_uia2_bootstrap();
 init_ios_wda_bootstrap();
+init_ios_idevice_bootstrap();
 init_platform_support();
 
 // ../../packages/install-deps/src/mobile-server-restart.ts
@@ -2025,6 +2082,35 @@ var import_node_path6 = __toESM(require("node:path"), 1);
 // ../../plugins/driver-ios/src/device-admin.ts
 var import_node_child_process3 = require("node:child_process");
 var import_node_path5 = __toESM(require("node:path"), 1);
+var IOS_SYSTEM_PREFIXES = ["com.apple.", "com.google."];
+function isIosSystemBundle(bundle) {
+  const b = String(bundle).trim();
+  if (!b || !b.includes(".")) return true;
+  return IOS_SYSTEM_PREFIXES.some((p) => b.startsWith(p));
+}
+function parseIosActiveBundles(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return [
+      ...new Set(
+        value.map((item) => {
+          if (typeof item === "string") return item.trim();
+          if (item && typeof item === "object") {
+            const o = item;
+            return String(o.bundleId ?? o.bundleID ?? o.id ?? "").trim();
+          }
+          return "";
+        }).filter(Boolean)
+      )
+    ];
+  }
+  if (typeof value === "object") {
+    const o = value;
+    if (Array.isArray(o.apps)) return parseIosActiveBundles(o.apps);
+    return Object.keys(o).filter((k) => k.includes("."));
+  }
+  return [];
+}
 async function wdaGet(session, wdaFetch, subPath) {
   return wdaFetch("GET", `${session.serverUrl}/session/${session.sessionId}${subPath}`);
 }
@@ -2213,6 +2299,79 @@ async function executeIosDeviceAdmin(command, session, payload, wdaFetch, tapAt)
       return deviceAdminFail(command, "IOS_SCREEN_RECORD_UNSUPPORTED", "use host QuickTime/simctl for simulators");
     case "reboot":
       return deviceAdminFail(command, "IOS_REBOOT_UNSUPPORTED", "not supported via WDA");
+    case "killAllApps": {
+      const exclude = new Set(
+        (Array.isArray(payload.excludePackages) ? payload.excludePackages : []).map((x) => String(x).trim()).filter(Boolean)
+      );
+      const hits = [];
+      await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`).catch(() => void 0);
+      let bundles = [];
+      const active = await wdaFetch("GET", `${session.serverUrl}/wda/activeAppsInfo`);
+      if (active.ok) {
+        bundles = parseIosActiveBundles(active.value);
+        hits.push("list:wda-activeAppsInfo");
+      }
+      if (!bundles.length) {
+        const cur = await wdaFetch("GET", `${session.serverUrl}/wda/activeAppInfo`);
+        if (cur.ok && cur.value) {
+          const bid = String(cur.value.bundleId ?? "").trim();
+          if (bid) bundles = [bid];
+          hits.push("list:wda-activeAppInfo");
+        }
+      }
+      bundles = [...new Set(bundles.filter((b) => !isIosSystemBundle(b) && !exclude.has(b)))];
+      const killed = [];
+      const failed = [];
+      for (const bundleId of bundles) {
+        const term = await wdaPost(session, wdaFetch, "/wda/apps/terminate", { bundleId });
+        if (term.ok) killed.push(bundleId);
+        else failed.push(bundleId);
+      }
+      await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`).catch(() => void 0);
+      const killedCount = killed.length;
+      const failedCount = failed.length;
+      const cleared = killedCount > 0;
+      let businessCode = "APPS_NONE";
+      if (cleared && failedCount === 0) businessCode = "APPS_KILLED";
+      else if (cleared) businessCode = "APPS_PARTIAL";
+      return deviceAdminSuccess(command, action, {
+        cleared,
+        businessCode,
+        killedCount,
+        failedCount,
+        packages: killed,
+        listSource: hits[0] ?? "wda-activeAppsInfo",
+        hits
+      });
+    }
+    case "wake": {
+      const hits = [];
+      const locked = await wdaFetch("GET", `${session.serverUrl}/wda/locked`);
+      if (locked.ok && locked.value === true) {
+        const unlock = await wdaFetch("POST", `${session.serverUrl}/wda/unlock`);
+        if (!unlock.ok) {
+          return deviceAdminFail(command, "IOS_WAKE_UNLOCK_FAILED", JSON.stringify(unlock.raw ?? {}));
+        }
+        hits.push("wake:unlock");
+        return deviceAdminSuccess(command, action, { locked: true, unlocked: true, hits });
+      }
+      const screen = await wdaFetch("GET", `${session.serverUrl}/wda/screen`);
+      const rect = screen.value ?? {};
+      const w = Number(rect.width ?? payload.screenWidth ?? 390);
+      const h = Number(rect.height ?? payload.screenHeight ?? 844);
+      const tap = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/tap/0`, {
+        x: Math.round(w / 2),
+        y: Math.round(h / 2)
+      });
+      if (!tap.ok) {
+        const home = await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`);
+        if (!home.ok) return deviceAdminFail(command, "IOS_WAKE_FAILED", JSON.stringify(tap.raw ?? {}));
+        hits.push("wake:homescreen-fallback");
+        return deviceAdminSuccess(command, action, { locked: false, fallback: "homescreen", hits });
+      }
+      hits.push("wake:tap-center");
+      return deviceAdminSuccess(command, action, { locked: false, tapped: true, hits });
+    }
     default:
       return deviceAdminFail(command, "DEVICE_ADMIN_UNSUPPORTED", `unsupported action: ${action}`);
   }
@@ -2465,16 +2624,33 @@ var WdaClientAdapter = class _WdaClientAdapter {
       const ends = readPinchEndsFromPayload(payload);
       if (!ends) return fail(command, "IOS_PINCH_MISSING_POINTS", "pinch requires finger1/finger2/finger1End/finger2End");
       const durationMs = resolveSwipeDurationMs(payload, { fallbackMs: 400 });
-      const legacySec = Math.max(0.1, durationMs / 1e3);
-      await Promise.all([
-        control.swipe(ends.finger1Start, ends.finger1End, legacySec),
-        control.swipe(ends.finger2Start, ends.finger2End, legacySec)
-      ]);
+      const pinchRes = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/actions`, {
+        actions: buildDualPointerPinchActions(ends, durationMs)
+      });
+      if (!pinchRes.ok) {
+        const legacySec = Math.max(0.1, durationMs / 1e3);
+        await Promise.all([
+          control.swipe(ends.finger1Start, ends.finger1End, legacySec),
+          control.swipe(ends.finger2Start, ends.finger2End, legacySec)
+        ]);
+        invalidateElementCache(session);
+        return {
+          requestId: command.requestId,
+          success: true,
+          data: {
+            driver: "ios",
+            command: "pinch",
+            durationMs,
+            pinchIn: payload.pinchIn,
+            fallback: "dual-swipe"
+          }
+        };
+      }
       invalidateElementCache(session);
       return {
         requestId: command.requestId,
         success: true,
-        data: { driver: "ios", command: "pinch", durationMs, pinchIn: payload.pinchIn }
+        data: { driver: "ios", command: "pinch", durationMs, pinchIn: payload.pinchIn, mode: "w3c-actions" }
       };
     }
     if (command.command === "deviceAdmin") {

@@ -1,7 +1,7 @@
 import { depsLogLine } from "./log-locale.js";
 import { isIosHostSupported } from "./platform-support.js";
 
-const IOS_DRIVER_ARTIFACTS: ReadonlySet<DriverArtifactId> = new Set(["ios-xcrun", "ios-wda"]);
+const IOS_DRIVER_ARTIFACTS: ReadonlySet<DriverArtifactId> = new Set(["ios-xcrun", "ios-wda", "ios-idevice"]);
 
 type InstallScopeForDrivers =
   | "all"
@@ -19,7 +19,8 @@ export type DriverArtifactId =
   | "android-adb"
   | "android-uia2"
   | "ios-xcrun"
-  | "ios-wda";
+  | "ios-wda"
+  | "ios-idevice";
 
 export type DriverInstallStatus = "installed" | "skipped" | "missing";
 
@@ -35,7 +36,8 @@ const DRIVER_LABELS_ZH: Record<DriverArtifactId, string> = {
   "android-adb": "Android adb 运行时",
   "android-uia2": "Android UiAutomator2 Server",
   "ios-xcrun": "iOS 工具链 (xcrun)",
-  "ios-wda": "iOS WebDriverAgent"
+  "ios-wda": "iOS WebDriverAgent",
+  "ios-idevice": "iOS ideviceinstaller (真机装包)"
 };
 
 const DRIVER_LABELS_EN: Record<DriverArtifactId, string> = {
@@ -44,7 +46,8 @@ const DRIVER_LABELS_EN: Record<DriverArtifactId, string> = {
   "android-adb": "Android adb runtime",
   "android-uia2": "Android UiAutomator2 Server",
   "ios-xcrun": "iOS toolchain (xcrun)",
-  "ios-wda": "iOS WebDriverAgent"
+  "ios-wda": "iOS WebDriverAgent",
+  "ios-idevice": "iOS ideviceinstaller (device IPA install)"
 };
 
 export function driverArtifactLabel(id: DriverArtifactId): string {
@@ -64,15 +67,23 @@ export function resolveRequestedDriverArtifacts(only: InstallScopeForDrivers): D
       ids = ["android-adb", "android-uia2"];
       break;
     case "ios":
-      ids = ["ios-xcrun", "ios-wda"];
+      ids = ["ios-xcrun", "ios-wda", "ios-idevice"];
       break;
     case "mobile":
     case "drivers":
-      ids = ["harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda"];
+      ids = ["harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda", "ios-idevice"];
       break;
     case "all":
     default:
-      ids = ["playwright-browsers", "harmony-hdc", "android-adb", "android-uia2", "ios-xcrun", "ios-wda"];
+      ids = [
+        "playwright-browsers",
+        "harmony-hdc",
+        "android-adb",
+        "android-uia2",
+        "ios-xcrun",
+        "ios-wda",
+        "ios-idevice"
+      ];
       break;
   }
   if (!isIosHostSupported()) {

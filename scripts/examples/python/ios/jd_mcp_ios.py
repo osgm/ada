@@ -57,7 +57,7 @@ def main() -> None:
             step_log("[1] wake done")
             wait(500)
 
-            print("[2] 结束所有应用（iOS 暂不支持，仅记录）")
+            print("[2] 结束所有应用")
             step_log("[2] kill_all_apps start")
             killed = phone.kill_all_apps()
             step_log(f"[2] kill_all_apps done code={killed.get('businessCode')}")

@@ -3,7 +3,7 @@
  * 运行：npm run test:jd-ios:mcp
  *
  * 需 WDA + 真机。默认 bundle 为京东 iOS；冒烟可设 ADA_IOS_APP_ID=com.apple.Preferences
- * 步骤：唤醒 → killAllApps（iOS 暂不支持）→ 滑屏 → 打开 App → 关弹窗 → 搜索 ABC → 截图 → 返回 → 退出
+ * 步骤：唤醒 → killAllApps → 滑屏 → 打开 App → 关弹窗 → 搜索 ABC → 截图 → 返回 → 退出
  */
 import path from "node:path";
 import { by, device, dir, open, exit, wait } from "../../../lib/ada-client.mjs";
@@ -47,7 +47,7 @@ async function main() {
       await phone.wake();
       await wait(500);
 
-      console.log("[2] 结束所有应用（iOS 暂不支持，仅记录）");
+      console.log("[2] 结束所有应用");
       const killed = await phone.killAllApps();
       console.log(
         "  killAllApps →",

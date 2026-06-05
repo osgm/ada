@@ -35,6 +35,15 @@ function fail(command: CommandEnvelope, code: string, message: string): CommandR
   return { requestId: command.requestId, success: false, errorCode: code, errorMessage: message };
 }
 
+function escapeXpathLiteral(value: string): string {
+  if (!value.includes('"')) return `"${value}"`;
+  if (!value.includes("'")) return `'${value}'`;
+  return `concat(${value
+    .split('"')
+    .map((part, i) => (i === 0 ? `"${part}"` : `, '"', "${part}"`))
+    .join("")})`;
+}
+
 function ensurePoint(v?: [number, number]): [number, number] | null {
   if (!v || v.length !== 2) return null;
   const x = Number(v[0]);
@@ -309,16 +318,33 @@ export class WdaClientAdapter implements IOSAdapter {
       const ends = readPinchEndsFromPayload(payload as Record<string, unknown>);
       if (!ends) return fail(command, "IOS_PINCH_MISSING_POINTS", "pinch requires finger1/finger2/finger1End/finger2End");
       const durationMs = resolveSwipeDurationMs(payload as Record<string, unknown>, { fallbackMs: 400 });
-      const legacySec = Math.max(0.1, durationMs / 1000);
-      await Promise.all([
-        control.swipe(ends.finger1Start, ends.finger1End, legacySec),
-        control.swipe(ends.finger2Start, ends.finger2End, legacySec)
-      ]);
+      const pinchRes = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/actions`, {
+        actions: buildDualPointerPinchActions(ends, durationMs)
+      });
+      if (!pinchRes.ok) {
+        const legacySec = Math.max(0.1, durationMs / 1000);
+        await Promise.all([
+          control.swipe(ends.finger1Start, ends.finger1End, legacySec),
+          control.swipe(ends.finger2Start, ends.finger2End, legacySec)
+        ]);
+        invalidateElementCache(session);
+        return {
+          requestId: command.requestId,
+          success: true,
+          data: {
+            driver: "ios",
+            command: "pinch",
+            durationMs,
+            pinchIn: payload.pinchIn,
+            fallback: "dual-swipe"
+          }
+        };
+      }
       invalidateElementCache(session);
       return {
         requestId: command.requestId,
         success: true,
-        data: { driver: "ios", command: "pinch", durationMs, pinchIn: payload.pinchIn }
+        data: { driver: "ios", command: "pinch", durationMs, pinchIn: payload.pinchIn, mode: "w3c-actions" }
       };
     }
     if (command.command === "deviceAdmin") {

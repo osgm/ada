@@ -447,3 +447,37 @@ export async function harmonyKillAllAppsAda(platform, sessionId, cfg, opts = {})
   };
   return harmonyKillAllApps(run, cfg, opts);
 }
+
+function deviceAdminDataFromRunResult(result) {
+  return result?.data ?? result?.result?.data ?? result ?? {};
+}
+
+/**
+ * iOS：WDA activeAppsInfo → terminate（deviceAdmin.killAllApps）
+ * @param {(cmd: string, extra?: object) => Promise<{success?: boolean, data?: object}>} run
+ * @param {{ excludePackages?: string[], killExclude?: string[] }} [opts]
+ */
+export async function iosKillAllAppsViaRun(run, opts = {}) {
+  const exclude = opts.excludePackages ?? opts.killExclude ?? [];
+  const r = await run("deviceAdmin", { action: "killAllApps", excludePackages: exclude }).catch(() => ({}));
+  const inner = deviceAdminDataFromRunResult(r);
+  return {
+    success: r?.success !== false,
+    cleared: inner.cleared ?? false,
+    businessCode: inner.businessCode ?? "APPS_NONE",
+    killedCount: inner.killedCount ?? 0,
+    failedCount: inner.failedCount ?? 0,
+    packages: inner.packages ?? [],
+    listSource: inner.listSource ?? "wda-terminate",
+    hits: inner.hits ?? []
+  };
+}
+
+/** ada-client：iOS killAllApps */
+export async function iosKillAllAppsAda(platform, sessionId, cfg, opts = {}) {
+  const run = async (command, extra) => {
+    const r = await ada(platform, sessionId, command, { ...cfg, ...extra });
+    return { success: r.success, value: r.data?.value, data: r.data };
+  };
+  return iosKillAllAppsViaRun(run, opts);
+}

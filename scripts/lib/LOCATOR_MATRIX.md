@@ -15,7 +15,7 @@
 | `by.id(name)` | `{ id }` | CSS `#name` | `resource-id` / UIA2 `id` | Hypium `BY.id` | `id` |
 | `by.css(sel)` | `{ css }` | Playwright CSS | —（请用 id/xpath/text） | — | — |
 | `by.xpath(expr)` | `{ xpath }` | `xpath=…` | UIA2 xpath；adb 模式解析 `@text` 等 | `findComponentByXpath` | xpath |
-| `by.text(label)` | `{ text }` | `getByText` | xpath 含 text/content-desc；adb 树匹配文案 | Hypium `BY.text`（搜索类走 uiDump） | — |
+| `by.text(label)` | `{ text }` | `getByText` | xpath 含 text/content-desc；adb 树匹配文案 | Hypium `BY.text`（搜索类走 uiDump） | xpath 含 label/name/value |
 | `by.role(r)` | `{ role }` | `getByRole` | — | — | — |
 | `by.testId(id)` | `{ testId }` | `getByTestId` | — | — | — |
 | `by.placeholder(t)` | `{ css: '[placeholder*="t"]' }` | CSS | — | — | — |
@@ -75,7 +75,7 @@
 | `id` | ✅ |
 | `accessibilityId` | ✅ |
 | `xpath` | ✅ |
-| `text` | 视驱动实现而定，建议 xpath |
+| `text` | ✅ xpath 派生（`@label` / `@name` / `@value`） |
 
 ---
 

@@ -46,13 +46,17 @@ async function resolveWdaProjectPath(toolsDir: string): Promise<string | null> {
   return null;
 }
 
-async function ensureWdaSources(toolsDir: string, onLogLine?: (line: string) => void): Promise<string> {
+async function ensureWdaSources(
+  toolsDir: string,
+  onLogLine?: (line: string) => void,
+  options?: { allowClone?: boolean }
+): Promise<string> {
   const dir = path.join(toolsDir, "wda", "WebDriverAgent");
   const project = path.join(dir, "WebDriverAgent.xcodeproj");
   if (await pathExists(project)) return project;
-  const cloneEnabled = ["1", "true", "yes"].includes(
-    (process.env.ADA_IOS_WDA_CLONE ?? "").trim().toLowerCase()
-  );
+  const cloneEnabled =
+    options?.allowClone === true ||
+    ["1", "true", "yes"].includes((process.env.ADA_IOS_WDA_CLONE ?? "").trim().toLowerCase());
   if (!cloneEnabled) {
     throw new Error(
       "WebDriverAgent project not found; set ADA_WDA_PROJECT_PATH or ADA_IOS_WDA_CLONE=true to clone into tools/wda"
@@ -105,9 +109,15 @@ async function waitForWdaReady(serverUrl: string, timeoutMs: number, onLogLine?:
 export interface EnsureIosWdaOptions {
   force?: boolean;
   onLogLine?: (line: string) => void;
+  /** install-deps scope=ios|all：自动 bootstrap，无需 ADA_IOS_WDA_BOOTSTRAP */
+  scopeInstall?: boolean;
 }
 
-/** macOS：可选 xcodebuild 拉起 WDA（需 ADA_IOS_WDA_BOOTSTRAP=true） */
+function wdaBootstrapAllowed(options?: EnsureIosWdaOptions): boolean {
+  return wdaBootstrapEnabled() || options?.scopeInstall === true;
+}
+
+/** macOS：可选 xcodebuild 拉起 WDA（scope=ios|all 或 ADA_IOS_WDA_BOOTSTRAP=true） */
 export async function ensureIosWdaBootstrap(options?: EnsureIosWdaOptions): Promise<{
   outcome: DriverInstallOutcome;
   wdaUrl: string;
@@ -123,8 +133,8 @@ export async function ensureIosWdaBootstrap(options?: EnsureIosWdaOptions): Prom
   }
 
   const probe = await probeWdaStatus(wdaUrl);
-  if (!wdaBootstrapEnabled()) {
-    artifact.detail = `bootstrap disabled (set ADA_IOS_WDA_BOOTSTRAP=true); ${probe.detail}`;
+  if (!wdaBootstrapAllowed(options)) {
+    artifact.detail = `bootstrap disabled (use --install-deps=ios|all or ADA_IOS_WDA_BOOTSTRAP=true); ${probe.detail}`;
     artifact.status = probe.ready ? "skipped" : "missing";
     return { outcome: artifact, wdaUrl };
   }
@@ -136,7 +146,9 @@ export async function ensureIosWdaBootstrap(options?: EnsureIosWdaOptions): Prom
 
   try {
     const toolsDir = (await resolveDefaultToolsDir()) ?? path.join(process.cwd(), "tools");
-    const projectPath = await ensureWdaSources(toolsDir, onLogLine);
+    const projectPath = await ensureWdaSources(toolsDir, onLogLine, {
+      allowClone: options?.scopeInstall === true
+    });
     const udid = await resolveIosDeviceUdid();
     const destination = buildWdaXcodeDestination(udid);
     onLogLine?.(`[ios-wda] destination=${destination}`);

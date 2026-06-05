@@ -116,6 +116,20 @@ def _create_mcp_mobile_runners(
             return mcp.harmony_kill_all_apps(session_id, payload, opts)
         if platform == "android":
             return mcp.android_kill_all_apps(session_id, payload, opts)
+        if platform == "ios":
+            exclude = (opts or {}).get("excludePackages") or []
+            data = run("deviceAdmin", {"action": "killAllApps", "excludePackages": exclude})
+            inner = (data.get("result") or {}).get("data") or data.get("data") or {}
+            return {
+                "success": data.get("ok") is not False,
+                "cleared": bool(inner.get("cleared")),
+                "businessCode": inner.get("businessCode") or "APPS_NONE",
+                "killedCount": int(inner.get("killedCount") or 0),
+                "failedCount": int(inner.get("failedCount") or 0),
+                "packages": list(inner.get("packages") or []),
+                "listSource": inner.get("listSource") or "wda-terminate",
+                "hits": list(inner.get("hits") or []),
+            }
         raise RuntimeError(f"kill_all_apps via MCP: unsupported platform {platform}")
 
     return {
@@ -369,6 +383,9 @@ class McpIosDevice(IosDevice):
 
     def _run(self, command: str, extra: dict | None = None) -> None:
         self._runners["run"](command, extra or {})
+
+    def wake(self) -> None:
+        self._runners["run"]("deviceAdmin", {"action": "wake"})
 
     def find(self, loc) -> ElementHandle:
         return ElementHandle(

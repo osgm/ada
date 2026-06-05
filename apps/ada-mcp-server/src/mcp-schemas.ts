@@ -325,6 +325,7 @@ export const MOBILE_COMMAND_ENUM = [
   "click",
   "type",
   "swipe",
+  "pinch",
   "assertVisible",
   "screenshot",
   "wait",
@@ -336,7 +337,8 @@ export const MOBILE_COMMAND_ENUM = [
   "launchApp",
   "exitApp",
   "recipe",
-  "custom"
+  "custom",
+  "deviceAdmin"
 ] as const;
 
 export function mobileCommandField(): Record<string, unknown> {

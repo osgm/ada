@@ -23,7 +23,9 @@ export const DEVICE_ADMIN_ACTIONS = [
   "setOrientation",
   "startScreenRecord",
   "stopScreenRecord",
-  "reboot"
+  "reboot",
+  "killAllApps",
+  "wake"
 ] as const;
 
 export type DeviceAdminAction = (typeof DEVICE_ADMIN_ACTIONS)[number];
@@ -54,7 +56,11 @@ export function readDeviceAdminAction(payload: Record<string, unknown>): DeviceA
     startscreenrecord: "startScreenRecord",
     stopscreenrecord: "stopScreenRecord",
     clearappdata: "clearAppData",
-    currentapp: "currentApp"
+    currentapp: "currentApp",
+    killallapps: "killAllApps",
+    killall: "killAllApps",
+    wake: "wake",
+    wakeup: "wake"
   };
   if ((DEVICE_ADMIN_ACTIONS as readonly string[]).includes(raw)) return raw as DeviceAdminAction;
   return aliases[lower] ?? null;

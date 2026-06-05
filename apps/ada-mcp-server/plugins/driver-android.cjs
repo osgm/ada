@@ -493,6 +493,14 @@ var init_ios_wda_probe = __esm({
   }
 });
 
+// ../../packages/runtime-probe/src/ios-idevice-probe.ts
+var init_ios_idevice_probe = __esm({
+  "../../packages/runtime-probe/src/ios-idevice-probe.ts"() {
+    "use strict";
+    init_runtime_probe();
+  }
+});
+
 // ../../packages/runtime-probe/src/device-scan.ts
 var init_device_scan = __esm({
   "../../packages/runtime-probe/src/device-scan.ts"() {
@@ -530,6 +538,7 @@ var init_src3 = __esm({
     init_runtime_probe();
     init_android_uia2_probe();
     init_ios_wda_probe();
+    init_ios_idevice_probe();
     init_device_scan();
     init_device_registry();
     init_device_display();
@@ -703,6 +712,14 @@ var init_ios_wda_bootstrap = __esm({
   }
 });
 
+// ../../packages/install-deps/src/ios-idevice-bootstrap.ts
+var init_ios_idevice_bootstrap = __esm({
+  "../../packages/install-deps/src/ios-idevice-bootstrap.ts"() {
+    "use strict";
+    init_src3();
+  }
+});
+
 // ../../packages/install-deps/src/dependency-installer.ts
 var HEALTH_CACHE_OK_MS, PLAYWRIGHT_LAUNCH_OK_MS;
 var init_dependency_installer = __esm({
@@ -725,6 +742,7 @@ var init_dependency_installer = __esm({
     init_src3();
     init_android_uia2_bootstrap();
     init_ios_wda_bootstrap();
+    init_ios_idevice_bootstrap();
     init_platform_support();
     init_deps_install_paths();
     HEALTH_CACHE_OK_MS = Number(process.env.ADA_DEPS_HEALTH_CACHE_MS ?? 9e4);
@@ -1579,7 +1597,9 @@ var DEVICE_ADMIN_ACTIONS = [
   "setOrientation",
   "startScreenRecord",
   "stopScreenRecord",
-  "reboot"
+  "reboot",
+  "killAllApps",
+  "wake"
 ];
 function readDeviceAdminAction(payload) {
   const raw = String(payload.action ?? "").trim();
@@ -1607,7 +1627,11 @@ function readDeviceAdminAction(payload) {
     startscreenrecord: "startScreenRecord",
     stopscreenrecord: "stopScreenRecord",
     clearappdata: "clearAppData",
-    currentapp: "currentApp"
+    currentapp: "currentApp",
+    killallapps: "killAllApps",
+    killall: "killAllApps",
+    wake: "wake",
+    wakeup: "wake"
   };
   if (DEVICE_ADMIN_ACTIONS.includes(raw)) return raw;
   return aliases[lower] ?? null;
@@ -2209,6 +2233,7 @@ init_playwright_browser_install();
 init_harmony_hdc_install();
 init_android_uia2_bootstrap();
 init_ios_wda_bootstrap();
+init_ios_idevice_bootstrap();
 init_platform_support();
 
 // ../../packages/install-deps/src/mobile-server-restart.ts

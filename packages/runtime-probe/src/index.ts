@@ -23,6 +23,7 @@ export {
   resolveIosDeviceUdid,
   wdaBootstrapEnabled
 } from "./ios-wda-probe.js";
+export { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "./ios-idevice-probe.js";
 export type {
   DeviceConnectionState,
   DeviceKind,

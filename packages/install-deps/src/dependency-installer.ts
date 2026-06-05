@@ -34,10 +34,17 @@ import { DEFAULT_NPM_REGISTRY_CANDIDATES } from "@ada/download-probe";
 import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "@ada/download-probe";
 import { detectBestPlaywrightDownloadHost, installPlaywrightBrowsers } from "./playwright-browser-install.js";
 import { playwrightBrowsersDirHasChromium } from "./playwright-browsers-discovery.js";
-import { probeAndroidRuntime, probeIosRuntime, probeAndroidUia2Runtime, probeWdaStatus } from "@ada/runtime-probe";
+import {
+  probeAndroidRuntime,
+  probeIosRuntime,
+  probeAndroidUia2Runtime,
+  probeIosIdeviceRuntime,
+  probeWdaStatus
+} from "@ada/runtime-probe";
 import { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
 import { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
-import { isIosHostSupported } from "./platform-support.js";
+import { ensureIosIdeviceBootstrap } from "./ios-idevice-bootstrap.js";
+import { isIosFullInstallScope, isIosHostSupported } from "./platform-support.js";
 
 export {
   legacyDepsStateFileCandidates,
@@ -210,7 +217,16 @@ async function probeMobileRuntimes(
       status: wda.ready ? "skipped" : "missing",
       detail: wda.detail
     });
+    const idevice = await probeIosIdeviceRuntime();
+    tracker.record({
+      id: "ios-idevice",
+      status: idevice.ideviceinstallerOk ? "skipped" : "missing",
+      detail: idevice.detail
+    });
     onLogLine?.(ready ? `[mobile] ${wda.detail}` : `[mobile][warn] ${ios.detail}; ${wda.detail}`);
+    if (!idevice.ideviceinstallerOk && idevice.installHint) {
+      onLogLine?.(`[ios][hint] ${idevice.installHint}`);
+    }
   }
 }
 
@@ -660,11 +676,27 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
     const bootstrapIos =
       isIosHostSupported() &&
       (only === "ios" || only === "mobile" || only === "drivers" || only === "all");
-    const iosBootstrapFlag = ["1", "true", "yes"].includes(
+    const iosScopeFullInstall = isIosFullInstallScope(only);
+    const iosWdaBootstrapFlag = ["1", "true", "yes"].includes(
       (process.env.ADA_IOS_WDA_BOOTSTRAP ?? "").trim().toLowerCase()
     );
-    if (bootstrapIos && iosBootstrapFlag) {
-      const { outcome } = await ensureIosWdaBootstrap({ force, onLogLine });
+    if (bootstrapIos && (iosScopeFullInstall || iosWdaBootstrapFlag)) {
+      const { outcome } = await ensureIosWdaBootstrap({
+        force,
+        onLogLine,
+        scopeInstall: iosScopeFullInstall
+      });
+      tracker.record(outcome);
+    }
+    const ideviceBootstrapFlag = ["1", "true", "yes"].includes(
+      (process.env.ADA_IOS_IDEVICE_BOOTSTRAP ?? "").trim().toLowerCase()
+    );
+    if (bootstrapIos && (iosScopeFullInstall || ideviceBootstrapFlag)) {
+      const { outcome } = await ensureIosIdeviceBootstrap({
+        force,
+        onLogLine,
+        scopeInstall: iosScopeFullInstall
+      });
       tracker.record(outcome);
     }
   }

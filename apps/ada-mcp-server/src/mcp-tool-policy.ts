@@ -32,7 +32,9 @@ export const DEVICE_ADMIN_ACTION_ENUM = [
   "setOrientation",
   "startScreenRecord",
   "stopScreenRecord",
-  "reboot"
+  "reboot",
+  "killAllApps",
+  "wake"
 ] as const;
 
 export const DEVICE_ADMIN_HINT =

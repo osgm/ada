@@ -274,6 +274,61 @@ test("ios plugin conformance: command result contract", async () => {
   );
 });
 
+test("ios plugin conformance: click with text locator mock", async () => {
+  await runAndAssertResult(
+    iosPlugin,
+    baseCommand({
+      platform: "ios",
+      command: "click",
+      payload: { mock: true, locator: { text: "搜索" } }
+    })
+  );
+});
+
+test("ios plugin conformance: pinch mock contract", async () => {
+  await runAndAssertResult(
+    iosPlugin,
+    baseCommand({
+      platform: "ios",
+      command: "pinch",
+      payload: {
+        mock: true,
+        finger1: [100, 200],
+        finger2: [300, 400],
+        finger1End: [150, 250],
+        finger2End: [250, 350]
+      }
+    })
+  );
+});
+
+test("ios plugin conformance: deviceAdmin killAllApps mock", async () => {
+  const session = await iosPlugin.createSession("ios");
+  const result = await iosPlugin.execute(
+    session,
+    baseCommand({
+      platform: "ios",
+      command: "deviceAdmin",
+      payload: { mock: true, action: "killAllApps" }
+    })
+  );
+  assert.equal(result.success, true);
+  assert.equal((result.data as Record<string, unknown>).command, "deviceAdmin");
+});
+
+test("ios plugin conformance: deviceAdmin wake mock", async () => {
+  const session = await iosPlugin.createSession("ios");
+  const result = await iosPlugin.execute(
+    session,
+    baseCommand({
+      platform: "ios",
+      command: "deviceAdmin",
+      payload: { mock: true, action: "wake" }
+    })
+  );
+  assert.equal(result.success, true);
+});
+
 test("harmony plugin conformance: invoke invalid payload returns standard error", async () => {
   const session = await harmonyPlugin.createSession("harmony");
   const result = await harmonyPlugin.execute(

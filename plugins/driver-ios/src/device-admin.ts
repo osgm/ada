@@ -18,6 +18,40 @@ type WdaFetch = (
 type IosAdminSession = { serverUrl: string; sessionId: string };
 type IosAdminPayload = Record<string, unknown>;
 
+const IOS_SYSTEM_PREFIXES = ["com.apple.", "com.google."];
+
+function isIosSystemBundle(bundle: string): boolean {
+  const b = String(bundle).trim();
+  if (!b || !b.includes(".")) return true;
+  return IOS_SYSTEM_PREFIXES.some((p) => b.startsWith(p));
+}
+
+function parseIosActiveBundles(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return [
+      ...new Set(
+        value
+          .map((item) => {
+            if (typeof item === "string") return item.trim();
+            if (item && typeof item === "object") {
+              const o = item as Record<string, unknown>;
+              return String(o.bundleId ?? o.bundleID ?? o.id ?? "").trim();
+            }
+            return "";
+          })
+          .filter(Boolean)
+      )
+    ];
+  }
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    if (Array.isArray(o.apps)) return parseIosActiveBundles(o.apps);
+    return Object.keys(o).filter((k) => k.includes("."));
+  }
+  return [];
+}
+
 async function wdaGet(session: IosAdminSession, wdaFetch: WdaFetch, subPath: string) {
   return wdaFetch("GET", `${session.serverUrl}/session/${session.sessionId}${subPath}`);
 }
@@ -222,6 +256,85 @@ export async function executeIosDeviceAdmin(
       return deviceAdminFail(command, "IOS_SCREEN_RECORD_UNSUPPORTED", "use host QuickTime/simctl for simulators");
     case "reboot":
       return deviceAdminFail(command, "IOS_REBOOT_UNSUPPORTED", "not supported via WDA");
+    case "killAllApps": {
+      const exclude = new Set(
+        (Array.isArray(payload.excludePackages) ? payload.excludePackages : [])
+          .map((x) => String(x).trim())
+          .filter(Boolean)
+      );
+      const hits: string[] = [];
+      await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`).catch(() => undefined);
+
+      let bundles: string[] = [];
+      const active = await wdaFetch("GET", `${session.serverUrl}/wda/activeAppsInfo`);
+      if (active.ok) {
+        bundles = parseIosActiveBundles(active.value);
+        hits.push("list:wda-activeAppsInfo");
+      }
+      if (!bundles.length) {
+        const cur = await wdaFetch("GET", `${session.serverUrl}/wda/activeAppInfo`);
+        if (cur.ok && cur.value) {
+          const bid = String((cur.value as { bundleId?: string }).bundleId ?? "").trim();
+          if (bid) bundles = [bid];
+          hits.push("list:wda-activeAppInfo");
+        }
+      }
+      bundles = [...new Set(bundles.filter((b) => !isIosSystemBundle(b) && !exclude.has(b)))];
+
+      const killed: string[] = [];
+      const failed: string[] = [];
+      for (const bundleId of bundles) {
+        const term = await wdaPost(session, wdaFetch, "/wda/apps/terminate", { bundleId });
+        if (term.ok) killed.push(bundleId);
+        else failed.push(bundleId);
+      }
+      await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`).catch(() => undefined);
+
+      const killedCount = killed.length;
+      const failedCount = failed.length;
+      const cleared = killedCount > 0;
+      let businessCode: "APPS_KILLED" | "APPS_PARTIAL" | "APPS_NONE" = "APPS_NONE";
+      if (cleared && failedCount === 0) businessCode = "APPS_KILLED";
+      else if (cleared) businessCode = "APPS_PARTIAL";
+
+      return deviceAdminSuccess(command, action, {
+        cleared,
+        businessCode,
+        killedCount,
+        failedCount,
+        packages: killed,
+        listSource: hits[0] ?? "wda-activeAppsInfo",
+        hits
+      });
+    }
+    case "wake": {
+      const hits: string[] = [];
+      const locked = await wdaFetch("GET", `${session.serverUrl}/wda/locked`);
+      if (locked.ok && locked.value === true) {
+        const unlock = await wdaFetch("POST", `${session.serverUrl}/wda/unlock`);
+        if (!unlock.ok) {
+          return deviceAdminFail(command, "IOS_WAKE_UNLOCK_FAILED", JSON.stringify(unlock.raw ?? {}));
+        }
+        hits.push("wake:unlock");
+        return deviceAdminSuccess(command, action, { locked: true, unlocked: true, hits });
+      }
+      const screen = await wdaFetch("GET", `${session.serverUrl}/wda/screen`);
+      const rect = (screen.value ?? {}) as { width?: number; height?: number };
+      const w = Number(rect.width ?? payload.screenWidth ?? 390);
+      const h = Number(rect.height ?? payload.screenHeight ?? 844);
+      const tap = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/tap/0`, {
+        x: Math.round(w / 2),
+        y: Math.round(h / 2)
+      });
+      if (!tap.ok) {
+        const home = await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`);
+        if (!home.ok) return deviceAdminFail(command, "IOS_WAKE_FAILED", JSON.stringify(tap.raw ?? {}));
+        hits.push("wake:homescreen-fallback");
+        return deviceAdminSuccess(command, action, { locked: false, fallback: "homescreen", hits });
+      }
+      hits.push("wake:tap-center");
+      return deviceAdminSuccess(command, action, { locked: false, tapped: true, hits });
+    }
     default:
       return deviceAdminFail(command, "DEVICE_ADMIN_UNSUPPORTED", `unsupported action: ${action}`);
   }

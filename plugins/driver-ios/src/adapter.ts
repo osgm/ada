@@ -10,7 +10,8 @@ export interface IOSPayload {
   text?: string;
   elementId?: string;
   screenshotPath?: string;
-  locator?: { id?: string; accessibilityId?: string; xpath?: string };
+  locator?: { id?: string; text?: string; accessibilityId?: string; xpath?: string };
+  excludePackages?: string[];
   timeoutMs?: number;
   durationMs?: number;
   expectedText?: string;

@@ -8,7 +8,7 @@ import path from "node:path";
 import { ada, adaClose, adaRecipe, mustOk, setKeepAlive, wait } from "./ada.mjs";
 import { dismissMobilePopups, dismissWebPopups } from "./popups.mjs";
 import { readDevice } from "./read-device.mjs";
-import { androidKillAllApps, harmonyKillAllAppsAda } from "./mobile-kill-all-apps.mjs";
+import { androidKillAllApps, harmonyKillAllAppsAda, iosKillAllAppsAda } from "./mobile-kill-all-apps.mjs";
 import {
   SWIPE_DURATION_MS,
   mobileSwipePayload,
@@ -688,16 +688,9 @@ export function ios(sessionIdOrBase, base) {
     close: () => adaClose("ios", sessionId, cfg),
     dismissPopups: (dismissArg, attemptsArg) =>
       dismissMobilePopups("ios", sessionId, cfg, screen, dismissArg, attemptsArg),
-    killAllApps: async () => ({
-      success: true,
-      cleared: false,
-      businessCode: "APPS_NONE",
-      killedCount: 0,
-      failedCount: 0,
-      packages: [],
-      listSource: "ios-unsupported",
-      hits: ["kill:ios-not-supported"]
-    }),
-    wake: async () => run("pressHome")
+    killAllApps: (opts = {}) => iosKillAllAppsAda("ios", sessionId, cfg, opts),
+    wake: async () => {
+      await run("deviceAdmin", { action: "wake" });
+    }
   });
 }

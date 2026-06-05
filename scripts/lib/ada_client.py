@@ -1298,7 +1298,7 @@ def harmony(
 
 
 class IosDevice(AndroidDevice):
-    """iOS 设备（API 与 Android 对齐；killAllApps 暂不支持）。"""
+    """iOS 设备（API 与 Android 对齐）。"""
 
     _admin_platform = "ios"
 
@@ -1311,15 +1311,26 @@ class IosDevice(AndroidDevice):
         must_ok(ada("ios", self.session_id, command, {**self.base, **(extra or {})}), command)
 
     def wake(self) -> None:
-        self._run("pressHome")
+        self._run("deviceAdmin", {"action": "wake"})
 
     def kill_all_apps(self, exclude: list[str] | None = None) -> dict[str, Any]:
-        return build_kill_all_apps_result(
-            killed=[],
-            list_source="ios-unsupported",
-            hits=["kill:ios-not-supported"],
-            cleared=False,
+        r = ada(
+            "ios",
+            self.session_id,
+            "deviceAdmin",
+            {**self.base, "action": "killAllApps", "excludePackages": exclude or []},
         )
+        d = r.data if r.success else {}
+        return {
+            "success": r.success,
+            "cleared": bool(d.get("cleared")),
+            "businessCode": d.get("businessCode") or "APPS_NONE",
+            "killedCount": int(d.get("killedCount") or 0),
+            "failedCount": int(d.get("failedCount") or 0),
+            "packages": list(d.get("packages") or []),
+            "listSource": d.get("listSource") or "wda-terminate",
+            "hits": list(d.get("hits") or []),
+        }
 
     def goto(
         self,
