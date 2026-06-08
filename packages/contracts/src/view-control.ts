@@ -7,15 +7,24 @@ export interface ViewBounds {
 
 export type ViewControlMode = "semantic" | "visual" | "auto";
 
+export interface LocatorScope {
+  /** Parent locator scope (Playwright locator chain). */
+  within?: LocatorV2;
+  /** Alias of within for compatibility. */
+  parent?: LocatorV2;
+  /** Zero-based index when multiple elements match (Playwright nth). */
+  nth?: number;
+}
+
 export type LocatorV2 =
-  | { kind: "role"; role: string; name?: string }
-  | { kind: "testId"; value: string }
-  | { kind: "css" | "xpath" | "text"; value: string }
-  | { kind: "accessibilityId"; value: string }
-  | { kind: "resourceId"; value: string }
-  | { kind: "visual"; query: string; minConfidence?: number }
+  | ({ kind: "role"; role: string; name?: string } & LocatorScope)
+  | ({ kind: "testId"; value: string } & LocatorScope)
+  | ({ kind: "css" | "xpath" | "text"; value: string } & LocatorScope)
+  | ({ kind: "accessibilityId"; value: string } & LocatorScope)
+  | ({ kind: "resourceId"; value: string } & LocatorScope)
+  | ({ kind: "visual"; query: string; minConfidence?: number } & LocatorScope)
   | string
-  | Record<string, unknown>;
+  | (Record<string, unknown> & LocatorScope);
 
 export interface ViewRef {
   viewId: string;

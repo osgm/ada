@@ -1,5 +1,6 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { AdaPlatform } from "./mcp-normalize.js";
+import { WEB_VIEW_TREE_SCRIPT } from "./mcp-view-extract.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -22,13 +23,23 @@ export async function handleWebExtract(
     }) => Record<string, unknown>;
     mcpTextResult: (data: Record<string, unknown>, options?: any) => any;
     buildRecoveryHint: (input: any) => string;
+    ensureSessionActive?: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureWebPageReady?: (sessionId: string, command: string) => Promise<void>;
   }
 ): Promise<any> {
   const sessionId = String(args.sessionId ?? "mcp-extract");
   const mode = typeof args.mode === "string" ? args.mode : "text";
+  if (deps.ensureSessionActive) {
+    await deps.ensureSessionActive("web", sessionId, "getText");
+  }
+  if (deps.ensureWebPageReady) {
+    await deps.ensureWebPageReady(sessionId, "getText");
+  }
   let script = "";
   if (mode === "list") {
     script = `(() => Array.from(document.querySelectorAll('li,a')).map(el => (el.textContent||'').trim()).filter(Boolean).slice(0,50))()`;
+  } else if (mode === "viewTree") {
+    script = WEB_VIEW_TREE_SCRIPT;
   } else if (mode === "table") {
     script =
       `(() => Array.from(document.querySelectorAll('table')).map(t => Array.from(t.querySelectorAll('tr')).map(r => Array.from(r.querySelectorAll('th,td')).map(c => (c.textContent||'').trim()))).slice(0,5))()`;

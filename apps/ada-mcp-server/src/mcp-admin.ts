@@ -1,4 +1,5 @@
 import type { AdaPlatform } from "./mcp-normalize.js";
+import { clearWebSessionTrack } from "./mcp-session-liveness.js";
 
 export function handlePlugins(
   deps: {
@@ -50,6 +51,9 @@ export async function handleCloseSession(
   const payload = deps.mergeWebEngineIntoPayload(args);
   const engine = platform === "web" && typeof payload.engine === "string" ? (payload.engine as "playwright") : undefined;
   const closed = await deps.closeSession(platform, sessionId, { engine, payload });
+  if (closed && platform === "web") {
+    clearWebSessionTrack(sessionId);
+  }
   return deps.mcpTextResult({ status: "ok", closed, platform, sessionId, engine });
 }
 

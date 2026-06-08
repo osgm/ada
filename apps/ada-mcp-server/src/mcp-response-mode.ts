@@ -83,6 +83,53 @@ const LARGE_PAYLOAD_KEYS = new Set([
 
 const MAX_PREVIEW_CHARS = 400;
 const MAX_INLINE_STRING = 1200;
+const MAX_STRUCTURED_STRING = 8000;
+const MAX_STRUCTURED_ARRAY = 100;
+const MAX_STRUCTURED_ARRAY_PREVIEW = 50;
+
+/** Keys whose values must stay machine-consumable in slim mode (evaluate/invoke/extract). */
+const STRUCTURED_RESULT_KEYS = new Set(["value", "items", "nodes", "root"]);
+
+function isStructuredResultKey(key: string): boolean {
+  if (STRUCTURED_RESULT_KEYS.has(key)) return true;
+  return /^value\[\d+\]$/.test(key) || /^items\[\d+\]$/.test(key) || /^nodes\[\d+\]$/.test(key);
+}
+
+function slimStructuredValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value === "string") {
+    if (value.length > MAX_STRUCTURED_STRING) {
+      return {
+        _slim: true,
+        length: value.length,
+        preview: value.slice(0, MAX_PREVIEW_CHARS)
+      };
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAX_STRUCTURED_ARRAY) {
+      return {
+        _slim: true,
+        length: value.length,
+        preview: value.slice(0, MAX_STRUCTURED_ARRAY_PREVIEW).map((item, idx) =>
+          slimStructuredValue(item, depth + 1)
+        )
+      };
+    }
+    return value.map((item) => slimStructuredValue(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = slimStructuredValue(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
 
 function slimStringValue(key: string, value: string): unknown {
   const forceOmit = LARGE_PAYLOAD_KEYS.has(key) || /source|hierarchy|xml$/i.test(key);
@@ -106,6 +153,9 @@ function slimStringValue(key: string, value: string): unknown {
 function slimValue(key: string, value: unknown): unknown {
   if (value === null || value === undefined) {
     return value;
+  }
+  if (isStructuredResultKey(key)) {
+    return slimStructuredValue(value);
   }
   if (typeof value === "string") {
     return slimStringValue(key, value);

@@ -155,7 +155,7 @@ function createMcpWebRunners(client, sessionId, cfg) {
   const close = async () => {
     const res = await client.callTool({
       name: "ada_close_session",
-      arguments: { platform: "web", sessionId, engine: payload.channel ?? "playwright" }
+      arguments: { platform: "web", sessionId, engine: "playwright", payload }
     });
     return parseMcpToolResult(res);
   };

@@ -73,15 +73,21 @@ export function buildUiCandidatesHint(input: {
     return {
       suggestTools: hasPreview ? ["ada_web_action"] : ["ada_extract", "ada_web_action"],
       note: hasPreview
-        ? "Locator miss — pageTextPreview is in the error payload; retry with payload.locator.css or payload.selector (do not call ada_close_all_sessions)."
-        : "Locator miss — check error payload pageTextPreview/url, or ada_extract mode=text, then retry with payload.locator.css.",
+        ? "Locator miss — pageTextPreview is in the error payload; retry with payload.locator (css/role) or within+nth (do not call ada_close_all_sessions)."
+        : "Locator miss — check error payload pageTextPreview/url, or ada_extract mode=viewTree, then retry with scoped locator.",
       acceptedLocatorFormats: [
         "payload.locator.css",
         "payload.selector",
         'locator: { kind: "css", value: "#id" }',
-        'locator: { strategy: "css", value: "#id" }'
+        'locator: { kind: "role", role: "menuitem", name: "File", within: { kind: "role", role: "menubar" }, nth: 0 }',
+        'locator: { strategy: "css", value: "#id", nth: 1 }'
       ],
-      retryPayloadHints: ["payload.locator.css", "payload.selector", "payload.waitTimeoutMs: 8000"]
+      retryPayloadHints: [
+        "payload.locator.css",
+        "payload.selector",
+        "payload.locator.within + payload.locator.nth",
+        "payload.waitTimeoutMs: 8000"
+      ]
     };
   }
   return {
@@ -138,7 +144,7 @@ export function buildRecoveryPlan(input: {
         note: "Retry same command with wait",
         args: { sessionId, command, retry: 1, payload: { waitMs: 1500 } }
       },
-      { kind: "observe", tool: "ada_extract", note: "Read page text to refine locator", args: { sessionId, mode: "text" } },
+      { kind: "observe", tool: "ada_extract", note: "Read page structure to refine locator", args: { sessionId, mode: "viewTree" } },
       {
         kind: "retry",
         tool: "ada_web_action",

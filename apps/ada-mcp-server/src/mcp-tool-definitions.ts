@@ -548,15 +548,15 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_extract",
       description:
-        "Extract web text/list/table. Not assertions → ada_assertions. ARGS: sessionId, mode=text|list|table, payload.",
+        "Extract web text/list/table/viewTree. Not assertions → ada_assertions. ARGS: sessionId, mode=text|list|table|viewTree, payload.",
       inputSchema: {
         type: "object",
         properties: {
           sessionId: { type: "string", description: "Web session from ada_web_action navigate/click flow" },
           mode: {
             type: "string",
-            enum: ["text", "list", "table"],
-            description: "Extraction shape: plain text, list of items, or table rows"
+            enum: ["text", "list", "table", "viewTree"],
+            description: "Extraction shape: text, list, table rows, or semantic viewTree snapshot"
           },
           payload: { type: "object", description: "CSS/xpath/locator and extraction options" },
           allowMock: allowMockField(),

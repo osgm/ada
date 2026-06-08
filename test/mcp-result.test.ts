@@ -55,9 +55,10 @@ describe("mcp-result", () => {
         const parsed = JSON.parse(out.content[0].text);
         assert.equal(parsed.resultMode, "slim");
         assert.ok(typeof parsed.resultHint === "string");
-        const value = (parsed.result as CommandResult).data?.value as Record<string, unknown>;
-        assert.equal(value._slim, true);
+        const value = (parsed.result as CommandResult).data?.value as string;
         assert.equal(value.length, 5000);
+        const pageSource = (parsed.result as CommandResult).data?.pageSource as Record<string, unknown>;
+        assert.equal(pageSource._slim, true);
       });
     });
   });

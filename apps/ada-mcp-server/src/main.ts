@@ -86,6 +86,7 @@ import { registerAdaMcpResources } from "./mcp-resources.js";
 import { applyMcpRuntimeConfigFromRecord, isMcpExtractRaw } from "./mcp-response-mode.js";
 import { buildStartHints, resolveStartPackageVersions } from "./mcp-start-hints.js";
 import { buildRecoveryHint } from "./mcp-tool-tiers.js";
+import { ensureWebPageReady as probeAndRecoverWebPage } from "./mcp-session-liveness.js";
 import { captureMcpMonitor, type MonitorOptions } from "./monitoring.js";
 import {
   resolveCommandPath,
@@ -566,7 +567,7 @@ async function ensureSessionActive(platform: AdaPlatform, sessionId: string, com
   if (!shouldPreflightSession(command, platform)) {
     return;
   }
-  if (sessionId === "mcp-session" || sessionId === "mcp-batch" || sessionId === "mcp-invoke") {
+  if (sessionId === "mcp-session" || sessionId === "mcp-batch" || sessionId === "mcp-invoke" || sessionId === "mcp-extract") {
     return;
   }
   const sessions = listActiveSessions();
@@ -576,6 +577,14 @@ async function ensureSessionActive(platform: AdaPlatform, sessionId: string, com
       `Session "${sessionId}" is not active for ${command}. Start with navigate/launchApp or check ada_sessions.`
     );
   }
+}
+
+async function ensureWebPageReadyForTool(sessionId: string, command: string): Promise<void> {
+  await probeAndRecoverWebPage(sessionId, command, {
+    runCommand,
+    toCommandEnvelope,
+    allowMock: false
+  });
 }
 
 function wireAdaMcpProtocolServer(mcp: Server): void {
@@ -687,7 +696,9 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
       assertRealResult,
       toExtractResponse,
       mcpTextResult,
-      buildRecoveryHint
+      buildRecoveryHint,
+      ensureSessionActive,
+      ensureWebPageReady: ensureWebPageReadyForTool
     });
   }
   if (tool === "ada_assertions") {
@@ -757,6 +768,8 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
     return handleInvoke(args, {
       ensureRiskAllowed,
       normalizePlatform,
+      ensureSessionActive,
+      ensureWebPageReady: ensureWebPageReadyForTool,
       ensureRealPayloadForPlatform,
       buildInvokeCommandPayload,
       allowMock,
@@ -784,6 +797,7 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
       allowMock,
       ensureWebRuntimeReady,
       ensureSessionActive,
+      ensureWebPageReady: ensureWebPageReadyForTool,
       parseActionRunOptions,
       runCommandWithRetry,
       withTiming,

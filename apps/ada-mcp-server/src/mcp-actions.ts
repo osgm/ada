@@ -4,6 +4,7 @@ import type { ActionRunOptions } from "./mcp-action-runner.js";
 import type { MonitorOptions } from "./monitoring.js";
 import { isBestEffortRequest, wrapBestEffortCommandResult } from "./mcp-result.js";
 import { isLocatorFailure } from "./mcp-recovery.js";
+import { trackWebLastUrl } from "./mcp-session-liveness.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -19,6 +20,7 @@ export async function handleWebAction(
     allowMock: (args: Record<string, unknown>) => boolean;
     ensureWebRuntimeReady: () => Promise<void>;
     ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureWebPageReady?: (sessionId: string, command: string) => Promise<void>;
     parseActionRunOptions: (args: Record<string, unknown>) => ActionRunOptions;
     runCommandWithRetry: (
       command: CommandEnvelope,
@@ -52,8 +54,18 @@ export async function handleWebAction(
   );
   await deps.ensureWebRuntimeReady();
   await deps.ensureSessionActive("web", envelope.sessionId, command);
+  if (deps.ensureWebPageReady) {
+    await deps.ensureWebPageReady(envelope.sessionId, command);
+  }
   const runOpts = deps.parseActionRunOptions(args);
   const { result, attempts } = await deps.withTiming(`runCommand(web:${command})`, () => deps.runCommandWithRetry(envelope, runOpts));
+  if (command === "navigate" && result.success) {
+    const payload = asRecord(envelope.payload);
+    const url = typeof payload.url === "string" ? payload.url : undefined;
+    if (url) {
+      trackWebLastUrl(envelope.sessionId, url);
+    }
+  }
   const maybeJob = deps.runMonitorCapture(envelope, result, deps.parseMonitorOptions(args));
   if (maybeJob) {
     await maybeJob;

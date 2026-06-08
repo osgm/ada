@@ -22,23 +22,37 @@ function parseLocator(raw: unknown): LocatorV2 | undefined {
   return undefined;
 }
 
+function stripScopeFields(raw: unknown): LocatorV2 | undefined {
+  if (!raw) return undefined;
+  if (typeof raw === "string") return raw;
+  if (typeof raw !== "object") return undefined;
+  const l = { ...(raw as Record<string, unknown>) };
+  delete l.within;
+  delete l.parent;
+  delete l.nth;
+  return l as LocatorV2;
+}
+
 export function summarizeLocator(raw: unknown): string {
   const locator = parseLocator(raw);
   if (!locator) return "(none)";
   if (typeof locator === "string") return locator;
   const l = locator as Record<string, unknown>;
+  const scope =
+    typeof l.nth === "number" ? `.nth(${l.nth})` : typeof l.nth === "string" ? `.nth(${l.nth})` : "";
+  const withinHint = l.within || l.parent ? " within(...)" : "";
   if (typeof l.kind === "string") {
-    if (typeof l.value === "string") return `${l.kind}:${l.value}`;
-    if (typeof l.role === "string") return `role:${l.role}${l.name ? `(${String(l.name)})` : ""}`;
-    if (typeof l.query === "string") return `visual:${l.query}`;
+    if (typeof l.value === "string") return `${l.kind}:${l.value}${scope}${withinHint}`;
+    if (typeof l.role === "string") return `role:${l.role}${l.name ? `(${String(l.name)})` : ""}${scope}${withinHint}`;
+    if (typeof l.query === "string") return `visual:${l.query}${scope}${withinHint}`;
   }
-  if (l.role) return `role:${String(l.role)}${l.name ? `(${String(l.name)})` : ""}`;
-  if (l.testId) return `testId:${String(l.testId)}`;
-  if (l.css) return `css:${String(l.css)}`;
-  if (l.xpath) return `xpath:${String(l.xpath)}`;
-  if (l.text) return `text:${String(l.text)}`;
-  if (l.accessibilityId) return `a11y:${String(l.accessibilityId)}`;
-  if (l.id) return `id:${String(l.id)}`;
+  if (l.role) return `role:${String(l.role)}${l.name ? `(${String(l.name)})` : ""}${scope}${withinHint}`;
+  if (l.testId) return `testId:${String(l.testId)}${scope}${withinHint}`;
+  if (l.css) return `css:${String(l.css)}${scope}${withinHint}`;
+  if (l.xpath) return `xpath:${String(l.xpath)}${scope}${withinHint}`;
+  if (l.text) return `text:${String(l.text)}${scope}${withinHint}`;
+  if (l.accessibilityId) return `a11y:${String(l.accessibilityId)}${scope}${withinHint}`;
+  if (l.id) return `id:${String(l.id)}${scope}${withinHint}`;
   return JSON.stringify(l);
 }
 
@@ -74,6 +88,56 @@ export async function autoWaitEnabled(locator: any, timeoutMs: number): Promise<
   }
 }
 
+function resolveLocatorOnScope(scope: PlaywrightPageLike | any, locator: LocatorV2 | undefined): any | null {
+  if (!locator) {
+    return null;
+  }
+
+  if (typeof locator === "string") {
+    return scope.locator(locator);
+  }
+
+  const l = locator as Record<string, unknown>;
+  const kind = getString(l.kind) ?? getString(l.strategy);
+  if (kind === "role" && scope.getByRole) {
+    const role = getString(l.role);
+    if (role) return scope.getByRole(role, l.name ? { name: String(l.name) } : undefined);
+  }
+  if (kind === "testId" && scope.getByTestId) {
+    const value = getString(l.value);
+    if (value) return scope.getByTestId(value);
+  }
+  if (kind === "css" || kind === "xpath" || kind === "text" || kind === "resourceId" || kind === "accessibilityId") {
+    const value = getString(l.value);
+    if (value) {
+      if (kind === "text" && scope.getByText) return scope.getByText(value);
+      if (kind === "xpath") return scope.locator(`xpath=${value}`);
+      return scope.locator(value);
+    }
+  }
+
+  if (l.role && scope.getByRole) return scope.getByRole(String(l.role), l.name ? { name: String(l.name) } : undefined);
+  if (l.testId && scope.getByTestId) return scope.getByTestId(String(l.testId));
+  if (l.text && scope.getByText) return scope.getByText(String(l.text));
+  if (l.css) return scope.locator(String(l.css));
+  if (l.xpath) return scope.locator(`xpath=${String(l.xpath)}`);
+  if (l.id) return scope.locator(`#${String(l.id)}`);
+  if (l.accessibilityId) return scope.locator(`[aria-label="${String(l.accessibilityId)}"]`);
+
+  return null;
+}
+
+function applyNth(base: any, raw: unknown): any {
+  if (!base || raw === undefined || raw === null) {
+    return base;
+  }
+  const idx = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(idx) || idx < 0) {
+    return base;
+  }
+  return base.nth(Math.floor(idx));
+}
+
 export function locatorFromPayload(page: PlaywrightPageLike, payload?: Record<string, unknown>): any | null {
   const p = asRecord(payload);
   const locator = parseLocator(p.locator);
@@ -82,36 +146,16 @@ export function locatorFromPayload(page: PlaywrightPageLike, payload?: Record<st
     return selector ? page.locator(selector) : null;
   }
 
-  if (typeof locator === "string") {
-    return page.locator(locator);
+  const l = typeof locator === "object" ? (locator as Record<string, unknown>) : {};
+  const within = l.within ?? l.parent;
+  let scope: PlaywrightPageLike | any = page;
+  if (within) {
+    const parent = locatorFromPayload(page, { locator: within });
+    if (!parent) return null;
+    scope = parent;
   }
 
-  const l = locator as Record<string, unknown>;
-  const kind = getString(l.kind) ?? getString(l.strategy);
-  if (kind === "role" && page.getByRole) {
-    const role = getString(l.role);
-    if (role) return page.getByRole(role, l.name ? { name: String(l.name) } : undefined);
-  }
-  if (kind === "testId" && page.getByTestId) {
-    const value = getString(l.value);
-    if (value) return page.getByTestId(value);
-  }
-  if (kind === "css" || kind === "xpath" || kind === "text" || kind === "resourceId" || kind === "accessibilityId") {
-    const value = getString(l.value);
-    if (value) {
-      if (kind === "text" && page.getByText) return page.getByText(value);
-      if (kind === "xpath") return page.locator(`xpath=${value}`);
-      return page.locator(value);
-    }
-  }
-
-  if (l.role && page.getByRole) return page.getByRole(String(l.role), l.name ? { name: String(l.name) } : undefined);
-  if (l.testId && page.getByTestId) return page.getByTestId(String(l.testId));
-  if (l.text && page.getByText) return page.getByText(String(l.text));
-  if (l.css) return page.locator(String(l.css));
-  if (l.xpath) return page.locator(`xpath=${String(l.xpath)}`);
-  if (l.id) return page.locator(`#${String(l.id)}`);
-  if (l.accessibilityId) return page.locator(`[aria-label="${String(l.accessibilityId)}"]`);
-
-  return null;
+  const inner = stripScopeFields(locator);
+  const base = resolveLocatorOnScope(scope, inner);
+  return applyNth(base, l.nth);
 }

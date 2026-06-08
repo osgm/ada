@@ -163,7 +163,8 @@ def _create_mcp_web_runners(mcp: McpConnection, session_id: str, cfg: dict[str, 
             {
                 "platform": "web",
                 "sessionId": session_id,
-                "engine": payload.get("channel") or "playwright",
+                "engine": "playwright",
+                "payload": payload,
             },
         )
 

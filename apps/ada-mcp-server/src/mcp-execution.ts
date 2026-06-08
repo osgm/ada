@@ -85,6 +85,8 @@ export async function handleInvoke(
   deps: {
     ensureRiskAllowed: (command: string, args: Record<string, unknown>) => void;
     normalizePlatform: (value: unknown) => AdaPlatform;
+    ensureSessionActive?: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureWebPageReady?: (sessionId: string, command: string) => Promise<void>;
     ensureRealPayloadForPlatform: (
       platform: AdaPlatform,
       payload: Record<string, unknown>,
@@ -111,6 +113,12 @@ export async function handleInvoke(
     command: "invoke",
     payload
   };
+  if (deps.ensureSessionActive) {
+    await deps.ensureSessionActive(platform, envelope.sessionId, "invoke");
+  }
+  if (platform === "web" && deps.ensureWebPageReady) {
+    await deps.ensureWebPageReady(envelope.sessionId, "invoke");
+  }
   await deps.withTiming(`ensureMobileRuntimeReady(${platform})`, () => deps.mobilePreflight(platform));
   const result = await deps.withTiming(`runCommand(${platform}:invoke)`, () => deps.runCommand(envelope));
   const maybeJob = deps.runMonitorCapture(envelope, result, deps.parseMonitorOptions(args));

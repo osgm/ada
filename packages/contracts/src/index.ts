@@ -115,6 +115,7 @@ export interface ArtifactIndex {
 }
 
 export type {
+  LocatorScope,
   LocatorV2,
   ViewBounds,
   ViewControlConfig,
