@@ -1,7 +1,12 @@
+import { defaultWdaServerUrl } from "@ada/runtime-probe";
 import type { IOSPayload } from "./adapter.js";
 
 export function serverUrlOf(payload: IOSPayload): string {
-  return String(payload.serverUrl ?? process.env.ADA_WDA_SERVER_URL ?? "http://127.0.0.1:8100").replace(/\/$/, "");
+  const fromPayload = payload.serverUrl;
+  if (typeof fromPayload === "string" && fromPayload.trim()) {
+    return fromPayload.replace(/\/$/, "");
+  }
+  return defaultWdaServerUrl();
 }
 
 export function capsOf(payload: IOSPayload): Record<string, unknown> {

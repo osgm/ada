@@ -1,12 +1,8 @@
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
 
-if (!process.env.ADA_MCP_SERVER_ENTRY?.trim()) {
-  try {
-    process.env.ADA_MCP_SERVER_ENTRY = fileURLToPath(import.meta.url);
-  } catch {
-    // 打包 cli.cjs 由 build banner 写入 __filename
-  }
+if (!process.env.ADA_MCP_SERVER_ENTRY?.trim() && typeof __filename === "string") {
+  process.env.ADA_MCP_SERVER_ENTRY = fileURLToPath(pathToFileURL(__filename).href);
 }
 
 function argValue(name: string, fallback = ""): string {

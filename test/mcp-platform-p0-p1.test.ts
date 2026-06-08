@@ -3,6 +3,12 @@ import { describe, it } from "node:test";
 import type { CommandResult } from "@ada/contracts";
 import { slimCommandResult } from "../apps/ada-mcp-server/src/mcp-response-mode.ts";
 import {
+  clearActionLedger,
+  guardWebCommandIfNeeded,
+  readActionLedgerConfig,
+  recordWebCommandIfNeeded
+} from "../apps/ada-mcp-server/src/mcp-action-ledger.ts";
+import {
   clearWebSessionTrack,
   getWebLastUrl,
   shouldProbeWebPage,
@@ -44,6 +50,48 @@ describe("mcp-response-mode structured slim", () => {
     assert.equal(value._slim, true);
     assert.equal(value.length, 120);
     assert.ok(Array.isArray(value.preview));
+  });
+});
+
+describe("mcp-action-ledger", () => {
+  it("readActionLedgerConfig respects env overrides", () => {
+    const keys = [
+      "ADA_WEB_ACTION_LEDGER_MAX_CONSECUTIVE",
+      "ADA_WEB_ACTION_LEDGER_MAX_WINDOW",
+      "ADA_WEB_ACTION_LEDGER_WINDOW_MS"
+    ] as const;
+    const prev: Record<string, string | undefined> = {};
+    for (const key of keys) prev[key] = process.env[key];
+    process.env.ADA_WEB_ACTION_LEDGER_MAX_CONSECUTIVE = "7";
+    process.env.ADA_WEB_ACTION_LEDGER_MAX_WINDOW = "9";
+    process.env.ADA_WEB_ACTION_LEDGER_WINDOW_MS = "120000";
+    try {
+      const cfg = readActionLedgerConfig();
+      assert.equal(cfg.maxConsecutiveRepeat, 7);
+      assert.equal(cfg.maxWindowCount, 9);
+      assert.equal(cfg.windowMs, 120_000);
+    } finally {
+      for (const key of keys) {
+        if (prev[key] === undefined) delete process.env[key];
+        else process.env[key] = prev[key];
+      }
+    }
+  });
+
+  it("guardWebCommandIfNeeded tracks recipe clickPath", () => {
+    const sessionId = "ledger-recipe-test";
+    clearActionLedger(sessionId);
+    const payload = { action: "clickPath", path: ["nav", "item-1"] };
+    const ok: CommandResult = { requestId: "r1", success: true, data: {} };
+    for (let i = 0; i < 3; i += 1) {
+      guardWebCommandIfNeeded("web", sessionId, "recipe", payload);
+      recordWebCommandIfNeeded("web", sessionId, "recipe", payload, ok);
+    }
+    assert.throws(
+      () => guardWebCommandIfNeeded("web", sessionId, "recipe", payload),
+      /ACTION_TOGGLE_LOOP|repeated action/
+    );
+    clearActionLedger(sessionId);
   });
 });
 

@@ -4,7 +4,7 @@ export type WdaTapFetch = (
   method: string,
   url: string,
   body?: unknown
-) => Promise<WdaTapFetch>;
+) => Promise<WdaFetchResult>;
 
 /** W3C single-finger tap at viewport coordinates (fallback when wda/tap/0 is missing). */
 export function buildSinglePointerTapActions(x: number, y: number) {

@@ -18,7 +18,7 @@ import {
 } from "@ada/driver-rpc";
 import { buildIosRecipeContext } from "./recipe-context.js";
 import { restartIosWdaServer } from "@ada/install-deps";
-import { ensureIosIproxyForward, retryAsync } from "@ada/runtime-probe";
+import { ensureIosIproxyForward, retryAsync, syncWdaServerUrlEnv } from "@ada/runtime-probe";
 import type { UiPickResult } from "@ada/mobile-ui";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -161,6 +161,7 @@ async function executeInvoke(
       "invoke requires http.method and http.path (or legacy custom.method/path)"
     );
   }
+  const udid = String(capsOf(payload).udid ?? "").trim();
   return executeMobileHttpInvoke(command, {
     baseUrl: session.serverUrl,
     sessionId: session.sessionId,
@@ -168,7 +169,10 @@ async function executeInvoke(
     driver: "ios",
     platform: "ios",
     recoverSession,
-    restartServer: () => restartIosWdaServer(),
+    restartServer: async () => {
+      await ensureIosIproxyForward({ udid: udid || undefined });
+      return restartIosWdaServer();
+    },
     lastServerRestartAt: WdaClientAdapter.lastServerRestartAt
   });
 }
@@ -188,8 +192,12 @@ export class WdaClientAdapter implements IOSAdapter {
   }
 
   private bindWdaFetch(session: IOSAdapterSession, payload: IOSPayload): WdaFetchFn {
+    const udid = String(capsOf(payload).udid ?? "").trim();
     const recoverSession = () => this.recoverWdaSession(session, payload);
-    const restartServer = () => restartIosWdaServer();
+    const restartServer = async () => {
+      await ensureIosIproxyForward({ udid: udid || undefined });
+      return restartIosWdaServer();
+    };
     return (method, url, body) =>
       withMobileHttpRecovery(() => fetchWebDriverJson(method, url, body), {
         recoverSession,
@@ -199,11 +207,16 @@ export class WdaClientAdapter implements IOSAdapter {
   }
 
   private async createWdaSession(serverUrl: string, payload: IOSPayload): Promise<IOSAdapterSession> {
+    const udid = String(capsOf(payload).udid ?? "").trim();
+    const restartServer = async () => {
+      await ensureIosIproxyForward({ udid: udid || undefined });
+      return restartIosWdaServer();
+    };
     const res = await withMobileHttpRecovery(
       () => fetchWebDriverJson("POST", `${serverUrl}/session`, { capabilities: capsOf(payload) }),
       {
         recoverSession: async () => undefined,
-        restartServer: () => restartIosWdaServer(),
+        restartServer,
         lastServerRestartAt: WdaClientAdapter.lastServerRestartAt
       }
     );
@@ -227,8 +240,8 @@ export class WdaClientAdapter implements IOSAdapter {
     const caps = capsOf(payload);
     const udid = String(caps.udid ?? "").trim();
     const fwd = await ensureIosIproxyForward({ udid: udid || undefined });
-    if (fwd.serverUrl && !payload.serverUrl && !process.env.ADA_WDA_SERVER_URL?.trim()) {
-      process.env.ADA_WDA_SERVER_URL = fwd.serverUrl;
+    if (!payload.serverUrl) {
+      syncWdaServerUrlEnv(fwd.serverUrl);
     }
     const serverUrl = serverUrlOf(payload);
     return this.createWdaSession(serverUrl, payload);

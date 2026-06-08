@@ -1,6 +1,12 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import {
+  WEB_VIEW_SCRIPT,
+  applyControlFilters,
+  parseWebViewSnapshot,
+  shapeViewTreeExtract,
+  type ViewTreeDetail
+} from "@ada/driver-rpc";
 import type { AdaPlatform } from "./mcp-normalize.js";
-import { WEB_VIEW_TREE_SCRIPT } from "./mcp-view-extract.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -39,7 +45,7 @@ export async function handleWebExtract(
   if (mode === "list") {
     script = `(() => Array.from(document.querySelectorAll('li,a')).map(el => (el.textContent||'').trim()).filter(Boolean).slice(0,50))()`;
   } else if (mode === "viewTree") {
-    script = WEB_VIEW_TREE_SCRIPT;
+    script = WEB_VIEW_SCRIPT;
   } else if (mode === "table") {
     script =
       `(() => Array.from(document.querySelectorAll('table')).map(t => Array.from(t.querySelectorAll('tr')).map(r => Array.from(r.querySelectorAll('th,td')).map(c => (c.textContent||'').trim()))).slice(0,5))()`;
@@ -61,11 +67,28 @@ export async function handleWebExtract(
     )
   );
   deps.assertRealResult(result, "ada_extract", deps.allowMock(args));
+  let shapedResult = result;
+  if (mode === "viewTree" && result.success) {
+    const payload = asRecord(args.payload);
+    const rawValue = (result.data as Record<string, unknown> | undefined)?.value;
+    const snapshot = applyControlFilters(parseWebViewSnapshot(rawValue), {
+      href: typeof payload.href === "string" ? payload.href : undefined,
+      name: typeof payload.name === "string" ? payload.name : undefined
+    });
+    const detail = (typeof payload.detail === "string" ? payload.detail : "full") as ViewTreeDetail;
+    shapedResult = {
+      ...result,
+      data: {
+        ...(result.data as Record<string, unknown>),
+        value: shapeViewTreeExtract(snapshot, detail)
+      }
+    };
+  }
   const extractPayload = deps.toExtractResponse({
     source: "web",
     mode,
     platform: "web",
-    result,
+    result: shapedResult,
     maxItems: Number((asRecord(args.payload).maxItems as number | undefined) ?? 50)
   });
   return deps.mcpTextResult(extractPayload, {

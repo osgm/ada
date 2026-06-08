@@ -198,7 +198,8 @@ MCP 服务端对安装与移动探针直接依赖 **`@ada/install-deps`**、**`@
 | 11 | `ada_invoke` | 执行-底层 | Playwright/Android/iOS/Harmony 原生 API（需 `riskApproved`） |
 | 12 | `ada_run_task_file` | 编排 | 运行 `.tasks.json` 场景文件 |
 | 13 | `ada_batch_actions` | 编排 | 同会话多步串联（无文件） |
-| 14 | `ada_extract` | 数据-Web | 提取页面 text/list/table |
+| 14 | `ada_extract` | 数据-Web | 提取 text/list/table；**遍历观察**用 `mode=viewTree`（含扁平 controls + path） |
+| 14b | `ada_web_recipe` | 执行-Web | 路径点击 `action=clickPath`（配合 viewTree 的 path） |
 | 15 | `ada_assertions` | 数据-Web | 断言可见/文案/URL |
 | 16 | `ada_mobile_extract` | 数据-Mobile | 提取文案或 pageSource |
 | 17 | `ada_mobile_assertions` | 数据-Mobile | 移动端可见/文案断言 |
@@ -225,6 +226,12 @@ Harmony     → ada_invoke（driver-harmony）或 mobile 能力扩展
 ```
 
 **Web 命令**：`navigate`、`click`、`type`、`screenshot`、`scroll`、`newTab`…（非 `invoke`，用 `ada_invoke`）
+
+**Web 遍历（平台观察 + Agent 策略）**：
+
+1. `ada_extract` + `mode=viewTree`：返回可交互树与扁平 `controls`（含 `path`、`triggerKind`）
+2. Agent 根据树决定下一步；点击用 `ada_web_recipe` + `action=clickPath` + `path`（或继续 `ada_web_action` + locator）
+3. 连续重复 click/hover/clickPath 会触发 **动作熔断**（默认 3 次连续 / 60s 内 5 次），可用 `ADA_WEB_ACTION_LEDGER_*` 调整
 
 **移动命令**：`click`、`swipe`、`launchApp`、`screenshot`…
 
@@ -398,9 +405,13 @@ iOS **WDA HTTP** invoke：
 | 变量 | 说明 |
 |------|------|
 | `ADA_ANDROID_UIA2_BOOTSTRAP` | `true` 时 install-deps 尝试安装并启动设备端 UiAutomator2 |
-| `ADA_ANDROID_UIA2_SERVER_URL` | UIA2 HTTP 地址，默认 `http://127.0.0.1:8200` |
+| `ADA_ANDROID_UIA2_SERVER_URL` | UIA2 HTTP 地址；未设时默认 `http://localhost:8200`（adb forward 后会自动同步） |
+| `ADA_ANDROID_LOCAL_HOST` | UIA2 本机 host，默认 `localhost`（探测时亦会尝试 `127.0.0.1`） |
 | `ADA_IOS_WDA_BOOTSTRAP` | `true` 时 macOS 上 xcodebuild 拉起 WebDriverAgent |
-| `ADA_WDA_SERVER_URL` | WDA 地址，默认 `http://127.0.0.1:8100` |
+| `ADA_WDA_SERVER_URL` | WDA 地址；未设时默认 `http://localhost:8100`（iproxy 后会自动同步，**不覆盖**你已显式设置的值） |
+| `ADA_WEB_ACTION_LEDGER_MAX_CONSECUTIVE` | Web 动作熔断：连续相同动作阈值，默认 `3` |
+| `ADA_WEB_ACTION_LEDGER_MAX_WINDOW` | Web 动作熔断：时间窗内总次数阈值，默认 `5` |
+| `ADA_WEB_ACTION_LEDGER_WINDOW_MS` | 熔断时间窗毫秒数，默认 `60000` |
 | `ADA_WDA_PROJECT_PATH` | 本地 WebDriverAgent.xcodeproj 路径 |
 | `ADA_IOS_DEVICE_UDID` | 指定真机 UDID（多设备时必填） |
 | `ADA_IOS_WDA_PORT_MAP` | 多设备端口映射，如 `UDID:8100,UDID2:8101` |

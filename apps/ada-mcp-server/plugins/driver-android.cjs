@@ -405,20 +405,76 @@ var init_playwright_browser_install = __esm({
   }
 });
 
+// ../../packages/runtime-probe/src/ios-wda-endpoint.ts
+var init_ios_wda_endpoint = __esm({
+  "../../packages/runtime-probe/src/ios-wda-endpoint.ts"() {
+    "use strict";
+  }
+});
+
 // ../../packages/runtime-probe/src/ios-wda-probe.ts
 var init_ios_wda_probe = __esm({
   "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
+    "use strict";
+    init_ios_wda_endpoint();
+  }
+});
+
+// ../../packages/runtime-probe/src/android-uia2-endpoint.ts
+function defaultAndroidLocalHost() {
+  const fromEnv = process.env.ADA_ANDROID_LOCAL_HOST?.trim();
+  if (fromEnv) return fromEnv;
+  const uia2 = process.env.ADA_ANDROID_UIA2_SERVER_URL?.trim();
+  if (uia2) {
+    try {
+      const host = new URL(uia2).hostname;
+      if (host) return host;
+    } catch {
+    }
+  }
+  return "localhost";
+}
+function hasExplicitUia2ServerUrlEnv() {
+  return Boolean(process.env.ADA_ANDROID_UIA2_SERVER_URL?.trim());
+}
+function uia2ServerUrlForLocalPort(localPort, host) {
+  return `http://${host ?? defaultAndroidLocalHost()}:${localPort}`;
+}
+function defaultUia2ServerUrl() {
+  const fromEnv = process.env.ADA_ANDROID_UIA2_SERVER_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  return uia2ServerUrlForLocalPort(8200);
+}
+function syncUia2ServerUrlEnv(url) {
+  if (!hasExplicitUia2ServerUrlEnv()) {
+    process.env.ADA_ANDROID_UIA2_SERVER_URL = url.replace(/\/$/, "");
+  }
+}
+function resolveUia2UrlAfterForward(input, explicitServerUrl) {
+  if (explicitServerUrl?.trim()) return explicitServerUrl.replace(/\/$/, "");
+  if (hasExplicitUia2ServerUrlEnv()) return defaultUia2ServerUrl();
+  return uia2ServerUrlForLocalPort(input.localPort);
+}
+var init_android_uia2_endpoint = __esm({
+  "../../packages/runtime-probe/src/android-uia2-endpoint.ts"() {
     "use strict";
   }
 });
 
 // ../../packages/runtime-probe/src/android-uia2-probe.ts
-function defaultUia2ServerUrl() {
-  return (process.env.ADA_ANDROID_UIA2_SERVER_URL?.trim() || "http://127.0.0.1:8200").replace(/\/$/, "");
-}
 function defaultUia2LocalPort() {
-  const fromEnv = Number(process.env.ADA_ANDROID_UIA2_LOCAL_PORT ?? "8200");
-  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 8200;
+  const fromEnv = process.env.ADA_ANDROID_UIA2_LOCAL_PORT?.trim();
+  if (fromEnv) {
+    const n = Number(fromEnv);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  try {
+    const parsed = new URL(defaultUia2ServerUrl());
+    const port = Number(parsed.port || 8200);
+    if (Number.isFinite(port) && port > 0) return port;
+  } catch {
+  }
+  return 8200;
 }
 function defaultUia2DevicePort() {
   const fromEnv = Number(process.env.ADA_ANDROID_UIA2_DEVICE_PORT ?? "6790");
@@ -474,7 +530,7 @@ function androidUia2BootstrapEnabled() {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 async function probeAndroidUia2Runtime(options) {
-  const serverUrl = (options?.serverUrl ?? defaultUia2ServerUrl()).replace(/\/$/, "");
+  let serverUrl = (options?.serverUrl ?? defaultUia2ServerUrl()).replace(/\/$/, "");
   let forwarded = false;
   if (options?.ensureForward !== false) {
     const serial = await resolveAndroidDeviceSerial(options?.serial);
@@ -483,6 +539,10 @@ async function probeAndroidUia2Runtime(options) {
       const devicePort = defaultUia2DevicePort();
       const fwd = await runAdbCapture(serial, ["forward", `tcp:${localPort}`, `tcp:${devicePort}`]);
       forwarded = fwd.ok;
+      if (forwarded && !options?.serverUrl) {
+        serverUrl = resolveUia2UrlAfterForward({ localPort }, options?.serverUrl);
+        syncUia2ServerUrlEnv(serverUrl);
+      }
     }
   }
   const status = await fetchMobileStatus(serverUrl);
@@ -520,16 +580,23 @@ var init_android_uia2_probe = __esm({
   "../../packages/runtime-probe/src/android-uia2-probe.ts"() {
     "use strict";
     import_node_child_process2 = require("node:child_process");
+    init_android_uia2_endpoint();
+    init_ios_wda_endpoint();
+    init_android_uia2_endpoint();
   }
 });
 
 // ../../packages/runtime-probe/src/ios-iproxy.ts
+var IPROXY_READY_TIMEOUT_MS;
 var init_ios_iproxy = __esm({
   "../../packages/runtime-probe/src/ios-iproxy.ts"() {
     "use strict";
     init_runtime_probe();
+    init_ios_wda_endpoint();
     init_ios_wda_probe();
     init_android_uia2_probe();
+    init_ios_wda_endpoint();
+    IPROXY_READY_TIMEOUT_MS = Number(process.env.ADA_IOS_IPROXY_READY_MS ?? 1e4);
   }
 });
 
@@ -537,6 +604,7 @@ var init_ios_iproxy = __esm({
 var init_runtime_probe = __esm({
   "../../packages/runtime-probe/src/runtime-probe.ts"() {
     "use strict";
+    init_ios_wda_endpoint();
     init_ios_iproxy();
   }
 });
@@ -584,8 +652,10 @@ var init_device_params_guide = __esm({
 var init_src3 = __esm({
   "../../packages/runtime-probe/src/index.ts"() {
     init_runtime_probe();
+    init_android_uia2_endpoint();
     init_android_uia2_probe();
     init_ios_wda_probe();
+    init_ios_wda_endpoint();
     init_ios_iproxy();
     init_ios_idevice_probe();
     init_device_scan();

@@ -4,6 +4,7 @@ import type { ActionRunOptions } from "./mcp-action-runner.js";
 import type { MonitorOptions } from "./monitoring.js";
 import { isBestEffortRequest, wrapBestEffortCommandResult } from "./mcp-result.js";
 import { isLocatorFailure } from "./mcp-recovery.js";
+import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-ledger.js";
 import { trackWebLastUrl } from "./mcp-session-liveness.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -57,10 +58,12 @@ export async function handleWebAction(
   if (deps.ensureWebPageReady) {
     await deps.ensureWebPageReady(envelope.sessionId, command);
   }
+  const payload = asRecord(envelope.payload);
+  guardWebCommandIfNeeded("web", envelope.sessionId, command, payload);
   const runOpts = deps.parseActionRunOptions(args);
   const { result, attempts } = await deps.withTiming(`runCommand(web:${command})`, () => deps.runCommandWithRetry(envelope, runOpts));
+  recordWebCommandIfNeeded("web", envelope.sessionId, command, payload, result);
   if (command === "navigate" && result.success) {
-    const payload = asRecord(envelope.payload);
     const url = typeof payload.url === "string" ? payload.url : undefined;
     if (url) {
       trackWebLastUrl(envelope.sessionId, url);

@@ -80,6 +80,6 @@ export function shouldPreflightSession(command: string, platform: AdaPlatform): 
   if (platform !== "web" && (command === "launchApp" || command === "custom" || command === "recipe")) {
     return false;
   }
-  if (command === "invoke") return true;
+  if (command === "invoke" || command === "recipe") return true;
   return ["click", "type", "screenshot", "assertVisible", "assertText", "getText", "swipe", "hover"].includes(command);
 }

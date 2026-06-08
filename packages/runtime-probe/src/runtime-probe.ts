@@ -2,6 +2,7 @@ import net from "node:net";
 
 import { spawn } from "node:child_process";
 
+import { defaultWdaServerUrl } from "./ios-wda-endpoint.js";
 import { isIosIproxyHostSupported, probeIosWdaRuntime } from "./ios-iproxy.js";
 
 
@@ -179,9 +180,7 @@ export type IosRuntimeProbe = {
 
 
 function defaultWdaUrl(): string {
-
-  return (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100").replace(/\/$/, "");
-
+  return defaultWdaServerUrl();
 }
 
 

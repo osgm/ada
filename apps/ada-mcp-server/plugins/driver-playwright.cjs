@@ -78,6 +78,210 @@ function resolvePlaywrightBringToFront(payload) {
   return true;
 }
 
+// ../../packages/driver-rpc/src/web-interaction-recipe.ts
+var WEB_INTERACTION_ERROR_CODES = {
+  CONTROL_NOT_FOUND: "CONTROL_NOT_FOUND",
+  PATH_NOT_EXPANDED: "PATH_NOT_EXPANDED",
+  ACTION_TOGGLE_LOOP: "ACTION_TOGGLE_LOOP",
+  ACTION_CIRCUIT_OPEN: "ACTION_CIRCUIT_OPEN",
+  NAV_TIMEOUT: "NAV_TIMEOUT",
+  PATH_INVALID: "PATH_INVALID"
+};
+var WEB_VIEW_SCRIPT = `(() => {
+  const maxNodes = 80;
+  const maxDepth = 8;
+  const maxItems = 120;
+  let nodeCount = 0;
+  const items = [];
+  const seen = new Set();
+  const interactiveTags = new Set(["button", "a", "input", "select", "textarea", "option"]);
+  const landmarkRoles = new Set([
+    "navigation", "menu", "menubar", "banner", "main", "contentinfo",
+    "tablist", "list", "listitem", "menuitem", "link", "tab",
+    "checkbox", "radio", "combobox", "searchbox", "heading"
+  ]);
+
+  function labelOf(el) {
+    return (
+      (el.getAttribute("aria-label") || "") ||
+      (el.getAttribute("title") || "") ||
+      (el.getAttribute("placeholder") || "") ||
+      ((el.textContent || "").trim())
+    ).slice(0, 120);
+  }
+
+  function isInteresting(el) {
+    if (!(el instanceof Element)) return false;
+    const tag = el.tagName.toLowerCase();
+    const role = el.getAttribute("role") || "";
+    if (interactiveTags.has(tag)) return true;
+    if (landmarkRoles.has(role)) return true;
+    if (role) return true;
+    if (el.getAttribute("aria-label")) return true;
+    if (tag === "body") return true;
+    return false;
+  }
+
+  function buildNode(el, depth) {
+    if (nodeCount >= maxNodes || depth > maxDepth) return null;
+    if (!isInteresting(el)) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 && rect.height < 1 && el.tagName.toLowerCase() !== "body") return null;
+    const role = el.getAttribute("role") || el.tagName.toLowerCase();
+    const name = labelOf(el);
+    const node = {
+      ref: "n-" + nodeCount,
+      role,
+      name: name || undefined,
+      bounds: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      },
+      visible: rect.width > 0 && rect.height > 0,
+      enabled: !el.disabled
+    };
+    nodeCount += 1;
+    const children = [];
+    for (const child of el.children) {
+      if (nodeCount >= maxNodes) break;
+      const built = buildNode(child, depth + 1);
+      if (built) children.push(built);
+    }
+    if (children.length) node.children = children;
+    return node;
+  }
+
+  function triggerKind(el) {
+    if (el.closest("[role=menubar], [data-menu-orientation=horizontal]")) return "hover";
+    const popup = el.getAttribute("aria-haspopup");
+    if (popup === "true" || popup === "menu") {
+      const parentBar = el.closest("[role=menubar], nav");
+      if (parentBar) {
+        const pr = parentBar.getBoundingClientRect();
+        if (pr.width > pr.height * 1.2) return "hover";
+      }
+    }
+    return "click";
+  }
+
+  function pathOf(el) {
+    const path = [];
+    let node = el;
+    while (node && node !== document.body) {
+      const tag = (node.tagName || "").toLowerCase();
+      const role = node.getAttribute("role") || "";
+      if (tag === "li" || role === "menuitem" || role === "menu" || tag === "nav" || role === "menubar") {
+        const label = labelOf(node);
+        if (label && (tag === "li" || role === "menuitem" || tag === "a" || tag === "button")) {
+          if (path[0] !== label) path.unshift(label);
+        }
+      }
+      node = node.parentElement;
+    }
+    const self = labelOf(el);
+    if (self && path[path.length - 1] !== self) path.push(self);
+    return path.filter(Boolean);
+  }
+
+  function pushItem(el) {
+    if (items.length >= maxItems) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    const role = el.getAttribute("role") || el.tagName.toLowerCase();
+    const name = (el.textContent || "").trim().slice(0, 120) || undefined;
+    const ariaLabel = el.getAttribute("aria-label") || undefined;
+    const path = pathOf(el);
+    const key = path.join(">") + "|" + role + "|" + Math.round(rect.x);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const expandedRaw = el.getAttribute("aria-expanded");
+    items.push({
+      role: role === "a" ? "link" : role,
+      name: name || undefined,
+      ariaLabel,
+      href: el.getAttribute("href") || undefined,
+      expanded: expandedRaw === "true" ? true : expandedRaw === "false" ? false : undefined,
+      hasPopup: el.getAttribute("aria-haspopup") === "true" || undefined,
+      triggerKind: triggerKind(el),
+      path,
+      bounds: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      }
+    });
+  }
+
+  const tree = [];
+  for (const selector of ["nav", "header", "main", "[role=navigation]", "[role=menubar]"]) {
+    for (const el of document.querySelectorAll(selector)) {
+      if (nodeCount >= maxNodes) break;
+      const built = buildNode(el, 0);
+      if (built) tree.push(built);
+    }
+  }
+  if (tree.length === 0) {
+    const body = buildNode(document.body, 0);
+    if (body) tree.push(body);
+  }
+
+  const controlRoots = ["[role=menubar]", "[role=navigation]", "nav", "aside nav", "header nav", "main"];
+  for (const sel of controlRoots) {
+    document.querySelectorAll(sel).forEach((root) => {
+      root.querySelectorAll("[role=menuitem], [role=button], [role=link], a, button").forEach(pushItem);
+    });
+  }
+  if (items.length === 0) {
+    document.querySelectorAll("[role=menuitem], [role=button], a, button").forEach(pushItem);
+  }
+
+  const flat = items.map((item) => ({ ...item, isLeaf: !item.hasPopup }));
+
+  return {
+    tree,
+    flat,
+    regions: [{ root: "document", items }],
+    url: location.href
+  };
+})()`;
+function normalizeControlPath(path3) {
+  if (!Array.isArray(path3)) return [];
+  return path3.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0);
+}
+function resolveExpandStrategy(requested, item) {
+  const raw = typeof requested === "string" ? requested.toLowerCase() : "auto";
+  if (raw === "hover" || raw === "click") return raw;
+  if (item?.triggerKind === "hover" || item?.triggerKind === "click") return item.triggerKind;
+  return "click";
+}
+function findControlByPath(flat, path3) {
+  if (path3.length === 0) return void 0;
+  const target = path3.join(">");
+  let best;
+  let bestLen = -1;
+  for (const item of flat) {
+    const key = (item.path ?? []).join(">");
+    if (key === target || key.endsWith(">" + target) || target.endsWith(key)) {
+      if (key.length > bestLen) {
+        best = item;
+        bestLen = key.length;
+      }
+    }
+  }
+  return best;
+}
+function parseWebViewSnapshot(raw) {
+  const value = typeof raw === "object" && raw !== null ? raw : {};
+  const tree = Array.isArray(value.tree) ? value.tree : [];
+  const flat = Array.isArray(value.flat) ? value.flat : [];
+  const regions = Array.isArray(value.regions) ? value.regions : [];
+  const url = typeof value.url === "string" ? value.url : "";
+  return { tree, flat, regions, url };
+}
+
 // ../../packages/driver-rpc/src/cdp-auto-launch.ts
 var import_node_child_process = require("node:child_process");
 var import_node_fs = __toESM(require("node:fs"), 1);
@@ -669,6 +873,159 @@ function locatorFromPayload(page, payload) {
   return applyNth(base, l.nth);
 }
 
+// ../../plugins/driver-playwright/src/web-interaction-recipe.ts
+function failResult(command, code, message, data) {
+  return {
+    requestId: command.requestId,
+    success: false,
+    errorCode: code,
+    errorMessage: message,
+    data
+  };
+}
+async function waitAfterNavigation(page, payload, beforeUrl) {
+  if (payload.waitNavigation !== true && payload.waitNavigation !== "true") {
+    return { navigated: false, url: page.url() };
+  }
+  const timeoutMs = typeof payload.navigationTimeoutMs === "number" ? payload.navigationTimeoutMs : 8e3;
+  const before = beforeUrl || page.url();
+  try {
+    await page.waitForURL((url) => url.href !== before, { timeout: timeoutMs });
+    return { navigated: true, url: page.url() };
+  } catch {
+    try {
+      await page.waitForLoadState("domcontentloaded", { timeout: Math.min(timeoutMs, 3e3) });
+    } catch {
+    }
+    const after = page.url();
+    if (after !== before) {
+      return { navigated: true, url: after };
+    }
+    return { navigated: false, url: after };
+  }
+}
+async function observeViewOnPage(page) {
+  const raw = await page.evaluate(WEB_VIEW_SCRIPT);
+  const snapshot = parseWebViewSnapshot(raw);
+  return {
+    ...snapshot,
+    url: snapshot.url || page.url()
+  };
+}
+async function resolveLabelLocator(page, label, nthFallback) {
+  const roles = ["menuitem", "link", "button", "tab"];
+  for (const role of roles) {
+    try {
+      const exact = page.getByRole(role, { name: label, exact: true });
+      if (await exact.count() > 0) return exact.first();
+    } catch {
+    }
+    try {
+      const loose = page.getByRole(role, { name: label });
+      if (await loose.count() > 0) return loose.first();
+    } catch {
+    }
+  }
+  try {
+    const aria = page.locator(`[aria-label="${label.replace(/"/g, '\\"')}"]`);
+    if (await aria.count() > 0) return aria.first();
+  } catch {
+  }
+  if (typeof nthFallback === "number" && nthFallback >= 0) {
+    for (const role of ["menuitem", "button", "link"]) {
+      try {
+        const items = page.getByRole(role);
+        const count = await items.count();
+        if (nthFallback < count) return items.nth(nthFallback);
+      } catch {
+      }
+    }
+  }
+  return null;
+}
+async function expandPathSegment(page, label, strategy, waitMs, nthFallback) {
+  const locator = await resolveLabelLocator(page, label, nthFallback);
+  if (!locator) {
+    return { ok: false, error: `control label not found: ${label}` };
+  }
+  await autoWaitEnabled(locator, waitMs);
+  if (strategy === "hover") {
+    await locator.hover({ timeout: waitMs });
+  } else {
+    await locator.click({ timeout: waitMs });
+  }
+  await page.waitForTimeout(250);
+  return { ok: true };
+}
+async function executeClickPath(command, page, payload) {
+  const path3 = normalizeControlPath(payload?.path);
+  if (path3.length === 0) {
+    return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_INVALID, "clickPath requires non-empty path array");
+  }
+  const waitMs = resolveAutoWaitMs(payload);
+  const observed = await observeViewOnPage(page);
+  const targetMeta = findControlByPath(observed.flat, path3);
+  const beforeUrl = page.url();
+  for (let i = 0; i < path3.length - 1; i += 1) {
+    const segment = path3[i];
+    const segMeta = findControlByPath(observed.flat, path3.slice(0, i + 1));
+    const segStrategy = resolveExpandStrategy(payload?.strategy, segMeta);
+    const nthFallback = segment ? void 0 : Number(payload?.triggerNth ?? i);
+    const expanded = await expandPathSegment(page, segment || "", segStrategy, waitMs, nthFallback);
+    if (!expanded.ok) {
+      return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED, expanded.error ?? `failed to expand ${segment}`, {
+        path: path3,
+        segment,
+        businessCode: WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED
+      });
+    }
+  }
+  const leaf = path3[path3.length - 1];
+  const leafStrategy = resolveExpandStrategy(payload?.strategy, targetMeta);
+  const isLeafPopup = targetMeta?.hasPopup === true && path3.length === 1;
+  const locator = await resolveLabelLocator(page, leaf, Number(payload?.leafNth));
+  if (!locator) {
+    return failResult(command, WEB_INTERACTION_ERROR_CODES.CONTROL_NOT_FOUND, `path leaf not found: ${leaf}`, {
+      path: path3,
+      businessCode: WEB_INTERACTION_ERROR_CODES.CONTROL_NOT_FOUND
+    });
+  }
+  await autoWaitEnabled(locator, waitMs);
+  if (isLeafPopup && leafStrategy === "hover") {
+    await locator.hover({ timeout: waitMs });
+  } else {
+    await locator.click({ timeout: waitMs });
+  }
+  const waitPayload = {
+    ...payload,
+    waitNavigation: payload?.waitNavigation !== false
+  };
+  const nav = await waitAfterNavigation(page, waitPayload, beforeUrl);
+  if (waitPayload.waitNavigation === true && !nav.navigated && (targetMeta?.href || payload?.requireNavigation === true)) {
+    return failResult(command, WEB_INTERACTION_ERROR_CODES.NAV_TIMEOUT, `navigation did not complete after clickPath: ${leaf}`, {
+      path: path3,
+      beforeUrl,
+      afterUrl: nav.url,
+      businessCode: WEB_INTERACTION_ERROR_CODES.NAV_TIMEOUT
+    });
+  }
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "playwright",
+      command: "recipe",
+      action: "clickPath",
+      path: path3,
+      strategy: leafStrategy,
+      navigated: nav.navigated,
+      url: nav.url,
+      controls: serializeRpcResult(observed.flat),
+      businessCode: "PATH_CLICK_OK"
+    }
+  };
+}
+
 // ../../plugins/driver-playwright/src/index.ts
 var sessions = /* @__PURE__ */ new Map();
 var localRequire = (0, import_node_module.createRequire)(typeof __filename === "string" ? __filename : process.cwd());
@@ -693,7 +1050,8 @@ var SEMANTIC_COMMANDS = [
   "back",
   "reload",
   "closeTab",
-  "custom"
+  "custom",
+  "recipe"
 ];
 async function loadPlaywrightModule() {
   const cwd = process.cwd();
@@ -1103,7 +1461,7 @@ async function runMock(command, reason) {
     }
   };
 }
-function failResult(command, code, message, data) {
+function failResult2(command, code, message, data) {
   return {
     requestId: command.requestId,
     success: false,
@@ -1141,7 +1499,7 @@ async function enrichFailureData(page, data) {
 }
 async function failWithPage(command, page, code, message, data) {
   const enriched = await enrichFailureData(page, data);
-  return failResult(command, code, message, enriched);
+  return failResult2(command, code, message, enriched);
 }
 function getNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
@@ -1191,7 +1549,7 @@ var playwrightPlugin = {
         if (!isRecoverableInteractionError(error)) {
           await releasePlaywrightDriverSession(session.id);
         }
-        return failResult(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
+        return failResult2(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
       }
     }
     try {
@@ -1204,7 +1562,7 @@ var playwrightPlugin = {
       const waitMs = resolveAutoWaitMs(effective);
       if (cmd === "navigate") {
         if (!url) {
-          return failResult(command, "INVALID_PAYLOAD", "navigate requires url");
+          return failResult2(command, "INVALID_PAYLOAD", "navigate requires url");
         }
         await page.goto(url);
         await focusVisibleBrowser(pw, effective);
@@ -1216,7 +1574,9 @@ var playwrightPlugin = {
           });
         }
         await autoWaitEnabled(locator, waitMs);
+        const beforeClickUrl = page.url();
         await locator.click({ timeout: waitMs });
+        await waitAfterNavigation(page, effective, beforeClickUrl);
       } else if (command.command === "hover") {
         if (!locator) {
           return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `hover requires locator. ${LOCATOR_FORMAT_HINT}`, {
@@ -1243,7 +1603,7 @@ var playwrightPlugin = {
       } else if (command.command === "press") {
         const key = getString2(payload?.key);
         if (!key) {
-          return failResult(command, "INVALID_PAYLOAD", "press requires key");
+          return failResult2(command, "INVALID_PAYLOAD", "press requires key");
         }
         if (locator) {
           await locator.press(key);
@@ -1252,7 +1612,7 @@ var playwrightPlugin = {
         }
       } else if (command.command === "select") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const value = getString2(payload?.value);
         const label = getString2(payload?.label);
@@ -1264,7 +1624,7 @@ var playwrightPlugin = {
         } else if (typeof index === "number") {
           await locator.selectOption({ index });
         } else {
-          return failResult(command, "INVALID_PAYLOAD", "select requires value, label, or index");
+          return failResult2(command, "INVALID_PAYLOAD", "select requires value, label, or index");
         }
       } else if (command.command === "scroll") {
         const deltaX = getNumber(payload?.deltaX) ?? 0;
@@ -1288,19 +1648,19 @@ var playwrightPlugin = {
         const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
         const selected = pages[safeIndex];
         if (!selected) {
-          return failResult(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
+          return failResult2(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
         }
         pw.page = selected;
         await focusVisibleBrowser(pw, effective);
       } else if (command.command === "uploadFile") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const filePath = getString2(payload?.filePath);
         const filePaths = getStringArray(payload?.filePaths);
         const targetPaths = filePaths.length > 0 ? filePaths : filePath ? [filePath] : [];
         if (targetPaths.length === 0) {
-          return failResult(command, "INVALID_PAYLOAD", "uploadFile requires filePath or filePaths");
+          return failResult2(command, "INVALID_PAYLOAD", "uploadFile requires filePath or filePaths");
         }
         await locator.setInputFiles(targetPaths);
       } else if (command.command === "dragDrop") {
@@ -1309,7 +1669,7 @@ var playwrightPlugin = {
         const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
         const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
         if (!source || !target) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "dragDrop requires source and target locator");
+          return failResult2(command, "LOCATOR_NOT_FOUND", "dragDrop requires source and target locator");
         }
         await source.dragTo(target);
       } else if (command.command === "wait") {
@@ -1324,14 +1684,14 @@ var playwrightPlugin = {
         pw.page = await pw.context.newPage();
       } else if (command.command === "assertVisible") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "assertVisible requires locator", {
+          return failResult2(command, "LOCATOR_NOT_FOUND", "assertVisible requires locator", {
             locatorUsed: summarizeLocator(payload?.locator)
           });
         }
         try {
           await autoWaitLocator(locator, waitMs);
         } catch {
-          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.", {
+          return failResult2(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.", {
             assertionDiff: {
               type: "visible",
               expected: true,
@@ -1342,18 +1702,18 @@ var playwrightPlugin = {
         }
       } else if (command.command === "assertText") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "assertText requires locator", {
+          return failResult2(command, "LOCATOR_NOT_FOUND", "assertText requires locator", {
             locatorUsed: summarizeLocator(payload?.locator)
           });
         }
         const expected = getString2(payload?.expectedText);
         if (!expected) {
-          return failResult(command, "INVALID_PAYLOAD", "assertText requires expectedText");
+          return failResult2(command, "INVALID_PAYLOAD", "assertText requires expectedText");
         }
         try {
           await autoWaitLocator(locator, waitMs);
         } catch {
-          return failResult(command, "ASSERT_NOT_VISIBLE", "Target element is not visible before text assert.", {
+          return failResult2(command, "ASSERT_NOT_VISIBLE", "Target element is not visible before text assert.", {
             assertionDiff: {
               type: "text",
               expected,
@@ -1364,7 +1724,7 @@ var playwrightPlugin = {
         }
         const actual = await locator.textContent() ?? "";
         if (!actual.includes(expected)) {
-          return failResult(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`, {
+          return failResult2(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`, {
             assertionDiff: {
               type: "text",
               expected,
@@ -1375,7 +1735,7 @@ var playwrightPlugin = {
         }
       } else if (command.command === "getText") {
         if (!locator) {
-          return failResult(command, "LOCATOR_NOT_FOUND", "click requires locator");
+          return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
         }
         const text = await locator.textContent() ?? "";
         return {
@@ -1401,6 +1761,16 @@ var playwrightPlugin = {
             browser: pw.browserKind
           }
         };
+      } else if (command.command === "recipe") {
+        const action = getString2(payload?.action)?.toLowerCase();
+        if (action === "clickpath") {
+          return executeClickPath(command, page, payload);
+        }
+        return failResult2(
+          command,
+          "UNSUPPORTED_COMMAND",
+          `unsupported web recipe action: ${action ?? "(missing)"}; use ada_extract mode=viewTree for observation`
+        );
       } else if (command.command === "custom") {
         const action = getString2(payload?.action)?.toLowerCase();
         if (action === "invoke" || payload?.method && !action) {
@@ -1409,7 +1779,7 @@ var playwrightPlugin = {
         if (action === "evaluate") {
           const script = getString2(payload?.script);
           if (!script) {
-            return failResult(command, "INVALID_PAYLOAD", "evaluate requires script");
+            return failResult2(command, "INVALID_PAYLOAD", "evaluate requires script");
           }
           const value = await page.evaluate(script);
           return {
@@ -1426,13 +1796,13 @@ var playwrightPlugin = {
             }
           };
         }
-        return failResult(
+        return failResult2(
           command,
           "UNSUPPORTED_COMMAND",
           "unsupported custom action; use action=evaluate|invoke or command=invoke"
         );
       } else {
-        return failResult(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
+        return failResult2(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
       }
       return {
         requestId: command.requestId,

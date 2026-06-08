@@ -2,10 +2,20 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { commandExists, isTcpPortOpen } from "./runtime-probe.js";
+import {
+  defaultWdaLocalHost,
+  loopbackHostsForProbe,
+  resolveWdaUrlAfterForward,
+  syncWdaServerUrlEnv,
+  wdaServerUrlForLocalPort
+} from "./ios-wda-endpoint.js";
 import { defaultWdaServerUrl, iosUseSimulator, resolveIosDeviceUdid } from "./ios-wda-probe.js";
 import { probeWdaStatus } from "./android-uia2-probe.js";
 
 const iproxyChildren = new Map<string, number>();
+
+const IPROXY_READY_TIMEOUT_MS = Number(process.env.ADA_IOS_IPROXY_READY_MS ?? 10_000);
+const IPROXY_READY_POLL_MS = 300;
 
 export function isIosIproxyHostSupported(): boolean {
   return process.platform === "darwin" || process.platform === "win32";
@@ -52,9 +62,7 @@ export function resolveWdaLocalPortForUdid(udid: string): number {
   return defaultWdaLocalPort();
 }
 
-export function wdaServerUrlForLocalPort(localPort: number): string {
-  return `http://127.0.0.1:${localPort}`;
-}
+export { wdaServerUrlForLocalPort } from "./ios-wda-endpoint.js";
 
 function iproxyInstallHint(): string {
   if (process.platform === "win32") {
@@ -85,6 +93,7 @@ export async function resolveIproxyCommand(): Promise<string | null> {
   if (await commandExists("iproxy")) return "iproxy";
   return null;
 }
+
 function shouldUseShell(command: string): boolean {
   return process.platform === "win32" && !command.includes("/") && !command.includes("\\");
 }
@@ -123,10 +132,24 @@ function runCommandCapture(
   });
 }
 
-/** simctl 中注册的 UDID 视为模拟器（真机默认不走 iproxy） */
+/** USB 真机 UDID（idevice_id -l）；在列表中则不是模拟器 */
+export async function isIosPhysicalDeviceUdid(udid: string): Promise<boolean> {
+  const id = udid.trim();
+  if (!id) return false;
+  const listed = await runCommandCapture("idevice_id", ["-l"]);
+  if (listed.code !== 0) return false;
+  return listed.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim().toLowerCase())
+    .includes(id.toLowerCase());
+}
+
+/** simctl 中注册的 UDID 视为模拟器（真机优先走 idevice_id 校验） */
 export async function isIosSimulatorUdid(udid: string): Promise<boolean> {
   const id = udid.trim();
-  if (!id || process.platform !== "darwin") return false;
+  if (!id) return false;
+  if (await isIosPhysicalDeviceUdid(id)) return false;
+  if (process.platform !== "darwin") return false;
   const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "available"]);
   if (sim.code !== 0) return false;
   return new RegExp(`\\(${id}\\)`, "i").test(sim.stdout);
@@ -134,6 +157,28 @@ export async function isIosSimulatorUdid(udid: string): Promise<boolean> {
 
 function iproxyKey(udid: string, localPort: number, devicePort: number): string {
   return `${udid || "*"}:${localPort}:${devicePort}`;
+}
+
+export async function isLocalPortReachable(port: number, host?: string): Promise<boolean> {
+  const hosts = loopbackHostsForProbe(host ?? defaultWdaLocalHost());
+  for (const candidate of hosts) {
+    if (await isTcpPortOpen(candidate, port, 800)) return true;
+  }
+  return false;
+}
+
+export async function waitForLocalPortReachable(
+  port: number,
+  options?: { host?: string; timeoutMs?: number; intervalMs?: number }
+): Promise<boolean> {
+  const timeoutMs = Math.max(500, options?.timeoutMs ?? IPROXY_READY_TIMEOUT_MS);
+  const intervalMs = Math.max(100, options?.intervalMs ?? IPROXY_READY_POLL_MS);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isLocalPortReachable(port, options?.host)) return true;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
 }
 
 /** 真机：启动 iproxy 将本机端口转发到设备 WDA 端口（macOS / Windows USB 方案 C） */
@@ -157,7 +202,8 @@ export async function ensureIosIproxyForward(options?: {
     udid = await resolveIosDeviceUdid();
   }
   const localPort = options?.localPort ?? resolveWdaLocalPortForUdid(udid);
-  const serverUrl = wdaServerUrlForLocalPort(localPort);
+  const localHost = defaultWdaLocalHost();
+  const serverUrl = wdaServerUrlForLocalPort(localPort, localHost);
   const log = options?.onLogLine;
 
   if (!isIosIproxyHostSupported()) {
@@ -207,18 +253,22 @@ export async function ensureIosIproxyForward(options?: {
 
   const key = iproxyKey(udid, localPort, devicePort);
   if (iproxyChildren.has(key)) {
-    return {
-      forwarded: true,
-      skipped: false,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: `iproxy already active ${localPort}->${devicePort} udid=${udid}`
-    };
+    const stillOpen = await isLocalPortReachable(localPort, localHost);
+    if (stillOpen) {
+      return {
+        forwarded: true,
+        skipped: false,
+        localPort,
+        devicePort,
+        udid,
+        serverUrl,
+        detail: `iproxy already active ${localPort}->${devicePort} udid=${udid}`
+      };
+    }
+    iproxyChildren.delete(key);
   }
 
-  if (await isTcpPortOpen("127.0.0.1", localPort, 800)) {
+  if (await isLocalPortReachable(localPort, localHost)) {
     return {
       forwarded: true,
       skipped: false,
@@ -256,8 +306,10 @@ export async function ensureIosIproxyForward(options?: {
     iproxyChildren.set(key, child.pid);
   }
 
-  await new Promise((r) => setTimeout(r, 600));
-  const open = await isTcpPortOpen("127.0.0.1", localPort, 1500);
+  const open = await waitForLocalPortReachable(localPort, { host: localHost });
+  if (!open) {
+    iproxyChildren.delete(key);
+  }
   return {
     forwarded: open,
     skipped: false,
@@ -267,7 +319,7 @@ export async function ensureIosIproxyForward(options?: {
     serverUrl,
     detail: open
       ? `iproxy ${localPort}->${devicePort} udid=${udid}`
-      : `iproxy started but 127.0.0.1:${localPort} not open yet`
+      : `iproxy started but ${localHost}:${localPort} not open within ${IPROXY_READY_TIMEOUT_MS}ms`
   };
 }
 
@@ -296,8 +348,8 @@ export async function probeIosWdaRuntime(options?: {
     const fwd = await ensureIosIproxyForward({ udid });
     forwarded = fwd.forwarded;
     if (!options?.serverUrl) {
-      wdaUrl = fwd.serverUrl;
-      process.env.ADA_WDA_SERVER_URL = wdaUrl;
+      wdaUrl = resolveWdaUrlAfterForward(fwd, options?.serverUrl);
+      syncWdaServerUrlEnv(wdaUrl);
     }
   }
 
@@ -325,4 +377,19 @@ export async function probeIosWdaRuntime(options?: {
     detail,
     status: wda.status
   };
+}
+
+/** Stop tracked iproxy children (MCP shutdown / close all sessions). */
+export function stopAllIosIproxyForwards(): number {
+  let stopped = 0;
+  for (const [, pid] of iproxyChildren) {
+    try {
+      process.kill(pid, "SIGTERM");
+      stopped += 1;
+    } catch {
+      // already exited
+    }
+  }
+  iproxyChildren.clear();
+  return stopped;
 }

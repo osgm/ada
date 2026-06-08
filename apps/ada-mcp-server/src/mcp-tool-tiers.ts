@@ -35,6 +35,7 @@ export const MCP_TOOL_TIERS: Record<string, McpToolTier> = {
   ada_config: "T2",
   ada_start_once: "T2",
   ada_mobile_recipe: "T2",
+  ada_web_recipe: "T2",
   ada_run_task_file: "T2",
 
   ada_execute: "T3",
@@ -64,6 +65,7 @@ export const MCP_TOOL_DEPTH: Record<string, McpToolDepth> = {
   ada_batch_actions: "L2",
   ada_run_task_file: "L2",
   ada_mobile_recipe: "L2",
+  ada_web_recipe: "L2",
 
   ada_invoke: "L3",
   ada_execute: "L3",
@@ -82,6 +84,7 @@ export const MCP_TOOL_LIST_ORDER: string[] = [
   "ada_perf_summary",
   "ada_start_once",
   "ada_web_action",
+  "ada_web_recipe",
   "ada_invoke",
   "ada_execute",
   "ada_web_dismiss_popups",

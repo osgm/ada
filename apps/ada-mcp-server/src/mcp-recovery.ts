@@ -71,10 +71,10 @@ export function buildUiCandidatesHint(input: {
     const data = input.result.data as Record<string, unknown> | undefined;
     const hasPreview = typeof data?.pageTextPreview === "string" && data.pageTextPreview.length > 0;
     return {
-      suggestTools: hasPreview ? ["ada_web_action"] : ["ada_extract", "ada_web_action"],
+      suggestTools: hasPreview ? ["ada_extract", "ada_web_action"] : ["ada_extract", "ada_web_action", "ada_web_recipe"],
       note: hasPreview
         ? "Locator miss — pageTextPreview is in the error payload; retry with payload.locator (css/role) or within+nth (do not call ada_close_all_sessions)."
-        : "Locator miss — check error payload pageTextPreview/url, or ada_extract mode=viewTree, then retry with scoped locator.",
+        : "Locator miss — ada_extract mode=viewTree (tree+flat controls), then retry with scoped locator or ada_web_recipe clickPath.",
       acceptedLocatorFormats: [
         "payload.locator.css",
         "payload.selector",
@@ -136,7 +136,7 @@ export function buildRecoveryPlan(input: {
     ];
   }
 
-  if (input.tool === "ada_web_action") {
+  if (input.tool === "ada_web_recipe" || input.tool === "ada_web_action") {
     const steps: RecoveryPlanStep[] = [
       {
         kind: "retry",
@@ -144,7 +144,12 @@ export function buildRecoveryPlan(input: {
         note: "Retry same command with wait",
         args: { sessionId, command, retry: 1, payload: { waitMs: 1500 } }
       },
-      { kind: "observe", tool: "ada_extract", note: "Read page structure to refine locator", args: { sessionId, mode: "viewTree" } },
+      {
+        kind: "observe",
+        tool: "ada_extract",
+        note: "Read viewTree (semantic tree + flat controls) before retry",
+        args: { sessionId, mode: "viewTree", payload: { detail: "full" } }
+      },
       {
         kind: "retry",
         tool: "ada_web_action",

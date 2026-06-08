@@ -24,6 +24,10 @@ export function clearWebSessionTrack(sessionId: string): void {
   lastUrlBySession.delete(sessionId);
 }
 
+export function clearAllWebSessionTracks(): void {
+  lastUrlBySession.clear();
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }

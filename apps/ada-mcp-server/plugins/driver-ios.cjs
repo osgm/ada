@@ -31,65 +31,665 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// ../../packages/runtime-probe/src/ios-wda-endpoint.ts
+function defaultWdaLocalHost() {
+  const fromEnv = process.env.ADA_IOS_LOCAL_HOST?.trim();
+  if (fromEnv) return fromEnv;
+  const wda = process.env.ADA_WDA_SERVER_URL?.trim();
+  if (wda) {
+    try {
+      const host = new URL(wda).hostname;
+      if (host) return host;
+    } catch {
+    }
+  }
+  return "localhost";
+}
+function hasExplicitWdaServerUrlEnv() {
+  return Boolean(process.env.ADA_WDA_SERVER_URL?.trim());
+}
+function wdaServerUrlForLocalPort(localPort, host) {
+  return `http://${host ?? defaultWdaLocalHost()}:${localPort}`;
+}
+function defaultWdaServerUrl() {
+  const fromEnv = process.env.ADA_WDA_SERVER_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  return wdaServerUrlForLocalPort(8100);
+}
+function syncWdaServerUrlEnv(url) {
+  if (!hasExplicitWdaServerUrlEnv()) {
+    process.env.ADA_WDA_SERVER_URL = url.replace(/\/$/, "");
+  }
+}
+function resolveWdaUrlAfterForward(input, explicitServerUrl) {
+  if (explicitServerUrl?.trim()) return explicitServerUrl.replace(/\/$/, "");
+  if (hasExplicitWdaServerUrlEnv()) return defaultWdaServerUrl();
+  return wdaServerUrlForLocalPort(input.localPort);
+}
+function loopbackHostsForProbe(host) {
+  const normalized = host.trim().toLowerCase();
+  const hosts = [host.trim()];
+  if (normalized === "localhost") hosts.push("127.0.0.1");
+  if (normalized === "127.0.0.1") hosts.push("localhost");
+  return [...new Set(hosts)];
+}
+var init_ios_wda_endpoint = __esm({
+  "../../packages/runtime-probe/src/ios-wda-endpoint.ts"() {
+    "use strict";
+  }
+});
+
+// ../../packages/runtime-probe/src/ios-wda-probe.ts
+function iosUseSimulator() {
+  return ["1", "true", "yes"].includes((process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase());
+}
+function runCommandCapture(command, args, timeoutMs = 15e3) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process.spawn)(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      ...process.platform === "win32" ? { windowsHide: true } : {}
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ code: -1, stdout, stderr: stderr || "timeout" });
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve({ code: 1, stdout: "", stderr: "" });
+    });
+  });
+}
+function wdaBootstrapEnabled() {
+  const raw = process.env.ADA_IOS_WDA_BOOTSTRAP?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+async function resolveFirstPhysicalIosUdidViaIdeviceId() {
+  const listed = await runCommandCapture("idevice_id", ["-l"]);
+  if (listed.code !== 0) return "";
+  for (const line of listed.stdout.split(/\r?\n/)) {
+    const udid = line.trim();
+    if (udid) return udid;
+  }
+  return "";
+}
+async function resolveIosDeviceUdid(preferred) {
+  const fromEnv = preferred?.trim() || process.env.ADA_IOS_DEVICE_UDID?.trim() || "";
+  if (fromEnv) return fromEnv;
+  if (process.platform === "win32") {
+    return resolveFirstPhysicalIosUdidViaIdeviceId();
+  }
+  if (process.platform !== "darwin") return "";
+  const physical = await resolveFirstPhysicalIosUdid();
+  if (physical && !iosUseSimulator()) {
+    return physical;
+  }
+  if (physical && iosUseSimulator()) {
+    const bootedSim2 = await resolveBootedSimulatorUdid();
+    if (bootedSim2) return bootedSim2;
+    return physical;
+  }
+  const bootedSim = await resolveBootedSimulatorUdid();
+  if (bootedSim) return bootedSim;
+  return physical ?? "";
+}
+async function resolveBootedSimulatorUdid() {
+  const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "booted"]);
+  if (sim.code !== 0) return "";
+  const match = sim.stdout.match(/\(([A-F0-9-]{36})\)\s+\(Booted\)/i);
+  return match?.[1] ?? "";
+}
+async function resolveFirstPhysicalIosUdid() {
+  const trace = await runCommandCapture("xcrun", ["xctrace", "list", "devices"]);
+  if (trace.code !== 0) return "";
+  for (const line of trace.stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("==") || /simulator/i.test(trimmed)) continue;
+    const match = trimmed.match(/\(([A-F0-9-]{36})\)\s*$/i);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+function buildWdaXcodeDestination(udid) {
+  if (udid) return `id=${udid}`;
+  const simName = process.env.ADA_IOS_SIMULATOR_NAME?.trim() || "iPhone 15";
+  return `platform=iOS Simulator,name=${simName}`;
+}
+var import_node_child_process;
+var init_ios_wda_probe = __esm({
+  "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
+    "use strict";
+    import_node_child_process = require("node:child_process");
+    init_ios_wda_endpoint();
+  }
+});
+
+// ../../packages/runtime-probe/src/android-uia2-endpoint.ts
+var init_android_uia2_endpoint = __esm({
+  "../../packages/runtime-probe/src/android-uia2-endpoint.ts"() {
+    "use strict";
+  }
+});
+
+// ../../packages/runtime-probe/src/android-uia2-probe.ts
+async function fetchMobileStatus(url, timeoutMs = 3e3) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`${url.replace(/\/$/, "")}/status`, { signal: controller.signal });
+    clearTimeout(timer);
+    const body = await res.json().catch(() => ({}));
+    return { ok: res.ok, body };
+  } catch {
+    return { ok: false };
+  }
+}
+async function probeWdaStatus(serverUrl) {
+  const wdaUrl = (serverUrl ?? defaultWdaServerUrl()).replace(/\/$/, "");
+  const status = await fetchMobileStatus(wdaUrl);
+  const value = status.body?.value ?? status.body;
+  const ready = Boolean(status.ok && (value?.ready === true || value?.state === "success" || status.ok));
+  return {
+    wdaUrl,
+    reachable: status.ok,
+    ready,
+    detail: status.ok ? `WDA reachable at ${wdaUrl}` : `WDA not reachable at ${wdaUrl}`,
+    status: status.body
+  };
+}
+async function retryAsync(fn, options) {
+  const attempts = Math.max(1, options?.attempts ?? 3);
+  const delayMs = Math.max(0, options?.delayMs ?? 400);
+  const shouldRetry = options?.shouldRetry ?? (() => true);
+  let lastError;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i >= attempts - 1 || !shouldRetry(error)) break;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastError;
+}
+var init_android_uia2_probe = __esm({
+  "../../packages/runtime-probe/src/android-uia2-probe.ts"() {
+    "use strict";
+    init_android_uia2_endpoint();
+    init_ios_wda_endpoint();
+    init_android_uia2_endpoint();
+  }
+});
+
+// ../../packages/runtime-probe/src/ios-iproxy.ts
+function isIosIproxyHostSupported() {
+  return process.platform === "darwin" || process.platform === "win32";
+}
+function iosIproxyDisabled() {
+  return ["1", "true", "yes"].includes((process.env.ADA_IOS_IPROXY_DISABLED ?? "").trim().toLowerCase());
+}
+function defaultWdaDevicePort() {
+  const raw = process.env.ADA_IOS_WDA_DEVICE_PORT?.trim();
+  const n = raw ? Number(raw) : 8100;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 8100;
+}
+function defaultWdaLocalPort() {
+  const fromEnv = process.env.ADA_IOS_WDA_LOCAL_PORT?.trim();
+  if (fromEnv) {
+    const n = Number(fromEnv);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  try {
+    const parsed = new URL(defaultWdaServerUrl());
+    const port = Number(parsed.port || 8100);
+    if (Number.isFinite(port) && port > 0) return port;
+  } catch {
+  }
+  return 8100;
+}
+function resolveWdaLocalPortForUdid(udid) {
+  const mapRaw = process.env.ADA_IOS_WDA_PORT_MAP?.trim();
+  if (mapRaw && udid) {
+    for (const part of mapRaw.split(/[,;\s]+/)) {
+      const [id, portStr] = part.split(":");
+      if (id?.trim().toLowerCase() === udid.trim().toLowerCase()) {
+        const n = Number(portStr);
+        if (Number.isFinite(n) && n > 0) return Math.floor(n);
+      }
+    }
+  }
+  return defaultWdaLocalPort();
+}
+function iproxyInstallHint() {
+  if (process.platform === "win32") {
+    return "run install-deps --only=ios (auto-downloads to ~/.ada/tools/libimobiledevice) or set ADA_IPROXY_PATH";
+  }
+  return "install libimobiledevice (brew install libimobiledevice)";
+}
+async function pathExists(targetPath) {
+  try {
+    await import_promises.default.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function resolveIproxyCommand() {
+  const fromEnv = process.env.ADA_IPROXY_PATH?.trim();
+  if (fromEnv) return fromEnv;
+  const libDir = process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim() || (process.env.ADA_TOOLS_DIR ? import_node_path.default.join(process.env.ADA_TOOLS_DIR, "libimobiledevice") : "");
+  if (libDir) {
+    const candidate = import_node_path.default.join(libDir, process.platform === "win32" ? "iproxy.exe" : "iproxy");
+    if (await pathExists(candidate)) return candidate;
+  }
+  if (await commandExists("iproxy")) return "iproxy";
+  return null;
+}
+function shouldUseShell(command) {
+  return process.platform === "win32" && !command.includes("/") && !command.includes("\\");
+}
+function runCommandCapture2(command, args, timeoutMs = 15e3) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process2.spawn)(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: shouldUseShell(command),
+      ...process.platform === "win32" ? { windowsHide: true } : {}
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ code: -1, stdout, stderr: stderr || "timeout" });
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve({ code: 1, stdout: "", stderr: "" });
+    });
+  });
+}
+async function isIosPhysicalDeviceUdid(udid) {
+  const id = udid.trim();
+  if (!id) return false;
+  const listed = await runCommandCapture2("idevice_id", ["-l"]);
+  if (listed.code !== 0) return false;
+  return listed.stdout.split(/\r?\n/).map((line) => line.trim().toLowerCase()).includes(id.toLowerCase());
+}
+async function isIosSimulatorUdid(udid) {
+  const id = udid.trim();
+  if (!id) return false;
+  if (await isIosPhysicalDeviceUdid(id)) return false;
+  if (process.platform !== "darwin") return false;
+  const sim = await runCommandCapture2("xcrun", ["simctl", "list", "devices", "available"]);
+  if (sim.code !== 0) return false;
+  return new RegExp(`\\(${id}\\)`, "i").test(sim.stdout);
+}
+function iproxyKey(udid, localPort, devicePort) {
+  return `${udid || "*"}:${localPort}:${devicePort}`;
+}
+async function isLocalPortReachable(port, host) {
+  const hosts = loopbackHostsForProbe(host ?? defaultWdaLocalHost());
+  for (const candidate of hosts) {
+    if (await isTcpPortOpen(candidate, port, 800)) return true;
+  }
+  return false;
+}
+async function waitForLocalPortReachable(port, options) {
+  const timeoutMs = Math.max(500, options?.timeoutMs ?? IPROXY_READY_TIMEOUT_MS);
+  const intervalMs = Math.max(100, options?.intervalMs ?? IPROXY_READY_POLL_MS);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isLocalPortReachable(port, options?.host)) return true;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+async function ensureIosIproxyForward(options) {
+  const devicePort = options?.devicePort ?? defaultWdaDevicePort();
+  let udid = options?.udid?.trim() ?? "";
+  if (!udid) {
+    udid = await resolveIosDeviceUdid();
+  }
+  const localPort = options?.localPort ?? resolveWdaLocalPortForUdid(udid);
+  const localHost = defaultWdaLocalHost();
+  const serverUrl = wdaServerUrlForLocalPort(localPort, localHost);
+  const log = options?.onLogLine;
+  if (!isIosIproxyHostSupported()) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: "iproxy requires macOS or Windows host"
+    };
+  }
+  if (iosIproxyDisabled()) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: "iproxy disabled (ADA_IOS_IPROXY_DISABLED=1)"
+    };
+  }
+  if (!udid) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid: "",
+      serverUrl,
+      detail: "no iOS device UDID (connect device or set ADA_IOS_DEVICE_UDID)"
+    };
+  }
+  if (await isIosSimulatorUdid(udid)) {
+    return {
+      forwarded: false,
+      skipped: true,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `simulator ${udid} (iproxy not needed)`
+    };
+  }
+  const key = iproxyKey(udid, localPort, devicePort);
+  if (iproxyChildren.has(key)) {
+    const stillOpen = await isLocalPortReachable(localPort, localHost);
+    if (stillOpen) {
+      return {
+        forwarded: true,
+        skipped: false,
+        localPort,
+        devicePort,
+        udid,
+        serverUrl,
+        detail: `iproxy already active ${localPort}->${devicePort} udid=${udid}`
+      };
+    }
+    iproxyChildren.delete(key);
+  }
+  if (await isLocalPortReachable(localPort, localHost)) {
+    return {
+      forwarded: true,
+      skipped: false,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `local port ${localPort} already open (assuming iproxy/WDA)`
+    };
+  }
+  const iproxyCmd = await resolveIproxyCommand();
+  if (!iproxyCmd) {
+    return {
+      forwarded: false,
+      skipped: false,
+      localPort,
+      devicePort,
+      udid,
+      serverUrl,
+      detail: `iproxy not found in PATH (${iproxyInstallHint()})`
+    };
+  }
+  const args = [String(localPort), String(devicePort), "-u", udid];
+  log?.(`[ios-iproxy] ${iproxyCmd} ${args.join(" ")}`);
+  const child = (0, import_node_child_process2.spawn)(iproxyCmd, args, {
+    stdio: "ignore",
+    detached: true,
+    shell: shouldUseShell(iproxyCmd),
+    ...process.platform === "win32" ? { windowsHide: true } : {}
+  });
+  child.unref();
+  if (child.pid) {
+    iproxyChildren.set(key, child.pid);
+  }
+  const open = await waitForLocalPortReachable(localPort, { host: localHost });
+  if (!open) {
+    iproxyChildren.delete(key);
+  }
+  return {
+    forwarded: open,
+    skipped: false,
+    localPort,
+    devicePort,
+    udid,
+    serverUrl,
+    detail: open ? `iproxy ${localPort}->${devicePort} udid=${udid}` : `iproxy started but ${localHost}:${localPort} not open within ${IPROXY_READY_TIMEOUT_MS}ms`
+  };
+}
+async function probeIosWdaRuntime(options) {
+  let udid = options?.udid?.trim() ?? "";
+  if (!udid) {
+    udid = await resolveIosDeviceUdid();
+  }
+  let wdaUrl = (options?.serverUrl ?? defaultWdaServerUrl()).replace(/\/$/, "");
+  let forwarded = false;
+  if (options?.ensureForward !== false && udid && !await isIosSimulatorUdid(udid)) {
+    const fwd = await ensureIosIproxyForward({ udid });
+    forwarded = fwd.forwarded;
+    if (!options?.serverUrl) {
+      wdaUrl = resolveWdaUrlAfterForward(fwd, options?.serverUrl);
+      syncWdaServerUrlEnv(wdaUrl);
+    }
+  }
+  const wda = await probeWdaStatus(wdaUrl);
+  let detail = wda.detail;
+  if (forwarded && !wda.reachable) {
+    const bootstrapHint = process.platform === "darwin" ? "use --install-deps=ios or ADA_IOS_WDA_BOOTSTRAP=true" : "ensure WDA is installed on device (bootstrap requires macOS)";
+    detail += ` (iproxy applied; WDA may not be running on device \u2014 ${bootstrapHint})`;
+  } else if (!forwarded && udid && !await isIosSimulatorUdid(udid) && !iosIproxyDisabled()) {
+    const iproxyCmd = await resolveIproxyCommand();
+    if (!iproxyCmd) {
+      detail += ` (${iproxyInstallHint()})`;
+    }
+  }
+  return {
+    wdaUrl,
+    reachable: wda.reachable,
+    ready: wda.ready,
+    forwarded,
+    udid,
+    detail,
+    status: wda.status
+  };
+}
+var import_node_child_process2, import_promises, import_node_path, iproxyChildren, IPROXY_READY_TIMEOUT_MS, IPROXY_READY_POLL_MS;
+var init_ios_iproxy = __esm({
+  "../../packages/runtime-probe/src/ios-iproxy.ts"() {
+    "use strict";
+    import_node_child_process2 = require("node:child_process");
+    import_promises = __toESM(require("node:fs/promises"), 1);
+    import_node_path = __toESM(require("node:path"), 1);
+    init_runtime_probe();
+    init_ios_wda_endpoint();
+    init_ios_wda_probe();
+    init_android_uia2_probe();
+    init_ios_wda_endpoint();
+    iproxyChildren = /* @__PURE__ */ new Map();
+    IPROXY_READY_TIMEOUT_MS = Number(process.env.ADA_IOS_IPROXY_READY_MS ?? 1e4);
+    IPROXY_READY_POLL_MS = 300;
+  }
+});
+
+// ../../packages/runtime-probe/src/runtime-probe.ts
+async function commandExists(command) {
+  return new Promise((resolve) => {
+    const checker = process.platform === "win32" ? "where" : "which";
+    const child = (0, import_node_child_process3.spawn)(checker, [command], {
+      stdio: "ignore",
+      shell: process.platform === "win32"
+    });
+    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  });
+}
+async function isTcpPortOpen(host, port, timeoutMs = 2e3) {
+  return new Promise((resolve) => {
+    const socket = import_node_net.default.connect({ host, port });
+    const done = (ok) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(timeoutMs, () => done(false));
+  });
+}
+var import_node_net, import_node_child_process3;
+var init_runtime_probe = __esm({
+  "../../packages/runtime-probe/src/runtime-probe.ts"() {
+    "use strict";
+    import_node_net = __toESM(require("node:net"), 1);
+    import_node_child_process3 = require("node:child_process");
+    init_ios_wda_endpoint();
+    init_ios_iproxy();
+  }
+});
+
+// ../../packages/runtime-probe/src/ios-idevice-probe.ts
+var init_ios_idevice_probe = __esm({
+  "../../packages/runtime-probe/src/ios-idevice-probe.ts"() {
+    "use strict";
+    init_runtime_probe();
+  }
+});
+
+// ../../packages/runtime-probe/src/device-scan.ts
+var init_device_scan = __esm({
+  "../../packages/runtime-probe/src/device-scan.ts"() {
+    "use strict";
+    init_android_uia2_probe();
+  }
+});
+
+// ../../packages/runtime-probe/src/device-registry.ts
+var init_device_registry = __esm({
+  "../../packages/runtime-probe/src/device-registry.ts"() {
+    "use strict";
+    init_device_scan();
+  }
+});
+
+// ../../packages/runtime-probe/src/device-display.ts
+var init_device_display = __esm({
+  "../../packages/runtime-probe/src/device-display.ts"() {
+    "use strict";
+  }
+});
+
+// ../../packages/runtime-probe/src/device-params-guide.ts
+var init_device_params_guide = __esm({
+  "../../packages/runtime-probe/src/device-params-guide.ts"() {
+    "use strict";
+    init_device_display();
+  }
+});
+
+// ../../packages/runtime-probe/src/index.ts
+var init_src = __esm({
+  "../../packages/runtime-probe/src/index.ts"() {
+    init_runtime_probe();
+    init_android_uia2_endpoint();
+    init_android_uia2_probe();
+    init_ios_wda_probe();
+    init_ios_wda_endpoint();
+    init_ios_iproxy();
+    init_ios_idevice_probe();
+    init_device_scan();
+    init_device_registry();
+    init_device_display();
+    init_device_params_guide();
+  }
+});
+
 // ../../packages/core-runtime/src/ada-home.ts
 function isFilesystemRootPath(dir) {
-  const resolved = import_node_path.default.resolve(dir);
-  const parsed = import_node_path.default.parse(resolved);
-  return resolved === parsed.root || import_node_path.default.dirname(resolved) === parsed.root;
+  const resolved = import_node_path2.default.resolve(dir);
+  const parsed = import_node_path2.default.parse(resolved);
+  return resolved === parsed.root || import_node_path2.default.dirname(resolved) === parsed.root;
 }
 function resolveUserHomeDirSync() {
   const candidates = [
     import_node_os.default.homedir(),
     process.env.HOME,
     process.env.USERPROFILE,
-    process.platform === "win32" && process.env.SystemDrive && process.env.USERNAME ? import_node_path.default.join(process.env.SystemDrive, "Users", process.env.USERNAME) : void 0
+    process.platform === "win32" && process.env.SystemDrive && process.env.USERNAME ? import_node_path2.default.join(process.env.SystemDrive, "Users", process.env.USERNAME) : void 0
   ].filter((x) => typeof x === "string" && x.trim().length > 0);
   for (const candidate of candidates) {
-    const resolved = import_node_path.default.resolve(candidate.trim());
+    const resolved = import_node_path2.default.resolve(candidate.trim());
     if (!isFilesystemRootPath(resolved)) {
       return resolved;
     }
   }
-  return process.platform === "win32" ? import_node_path.default.join("C:", "Users", "Default") : "/tmp";
+  return process.platform === "win32" ? import_node_path2.default.join("C:", "Users", "Default") : "/tmp";
 }
 function resolveGlobalAdaHomeSync() {
   const override = process.env.ADA_HOME?.trim();
   if (override) {
-    const resolved = import_node_path.default.resolve(override);
+    const resolved = import_node_path2.default.resolve(override);
     if (!isFilesystemRootPath(resolved)) {
       return resolved;
     }
   }
-  return import_node_path.default.join(resolveUserHomeDirSync(), ".ada");
+  return import_node_path2.default.join(resolveUserHomeDirSync(), ".ada");
 }
-var import_node_os, import_node_path;
+var import_node_os, import_node_path2;
 var init_ada_home = __esm({
   "../../packages/core-runtime/src/ada-home.ts"() {
     "use strict";
     import_node_os = __toESM(require("node:os"), 1);
-    import_node_path = __toESM(require("node:path"), 1);
+    import_node_path2 = __toESM(require("node:path"), 1);
   }
 });
 
 // ../../packages/core-runtime/src/index.ts
 async function resolveWorkspaceRoot(configRelativePath, startDir = process.cwd()) {
-  const exeDir = import_node_path2.default.dirname(process.execPath);
+  const exeDir = import_node_path3.default.dirname(process.execPath);
   if (exeDir && exeDir !== "." && exeDir.length > 1) {
-    const besideExe = import_node_path2.default.join(exeDir, configRelativePath);
+    const besideExe = import_node_path3.default.join(exeDir, configRelativePath);
     try {
-      await import_promises.default.access(besideExe);
+      await import_promises2.default.access(besideExe);
       return exeDir;
     } catch {
     }
   }
   let current = startDir;
   for (let i = 0; i < 10; i += 1) {
-    const candidate = import_node_path2.default.join(current, configRelativePath);
+    const candidate = import_node_path3.default.join(current, configRelativePath);
     try {
-      await import_promises.default.access(candidate);
+      await import_promises2.default.access(candidate);
       return current;
     } catch {
-      const parent = import_node_path2.default.dirname(current);
+      const parent = import_node_path3.default.dirname(current);
       if (parent === current) {
         break;
       }
@@ -98,11 +698,11 @@ async function resolveWorkspaceRoot(configRelativePath, startDir = process.cwd()
   }
   return startDir;
 }
-var import_promises, import_node_path2;
-var init_src = __esm({
+var import_promises2, import_node_path3;
+var init_src2 = __esm({
   "../../packages/core-runtime/src/index.ts"() {
-    import_promises = __toESM(require("node:fs/promises"));
-    import_node_path2 = __toESM(require("node:path"));
+    import_promises2 = __toESM(require("node:fs/promises"));
+    import_node_path3 = __toESM(require("node:path"));
     init_ada_home();
   }
 });
@@ -143,16 +743,16 @@ function resolveInstallContextCwd() {
 function resolveGlobalAdaHomeSync2() {
   return resolveGlobalAdaHomeSync();
 }
-var import_node_path3, DEFAULT_CONFIG_RELATIVE;
+var import_node_path4, DEFAULT_CONFIG_RELATIVE;
 var init_deps_install_paths = __esm({
   "../../packages/install-deps/src/deps-install-paths.ts"() {
     "use strict";
-    import_node_path3 = __toESM(require("node:path"), 1);
-    init_src();
+    import_node_path4 = __toESM(require("node:path"), 1);
+    init_src2();
     init_playwright_browsers_discovery();
     init_log_locale();
-    init_src();
-    DEFAULT_CONFIG_RELATIVE = import_node_path3.default.join("config", "default.yaml");
+    init_src2();
+    DEFAULT_CONFIG_RELATIVE = import_node_path4.default.join("config", "default.yaml");
   }
 });
 
@@ -167,37 +767,37 @@ function normalizeToolsRelativeSegment(relativeDir) {
 }
 function joinWorkspaceToolsDir(baseDir, relativeDir) {
   const rel = normalizeToolsRelativeSegment(relativeDir);
-  const base = import_node_path4.default.resolve(baseDir);
-  const parsed = import_node_path4.default.parse(base);
+  const base = import_node_path5.default.resolve(baseDir);
+  const parsed = import_node_path5.default.parse(base);
   if (base === parsed.root) {
-    return import_node_path4.default.join(resolveGlobalAdaHomeSync2(), rel);
+    return import_node_path5.default.join(resolveGlobalAdaHomeSync2(), rel);
   }
-  return import_node_path4.default.join(base, rel);
+  return import_node_path5.default.join(base, rel);
 }
 function isFilesystemRootToolsDir(dir) {
-  const resolved = import_node_path4.default.resolve(dir);
-  const parsed = import_node_path4.default.parse(resolved);
-  return import_node_path4.default.dirname(resolved) === parsed.root;
+  const resolved = import_node_path5.default.resolve(dir);
+  const parsed = import_node_path5.default.parse(resolved);
+  return import_node_path5.default.dirname(resolved) === parsed.root;
 }
 function resolveAdaHomeToolsDir(relativeDir) {
-  return import_node_path4.default.join(resolveGlobalAdaHomeSync2(), normalizeToolsRelativeSegment(relativeDir));
+  return import_node_path5.default.join(resolveGlobalAdaHomeSync2(), normalizeToolsRelativeSegment(relativeDir));
 }
 async function fileExists(filePath) {
   try {
-    await import_promises2.default.access(filePath);
+    await import_promises3.default.access(filePath);
     return true;
   } catch {
     return false;
   }
 }
 async function toolsDirHasHdc(dir) {
-  return fileExists(import_node_path4.default.join(dir, HDC_BIN));
+  return fileExists(import_node_path5.default.join(dir, HDC_BIN));
 }
 function uniquePaths(paths) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const raw of paths) {
-    const normalized = import_node_path4.default.normalize(raw);
+    const normalized = import_node_path5.default.normalize(raw);
     if (seen.has(normalized)) {
       continue;
     }
@@ -212,7 +812,7 @@ function mcpServerEntryDir() {
     return null;
   }
   try {
-    return import_node_path4.default.dirname(import_node_path4.default.resolve(entry));
+    return import_node_path5.default.dirname(import_node_path5.default.resolve(entry));
   } catch {
     return null;
   }
@@ -220,10 +820,10 @@ function mcpServerEntryDir() {
 function walkUpToolsDirs(startDir, relativeDir, maxDepth = 10) {
   const rel = normalizeToolsRelativeSegment(relativeDir);
   const out = [];
-  let dir = import_node_path4.default.resolve(startDir);
+  let dir = import_node_path5.default.resolve(startDir);
   for (let i = 0; i < maxDepth; i += 1) {
     out.push(joinWorkspaceToolsDir(dir, rel));
-    const parent = import_node_path4.default.dirname(dir);
+    const parent = import_node_path5.default.dirname(dir);
     if (parent === dir) {
       break;
     }
@@ -250,7 +850,7 @@ async function collectToolsDirCandidates(options) {
   const relativeDir = normalizeToolsRelativeSegment(options?.relativeDir);
   const startCwd = options?.cwd ?? resolveInstallContextCwd();
   const entryDir = mcpServerEntryDir();
-  const execDir = import_node_path4.default.dirname(process.execPath);
+  const execDir = import_node_path5.default.dirname(process.execPath);
   const adaHomeTools = resolveAdaHomeToolsDir(relativeDir);
   const startDirs = uniquePaths(
     [
@@ -263,7 +863,7 @@ async function collectToolsDirCandidates(options) {
     ].filter((x) => typeof x === "string" && x.length > 0)
   );
   const candidates = uniquePaths([
-    ...process.env.ADA_TOOLS_DIR?.trim() ? [import_node_path4.default.resolve(process.env.ADA_TOOLS_DIR.trim())] : [],
+    ...process.env.ADA_TOOLS_DIR?.trim() ? [import_node_path5.default.resolve(process.env.ADA_TOOLS_DIR.trim())] : [],
     ...await workspaceToolsDirs(relativeDir, startDirs),
     ...startDirs.flatMap((dir) => walkUpToolsDirs(dir, relativeDir)),
     adaHomeTools
@@ -286,7 +886,7 @@ async function resolveDefaultToolsDir(options) {
   const candidates = await collectToolsDirCandidates(options);
   for (const candidate of candidates) {
     try {
-      const stat = await import_promises2.default.stat(candidate);
+      const stat = await import_promises3.default.stat(candidate);
       if (stat.isDirectory()) {
         return candidate;
       }
@@ -299,12 +899,12 @@ async function resolveDefaultToolsDir(options) {
 function adaHomeToolsFromOptions(options) {
   return resolveAdaHomeToolsDir(options?.relativeDir);
 }
-var import_promises2, import_node_path4, HDC_BIN, DEFAULT_TOOLS_RELATIVE;
+var import_promises3, import_node_path5, HDC_BIN, DEFAULT_TOOLS_RELATIVE;
 var init_tools_paths = __esm({
   "../../packages/install-deps/src/tools-paths.ts"() {
     "use strict";
-    import_promises2 = __toESM(require("node:fs/promises"), 1);
-    import_node_path4 = __toESM(require("node:path"), 1);
+    import_promises3 = __toESM(require("node:fs/promises"), 1);
+    import_node_path5 = __toESM(require("node:path"), 1);
     init_deps_install_paths();
     init_deps_install_paths();
     init_deps_install_paths();
@@ -369,7 +969,7 @@ var init_mirror_candidates = __esm({
 });
 
 // ../../packages/download-probe/src/index.ts
-var init_src2 = __esm({
+var init_src3 = __esm({
   "../../packages/download-probe/src/index.ts"() {
     init_download_probe();
     init_mirror_candidates();
@@ -380,7 +980,7 @@ var init_src2 = __esm({
 var init_download_probe_persist = __esm({
   "../../packages/install-deps/src/download-probe-persist.ts"() {
     "use strict";
-    init_src2();
+    init_src3();
     init_log_locale();
   }
 });
@@ -390,7 +990,7 @@ var PINNED_PLAYWRIGHT_VERSION;
 var init_registry_probe = __esm({
   "../../packages/install-deps/src/registry-probe.ts"() {
     "use strict";
-    init_src2();
+    init_src3();
     PINNED_PLAYWRIGHT_VERSION = process.env.ADA_PLAYWRIGHT_VERSION?.trim() || "1.59.1";
   }
 });
@@ -399,516 +999,9 @@ var init_registry_probe = __esm({
 var init_playwright_browser_install = __esm({
   "../../packages/install-deps/src/playwright-browser-install.ts"() {
     "use strict";
-    init_src2();
+    init_src3();
     init_deps_install_paths();
     init_deps_resolution();
-  }
-});
-
-// ../../packages/runtime-probe/src/ios-wda-probe.ts
-function iosUseSimulator() {
-  return ["1", "true", "yes"].includes((process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase());
-}
-function runCommandCapture(command, args, timeoutMs = 15e3) {
-  return new Promise((resolve) => {
-    const child = (0, import_node_child_process.spawn)(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32",
-      ...process.platform === "win32" ? { windowsHide: true } : {}
-    });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve({ code: -1, stdout, stderr: stderr || "timeout" });
-    }, timeoutMs);
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("exit", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
-    });
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolve({ code: 1, stdout: "", stderr: "" });
-    });
-  });
-}
-function defaultWdaServerUrl() {
-  return (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100").replace(/\/$/, "");
-}
-function wdaBootstrapEnabled() {
-  const raw = process.env.ADA_IOS_WDA_BOOTSTRAP?.trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
-}
-async function resolveFirstPhysicalIosUdidViaIdeviceId() {
-  const listed = await runCommandCapture("idevice_id", ["-l"]);
-  if (listed.code !== 0) return "";
-  for (const line of listed.stdout.split(/\r?\n/)) {
-    const udid = line.trim();
-    if (udid) return udid;
-  }
-  return "";
-}
-async function resolveIosDeviceUdid(preferred) {
-  const fromEnv = preferred?.trim() || process.env.ADA_IOS_DEVICE_UDID?.trim() || "";
-  if (fromEnv) return fromEnv;
-  if (process.platform === "win32") {
-    return resolveFirstPhysicalIosUdidViaIdeviceId();
-  }
-  if (process.platform !== "darwin") return "";
-  const physical = await resolveFirstPhysicalIosUdid();
-  if (physical && !iosUseSimulator()) {
-    return physical;
-  }
-  if (physical && iosUseSimulator()) {
-    const bootedSim2 = await resolveBootedSimulatorUdid();
-    if (bootedSim2) return bootedSim2;
-    return physical;
-  }
-  const bootedSim = await resolveBootedSimulatorUdid();
-  if (bootedSim) return bootedSim;
-  return physical ?? "";
-}
-async function resolveBootedSimulatorUdid() {
-  const sim = await runCommandCapture("xcrun", ["simctl", "list", "devices", "booted"]);
-  if (sim.code !== 0) return "";
-  const match = sim.stdout.match(/\(([A-F0-9-]{36})\)\s+\(Booted\)/i);
-  return match?.[1] ?? "";
-}
-async function resolveFirstPhysicalIosUdid() {
-  const trace = await runCommandCapture("xcrun", ["xctrace", "list", "devices"]);
-  if (trace.code !== 0) return "";
-  for (const line of trace.stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("==") || /simulator/i.test(trimmed)) continue;
-    const match = trimmed.match(/\(([A-F0-9-]{36})\)\s*$/i);
-    if (match?.[1]) return match[1];
-  }
-  return "";
-}
-function buildWdaXcodeDestination(udid) {
-  if (udid) return `id=${udid}`;
-  const simName = process.env.ADA_IOS_SIMULATOR_NAME?.trim() || "iPhone 15";
-  return `platform=iOS Simulator,name=${simName}`;
-}
-var import_node_child_process;
-var init_ios_wda_probe = __esm({
-  "../../packages/runtime-probe/src/ios-wda-probe.ts"() {
-    "use strict";
-    import_node_child_process = require("node:child_process");
-  }
-});
-
-// ../../packages/runtime-probe/src/android-uia2-probe.ts
-async function fetchMobileStatus(url, timeoutMs = 3e3) {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(`${url.replace(/\/$/, "")}/status`, { signal: controller.signal });
-    clearTimeout(timer);
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, body };
-  } catch {
-    return { ok: false };
-  }
-}
-async function probeWdaStatus(serverUrl) {
-  const wdaUrl = (serverUrl ?? (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100")).replace(/\/$/, "");
-  const status = await fetchMobileStatus(wdaUrl);
-  const value = status.body?.value ?? status.body;
-  const ready = Boolean(status.ok && (value?.ready === true || value?.state === "success" || status.ok));
-  return {
-    wdaUrl,
-    reachable: status.ok,
-    ready,
-    detail: status.ok ? `WDA reachable at ${wdaUrl}` : `WDA not reachable at ${wdaUrl}`,
-    status: status.body
-  };
-}
-async function retryAsync(fn, options) {
-  const attempts = Math.max(1, options?.attempts ?? 3);
-  const delayMs = Math.max(0, options?.delayMs ?? 400);
-  const shouldRetry = options?.shouldRetry ?? (() => true);
-  let lastError;
-  for (let i = 0; i < attempts; i += 1) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      if (i >= attempts - 1 || !shouldRetry(error)) break;
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  throw lastError;
-}
-var init_android_uia2_probe = __esm({
-  "../../packages/runtime-probe/src/android-uia2-probe.ts"() {
-    "use strict";
-  }
-});
-
-// ../../packages/runtime-probe/src/ios-iproxy.ts
-function isIosIproxyHostSupported() {
-  return process.platform === "darwin" || process.platform === "win32";
-}
-function iosIproxyDisabled() {
-  return ["1", "true", "yes"].includes((process.env.ADA_IOS_IPROXY_DISABLED ?? "").trim().toLowerCase());
-}
-function defaultWdaDevicePort() {
-  const raw = process.env.ADA_IOS_WDA_DEVICE_PORT?.trim();
-  const n = raw ? Number(raw) : 8100;
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 8100;
-}
-function defaultWdaLocalPort() {
-  const fromEnv = process.env.ADA_IOS_WDA_LOCAL_PORT?.trim();
-  if (fromEnv) {
-    const n = Number(fromEnv);
-    if (Number.isFinite(n) && n > 0) return Math.floor(n);
-  }
-  try {
-    const parsed = new URL(defaultWdaServerUrl());
-    const port = Number(parsed.port || 8100);
-    if (Number.isFinite(port) && port > 0) return port;
-  } catch {
-  }
-  return 8100;
-}
-function resolveWdaLocalPortForUdid(udid) {
-  const mapRaw = process.env.ADA_IOS_WDA_PORT_MAP?.trim();
-  if (mapRaw && udid) {
-    for (const part of mapRaw.split(/[,;\s]+/)) {
-      const [id, portStr] = part.split(":");
-      if (id?.trim().toLowerCase() === udid.trim().toLowerCase()) {
-        const n = Number(portStr);
-        if (Number.isFinite(n) && n > 0) return Math.floor(n);
-      }
-    }
-  }
-  return defaultWdaLocalPort();
-}
-function wdaServerUrlForLocalPort(localPort) {
-  return `http://127.0.0.1:${localPort}`;
-}
-function iproxyInstallHint() {
-  if (process.platform === "win32") {
-    return "run install-deps --only=ios (auto-downloads to ~/.ada/tools/libimobiledevice) or set ADA_IPROXY_PATH";
-  }
-  return "install libimobiledevice (brew install libimobiledevice)";
-}
-async function pathExists(targetPath) {
-  try {
-    await import_promises3.default.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function resolveIproxyCommand() {
-  const fromEnv = process.env.ADA_IPROXY_PATH?.trim();
-  if (fromEnv) return fromEnv;
-  const libDir = process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim() || (process.env.ADA_TOOLS_DIR ? import_node_path5.default.join(process.env.ADA_TOOLS_DIR, "libimobiledevice") : "");
-  if (libDir) {
-    const candidate = import_node_path5.default.join(libDir, process.platform === "win32" ? "iproxy.exe" : "iproxy");
-    if (await pathExists(candidate)) return candidate;
-  }
-  if (await commandExists("iproxy")) return "iproxy";
-  return null;
-}
-function shouldUseShell(command) {
-  return process.platform === "win32" && !command.includes("/") && !command.includes("\\");
-}
-function runCommandCapture2(command, args, timeoutMs = 15e3) {
-  return new Promise((resolve) => {
-    const child = (0, import_node_child_process2.spawn)(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: shouldUseShell(command),
-      ...process.platform === "win32" ? { windowsHide: true } : {}
-    });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve({ code: -1, stdout, stderr: stderr || "timeout" });
-    }, timeoutMs);
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("exit", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
-    });
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolve({ code: 1, stdout: "", stderr: "" });
-    });
-  });
-}
-async function isIosSimulatorUdid(udid) {
-  const id = udid.trim();
-  if (!id || process.platform !== "darwin") return false;
-  const sim = await runCommandCapture2("xcrun", ["simctl", "list", "devices", "available"]);
-  if (sim.code !== 0) return false;
-  return new RegExp(`\\(${id}\\)`, "i").test(sim.stdout);
-}
-function iproxyKey(udid, localPort, devicePort) {
-  return `${udid || "*"}:${localPort}:${devicePort}`;
-}
-async function ensureIosIproxyForward(options) {
-  const devicePort = options?.devicePort ?? defaultWdaDevicePort();
-  let udid = options?.udid?.trim() ?? "";
-  if (!udid) {
-    udid = await resolveIosDeviceUdid();
-  }
-  const localPort = options?.localPort ?? resolveWdaLocalPortForUdid(udid);
-  const serverUrl = wdaServerUrlForLocalPort(localPort);
-  const log = options?.onLogLine;
-  if (!isIosIproxyHostSupported()) {
-    return {
-      forwarded: false,
-      skipped: true,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: "iproxy requires macOS or Windows host"
-    };
-  }
-  if (iosIproxyDisabled()) {
-    return {
-      forwarded: false,
-      skipped: true,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: "iproxy disabled (ADA_IOS_IPROXY_DISABLED=1)"
-    };
-  }
-  if (!udid) {
-    return {
-      forwarded: false,
-      skipped: true,
-      localPort,
-      devicePort,
-      udid: "",
-      serverUrl,
-      detail: "no iOS device UDID (connect device or set ADA_IOS_DEVICE_UDID)"
-    };
-  }
-  if (await isIosSimulatorUdid(udid)) {
-    return {
-      forwarded: false,
-      skipped: true,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: `simulator ${udid} (iproxy not needed)`
-    };
-  }
-  const key = iproxyKey(udid, localPort, devicePort);
-  if (iproxyChildren.has(key)) {
-    return {
-      forwarded: true,
-      skipped: false,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: `iproxy already active ${localPort}->${devicePort} udid=${udid}`
-    };
-  }
-  if (await isTcpPortOpen("127.0.0.1", localPort, 800)) {
-    return {
-      forwarded: true,
-      skipped: false,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: `local port ${localPort} already open (assuming iproxy/WDA)`
-    };
-  }
-  const iproxyCmd = await resolveIproxyCommand();
-  if (!iproxyCmd) {
-    return {
-      forwarded: false,
-      skipped: false,
-      localPort,
-      devicePort,
-      udid,
-      serverUrl,
-      detail: `iproxy not found in PATH (${iproxyInstallHint()})`
-    };
-  }
-  const args = [String(localPort), String(devicePort), "-u", udid];
-  log?.(`[ios-iproxy] ${iproxyCmd} ${args.join(" ")}`);
-  const child = (0, import_node_child_process2.spawn)(iproxyCmd, args, {
-    stdio: "ignore",
-    detached: true,
-    shell: shouldUseShell(iproxyCmd),
-    ...process.platform === "win32" ? { windowsHide: true } : {}
-  });
-  child.unref();
-  if (child.pid) {
-    iproxyChildren.set(key, child.pid);
-  }
-  await new Promise((r) => setTimeout(r, 600));
-  const open = await isTcpPortOpen("127.0.0.1", localPort, 1500);
-  return {
-    forwarded: open,
-    skipped: false,
-    localPort,
-    devicePort,
-    udid,
-    serverUrl,
-    detail: open ? `iproxy ${localPort}->${devicePort} udid=${udid}` : `iproxy started but 127.0.0.1:${localPort} not open yet`
-  };
-}
-async function probeIosWdaRuntime(options) {
-  let udid = options?.udid?.trim() ?? "";
-  if (!udid) {
-    udid = await resolveIosDeviceUdid();
-  }
-  let wdaUrl = (options?.serverUrl ?? defaultWdaServerUrl()).replace(/\/$/, "");
-  let forwarded = false;
-  if (options?.ensureForward !== false && udid && !await isIosSimulatorUdid(udid)) {
-    const fwd = await ensureIosIproxyForward({ udid });
-    forwarded = fwd.forwarded;
-    if (!options?.serverUrl) {
-      wdaUrl = fwd.serverUrl;
-      process.env.ADA_WDA_SERVER_URL = wdaUrl;
-    }
-  }
-  const wda = await probeWdaStatus(wdaUrl);
-  let detail = wda.detail;
-  if (forwarded && !wda.reachable) {
-    const bootstrapHint = process.platform === "darwin" ? "use --install-deps=ios or ADA_IOS_WDA_BOOTSTRAP=true" : "ensure WDA is installed on device (bootstrap requires macOS)";
-    detail += ` (iproxy applied; WDA may not be running on device \u2014 ${bootstrapHint})`;
-  } else if (!forwarded && udid && !await isIosSimulatorUdid(udid) && !iosIproxyDisabled()) {
-    const iproxyCmd = await resolveIproxyCommand();
-    if (!iproxyCmd) {
-      detail += ` (${iproxyInstallHint()})`;
-    }
-  }
-  return {
-    wdaUrl,
-    reachable: wda.reachable,
-    ready: wda.ready,
-    forwarded,
-    udid,
-    detail,
-    status: wda.status
-  };
-}
-var import_node_child_process2, import_promises3, import_node_path5, iproxyChildren;
-var init_ios_iproxy = __esm({
-  "../../packages/runtime-probe/src/ios-iproxy.ts"() {
-    "use strict";
-    import_node_child_process2 = require("node:child_process");
-    import_promises3 = __toESM(require("node:fs/promises"), 1);
-    import_node_path5 = __toESM(require("node:path"), 1);
-    init_runtime_probe();
-    init_ios_wda_probe();
-    init_android_uia2_probe();
-    iproxyChildren = /* @__PURE__ */ new Map();
-  }
-});
-
-// ../../packages/runtime-probe/src/runtime-probe.ts
-async function commandExists(command) {
-  return new Promise((resolve) => {
-    const checker = process.platform === "win32" ? "where" : "which";
-    const child = (0, import_node_child_process3.spawn)(checker, [command], {
-      stdio: "ignore",
-      shell: process.platform === "win32"
-    });
-    child.on("exit", (code) => resolve(code === 0));
-    child.on("error", () => resolve(false));
-  });
-}
-async function isTcpPortOpen(host, port, timeoutMs = 2e3) {
-  return new Promise((resolve) => {
-    const socket = import_node_net.default.connect({ host, port });
-    const done = (ok) => {
-      socket.removeAllListeners();
-      socket.destroy();
-      resolve(ok);
-    };
-    socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
-    socket.setTimeout(timeoutMs, () => done(false));
-  });
-}
-var import_node_net, import_node_child_process3;
-var init_runtime_probe = __esm({
-  "../../packages/runtime-probe/src/runtime-probe.ts"() {
-    "use strict";
-    import_node_net = __toESM(require("node:net"), 1);
-    import_node_child_process3 = require("node:child_process");
-    init_ios_iproxy();
-  }
-});
-
-// ../../packages/runtime-probe/src/ios-idevice-probe.ts
-var init_ios_idevice_probe = __esm({
-  "../../packages/runtime-probe/src/ios-idevice-probe.ts"() {
-    "use strict";
-    init_runtime_probe();
-  }
-});
-
-// ../../packages/runtime-probe/src/device-scan.ts
-var init_device_scan = __esm({
-  "../../packages/runtime-probe/src/device-scan.ts"() {
-    "use strict";
-    init_android_uia2_probe();
-  }
-});
-
-// ../../packages/runtime-probe/src/device-registry.ts
-var init_device_registry = __esm({
-  "../../packages/runtime-probe/src/device-registry.ts"() {
-    "use strict";
-    init_device_scan();
-  }
-});
-
-// ../../packages/runtime-probe/src/device-display.ts
-var init_device_display = __esm({
-  "../../packages/runtime-probe/src/device-display.ts"() {
-    "use strict";
-  }
-});
-
-// ../../packages/runtime-probe/src/device-params-guide.ts
-var init_device_params_guide = __esm({
-  "../../packages/runtime-probe/src/device-params-guide.ts"() {
-    "use strict";
-    init_device_display();
-  }
-});
-
-// ../../packages/runtime-probe/src/index.ts
-var init_src3 = __esm({
-  "../../packages/runtime-probe/src/index.ts"() {
-    init_runtime_probe();
-    init_android_uia2_probe();
-    init_ios_wda_probe();
-    init_ios_iproxy();
-    init_ios_idevice_probe();
-    init_device_scan();
-    init_device_registry();
-    init_device_display();
-    init_device_params_guide();
   }
 });
 
@@ -917,7 +1010,7 @@ var init_android_uia2_bootstrap = __esm({
   "../../packages/install-deps/src/android-uia2-bootstrap.ts"() {
     "use strict";
     init_tools_paths();
-    init_src3();
+    init_src();
   }
 });
 
@@ -1055,7 +1148,7 @@ var init_ios_wda_bootstrap = __esm({
     import_node_path6 = __toESM(require("node:path"), 1);
     import_node_child_process4 = require("node:child_process");
     init_tools_paths();
-    init_src3();
+    init_src();
     PINNED_WDA_REPO = "https://github.com/appium/WebDriverAgent.git";
   }
 });
@@ -1073,7 +1166,7 @@ var init_ios_libimobiledevice_install = __esm({
 var init_ios_idevice_bootstrap = __esm({
   "../../packages/install-deps/src/ios-idevice-bootstrap.ts"() {
     "use strict";
-    init_src3();
+    init_src();
     init_ios_libimobiledevice_install();
     init_tools_paths();
   }
@@ -1094,11 +1187,11 @@ var init_dependency_installer = __esm({
     init_log_locale();
     init_download_probe_persist();
     init_registry_probe();
-    init_src2();
-    init_src2();
+    init_src3();
+    init_src3();
     init_playwright_browser_install();
     init_playwright_browsers_discovery();
-    init_src3();
+    init_src();
     init_android_uia2_bootstrap();
     init_ios_wda_bootstrap();
     init_ios_libimobiledevice_install();
@@ -1119,8 +1212,13 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // ../../plugins/driver-ios/src/session-signature.ts
+init_src();
 function serverUrlOf(payload) {
-  return String(payload.serverUrl ?? process.env.ADA_WDA_SERVER_URL ?? "http://127.0.0.1:8100").replace(/\/$/, "");
+  const fromPayload = payload.serverUrl;
+  if (typeof fromPayload === "string" && fromPayload.trim()) {
+    return fromPayload.replace(/\/$/, "");
+  }
+  return defaultWdaServerUrl();
 }
 function capsOf(payload) {
   const base = { ...payload.capabilities ?? {} };
@@ -1140,7 +1238,7 @@ function iosSessionSignature(payload) {
 }
 
 // ../../packages/driver-rpc/src/session-defaults.ts
-init_src();
+init_src2();
 
 // ../../packages/driver-rpc/src/fill-search-options.ts
 function asStringList(v) {
@@ -2472,7 +2570,7 @@ init_ios_libimobiledevice_install();
 init_platform_support();
 
 // ../../packages/install-deps/src/mobile-server-restart.ts
-init_src3();
+init_src();
 init_android_uia2_bootstrap();
 init_ios_wda_bootstrap();
 async function restartIosWdaServer(options) {
@@ -2483,10 +2581,10 @@ async function restartIosWdaServer(options) {
 }
 
 // ../../packages/install-deps/src/task-runtime-probe.ts
-init_src3();
+init_src();
 
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
-init_src3();
+init_src();
 var import_promises6 = __toESM(require("node:fs/promises"), 1);
 var import_node_path9 = __toESM(require("node:path"), 1);
 
@@ -3137,6 +3235,7 @@ async function executeInvoke(session, command, payload, recoverSession) {
       "invoke requires http.method and http.path (or legacy custom.method/path)"
     );
   }
+  const udid = String(capsOf(payload).udid ?? "").trim();
   return executeMobileHttpInvoke(command, {
     baseUrl: session.serverUrl,
     sessionId: session.sessionId,
@@ -3144,7 +3243,10 @@ async function executeInvoke(session, command, payload, recoverSession) {
     driver: "ios",
     platform: "ios",
     recoverSession,
-    restartServer: () => restartIosWdaServer(),
+    restartServer: async () => {
+      await ensureIosIproxyForward({ udid: udid || void 0 });
+      return restartIosWdaServer();
+    },
     lastServerRestartAt: WdaClientAdapter.lastServerRestartAt
   });
 }
@@ -3161,8 +3263,12 @@ var WdaClientAdapter = class _WdaClientAdapter {
     session.elementCache = fresh.elementCache;
   }
   bindWdaFetch(session, payload) {
+    const udid = String(capsOf(payload).udid ?? "").trim();
     const recoverSession = () => this.recoverWdaSession(session, payload);
-    const restartServer = () => restartIosWdaServer();
+    const restartServer = async () => {
+      await ensureIosIproxyForward({ udid: udid || void 0 });
+      return restartIosWdaServer();
+    };
     return (method, url, body) => withMobileHttpRecovery(() => fetchWebDriverJson(method, url, body), {
       recoverSession,
       restartServer,
@@ -3170,11 +3276,16 @@ var WdaClientAdapter = class _WdaClientAdapter {
     });
   }
   async createWdaSession(serverUrl, payload) {
+    const udid = String(capsOf(payload).udid ?? "").trim();
+    const restartServer = async () => {
+      await ensureIosIproxyForward({ udid: udid || void 0 });
+      return restartIosWdaServer();
+    };
     const res = await withMobileHttpRecovery(
       () => fetchWebDriverJson("POST", `${serverUrl}/session`, { capabilities: capsOf(payload) }),
       {
         recoverSession: async () => void 0,
-        restartServer: () => restartIosWdaServer(),
+        restartServer,
         lastServerRestartAt: _WdaClientAdapter.lastServerRestartAt
       }
     );
@@ -3197,8 +3308,8 @@ var WdaClientAdapter = class _WdaClientAdapter {
     const caps = capsOf(payload);
     const udid = String(caps.udid ?? "").trim();
     const fwd = await ensureIosIproxyForward({ udid: udid || void 0 });
-    if (fwd.serverUrl && !payload.serverUrl && !process.env.ADA_WDA_SERVER_URL?.trim()) {
-      process.env.ADA_WDA_SERVER_URL = fwd.serverUrl;
+    if (!payload.serverUrl) {
+      syncWdaServerUrlEnv(fwd.serverUrl);
     }
     const serverUrl = serverUrlOf(payload);
     return this.createWdaSession(serverUrl, payload);

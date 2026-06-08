@@ -74,7 +74,8 @@ const SEMANTIC_COMMANDS = [
   "back",
   "reload",
   "closeTab",
-  "custom"
+  "custom",
+  "recipe"
 ] as const;
 
 async function loadPlaywrightModule(): Promise<any> {
@@ -114,6 +115,7 @@ import {
   resolveAutoWaitMs,
   summarizeLocator
 } from "./playwright-locator.js";
+import { executeClickPath, waitAfterNavigation } from "./web-interaction-recipe.js";
 
 function parseHeadless(payload?: Record<string, unknown>): boolean {
   return resolvePlaywrightHeadless(payload);
@@ -712,7 +714,9 @@ const playwrightPlugin: DriverPlugin = {
           });
         }
         await autoWaitEnabled(locator, waitMs);
+        const beforeClickUrl = page.url();
         await locator.click({ timeout: waitMs });
+        await waitAfterNavigation(page, effective, beforeClickUrl);
       } else if (command.command === "hover") {
         if (!locator) {
           return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `hover requires locator. ${LOCATOR_FORMAT_HINT}`, {
@@ -898,6 +902,16 @@ const playwrightPlugin: DriverPlugin = {
             browser: pw.browserKind
           }
         };
+      } else if (command.command === "recipe") {
+        const action = getString(payload?.action)?.toLowerCase();
+        if (action === "clickpath") {
+          return executeClickPath(command, page, payload);
+        }
+        return failResult(
+          command,
+          "UNSUPPORTED_COMMAND",
+          `unsupported web recipe action: ${action ?? "(missing)"}; use ada_extract mode=viewTree for observation`
+        );
       } else if (command.command === "custom") {
         const action = getString(payload?.action)?.toLowerCase();
         if (action === "invoke" || (payload?.method && !action)) {

@@ -1,5 +1,7 @@
+import { stopAllIosIproxyForwards } from "@ada/runtime-probe";
 import type { AdaPlatform } from "./mcp-normalize.js";
-import { clearWebSessionTrack } from "./mcp-session-liveness.js";
+import { clearActionLedger, clearAllActionLedgers } from "./mcp-action-ledger.js";
+import { clearAllWebSessionTracks, clearWebSessionTrack } from "./mcp-session-liveness.js";
 
 export function handlePlugins(
   deps: {
@@ -53,6 +55,7 @@ export async function handleCloseSession(
   const closed = await deps.closeSession(platform, sessionId, { engine, payload });
   if (closed && platform === "web") {
     clearWebSessionTrack(sessionId);
+    clearActionLedger(sessionId);
   }
   return deps.mcpTextResult({ status: "ok", closed, platform, sessionId, engine });
 }
@@ -64,7 +67,10 @@ export async function handleCloseAllSessions(
   }
 ): Promise<any> {
   const closed = await deps.closeAllSessions();
-  return deps.mcpTextResult({ status: "ok", closed });
+  clearAllWebSessionTracks();
+  clearAllActionLedgers();
+  const iproxyStopped = stopAllIosIproxyForwards();
+  return deps.mcpTextResult({ status: "ok", closed, iproxyStopped });
 }
 
 export function handleRiskPolicy(

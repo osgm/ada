@@ -30,6 +30,7 @@ import {
 } from "@ada/install-deps";
 
 import { isBootstrapInstallActive, scheduleBootstrapInstallDeps, setBootstrapLogEmitter } from "@ada/agent/bootstrap-deps";
+import { stopAllIosIproxyForwards } from "@ada/runtime-probe";
 import { ensureWinConsoleUtf8 } from "./console-encoding.js";
 import {
   mcpEmitInstallProgress,
@@ -44,7 +45,6 @@ import {
   closeSession,
   listActiveSessions,
   runCommand,
-  runTaskset,
   shutdownExecutor
 } from "./executor.js";
 import { buildAdaMcpToolDefinitions } from "./mcp-tool-definitions.js";
@@ -63,6 +63,7 @@ import {
   shouldPreflightSession
 } from "./mcp-action-runner.js";
 import { handleMobileAction, handleMobileRecipe, handleWebAction } from "./mcp-actions.js";
+import { handleWebRecipe } from "./mcp-web-recipe.js";
 import { handleMobileDismissPopups, handleWebDismissPopups } from "./mcp-dismiss-popups.js";
 import {
   handleCloseAllSessions,
@@ -555,6 +556,11 @@ async function gracefulShutdown(reason: string): Promise<void> {
   } catch (error) {
     mcpLog("error", `shutdownExecutor: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
+    try {
+      stopAllIosIproxyForwards();
+    } catch {
+      // best-effort
+    }
     process.exit(0);
   }
 }
@@ -740,7 +746,7 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
     return handleRunTaskFile(args, {
       resolveTaskPath: (file) => (path.isAbsolute(file) ? file : path.resolve(process.cwd(), file)),
       loadTaskFile,
-      runTaskset,
+      runCommand,
       parseMonitorOptions,
       runMonitorCapture,
       allowMock,
@@ -778,6 +784,18 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
       runCommand,
       runMonitorCapture,
       parseMonitorOptions,
+      assertRealResult,
+      wrapCommandToolResult
+    });
+  }
+  if (tool === "ada_web_recipe") {
+    return handleWebRecipe(args, {
+      toCommandEnvelope,
+      allowMock,
+      ensureWebRuntimeReady,
+      ensureSessionActive,
+      ensureWebPageReady: ensureWebPageReadyForTool,
+      runCommand,
       assertRealResult,
       wrapCommandToolResult
     });

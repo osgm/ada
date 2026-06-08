@@ -6,6 +6,13 @@ export {
 } from "./runtime-probe.js";
 export type { IosRuntimeProbe } from "./runtime-probe.js";
 export {
+  defaultAndroidLocalHost,
+  hasExplicitUia2ServerUrlEnv,
+  resolveUia2UrlAfterForward,
+  syncUia2ServerUrlEnv,
+  uia2ServerUrlForLocalPort
+} from "./android-uia2-endpoint.js";
+export {
   defaultUia2DevicePort,
   defaultUia2LocalPort,
   defaultUia2ServerUrl,
@@ -26,16 +33,27 @@ export {
   wdaBootstrapEnabled
 } from "./ios-wda-probe.js";
 export {
+  defaultWdaLocalHost,
+  hasExplicitWdaServerUrlEnv,
+  loopbackHostsForProbe,
+  resolveWdaUrlAfterForward,
+  syncWdaServerUrlEnv,
+  wdaServerUrlForLocalPort
+} from "./ios-wda-endpoint.js";
+export {
   defaultWdaDevicePort,
   defaultWdaLocalPort,
   ensureIosIproxyForward,
   iosIproxyDisabled,
   isIosIproxyHostSupported,
+  isIosPhysicalDeviceUdid,
   isIosSimulatorUdid,
+  isLocalPortReachable,
   probeIosWdaRuntime,
   resolveIproxyCommand,
   resolveWdaLocalPortForUdid,
-  wdaServerUrlForLocalPort
+  waitForLocalPortReachable,
+  stopAllIosIproxyForwards
 } from "./ios-iproxy.js";
 export { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "./ios-idevice-probe.js";
 export type {

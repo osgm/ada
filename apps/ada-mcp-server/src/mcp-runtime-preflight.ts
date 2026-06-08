@@ -137,18 +137,24 @@ export async function ensureMobileRuntimeReady(
       if (process.platform === "darwin" && !ios.xcrunOk) {
         throw new Error("iOS runtime not ready: xcrun not found (install Xcode Command Line Tools)");
       }
-      if (process.platform === "win32") {
+      if (process.platform === "win32" || process.platform === "darwin") {
         const hasUdidEnv = Boolean(process.env.ADA_IOS_DEVICE_UDID?.trim());
-        const ideviceIdOk = await commandExists("idevice_id");
-        if (!ideviceIdOk && !hasUdidEnv) {
-          throw new Error(
-            "iOS runtime not ready: idevice_id not found (install libimobiledevice for Windows; connect iPhone via USB)"
-          );
+        if (process.platform === "win32") {
+          const ideviceIdOk = await commandExists("idevice_id");
+          if (!ideviceIdOk && !hasUdidEnv) {
+            throw new Error(
+              "iOS runtime not ready: idevice_id not found (install libimobiledevice for Windows; connect iPhone via USB)"
+            );
+          }
         }
         if (!iosIproxyDisabled()) {
           const iproxyOk = await commandExists("iproxy");
           if (!iproxyOk) {
-            throw new Error("iOS runtime not ready: iproxy not found (install libimobiledevice for Windows)");
+            const hint =
+              process.platform === "win32"
+                ? "install libimobiledevice for Windows"
+                : "brew install libimobiledevice";
+            throw new Error(`iOS runtime not ready: iproxy not found (${hint})`);
           }
         }
       }

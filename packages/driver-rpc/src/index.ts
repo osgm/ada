@@ -276,6 +276,26 @@ export {
 export { UiDumpCache, readUiDumpCacheTtlMs, shouldInvalidateDumpOnAction } from "./ui-dump-cache.js";
 export { RECIPE_ERROR_CODES, platformRecipeErrorCode, recipeErrorCodeForAction } from "./recipe-errors.js";
 export {
+  WEB_VIEW_SCRIPT,
+  WEB_OBSERVE_CONTROLS_SCRIPT,
+  WEB_INTERACTION_ERROR_CODES,
+  normalizeControlPath,
+  normalizeRecipeAction,
+  resolveExpandStrategy,
+  findControlByPath,
+  findControlsByHref,
+  findControlsByName,
+  parseWebViewSnapshot,
+  applyControlFilters,
+  shapeViewTreeExtract,
+  type ExpandStrategy,
+  type ControlObserveItem,
+  type ControlObserveResult,
+  type WebViewSnapshot,
+  type ViewTreeDetail,
+  type WebInteractionErrorCode
+} from "./web-interaction-recipe.js";
+export {
   mergeSmartWait,
   parseSmartWaitFromPayload,
   recipeSettleDelay,

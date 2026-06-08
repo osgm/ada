@@ -1,4 +1,5 @@
 import type { CommandResult } from "@ada/contracts";
+import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-ledger.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 
 type McpResult = ReturnType<
@@ -133,17 +134,23 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
       attempts += 1;
       const isLastAction = i === actions.length - 1;
       const rawPayload = deps.asRecord(item.payload);
+      const payload =
+        platform === "android" || platform === "ios" || platform === "harmony"
+          ? { ...rawPayload, keepSession: !isLastAction }
+          : rawPayload;
+      guardWebCommandIfNeeded(platform, sessionId, command, payload);
       const envelope = deps.toCommandEnvelope(
         {
           requestId: item.requestId ?? `batch-${Date.now()}-${i}-a${attempts}`,
           sessionId,
           platform,
           command,
-          payload: platform === "android" || platform === "ios" || platform === "harmony" ? { ...rawPayload, keepSession: !isLastAction } : rawPayload
+          payload
         },
         deps.allowMock(args)
       );
       result = await deps.withTiming(`batch-action(${platform}:${command})`, () => deps.executeWithTimeout(envelope, timeoutMs));
+      recordWebCommandIfNeeded(platform, sessionId, command, payload, result);
       if (result.success) {
         break;
       }

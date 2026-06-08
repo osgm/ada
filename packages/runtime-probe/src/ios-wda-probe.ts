@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { defaultWdaServerUrl } from "./ios-wda-endpoint.js";
+
+export { defaultWdaServerUrl };
 
 export function iosUseSimulator(): boolean {
   return ["1", "true", "yes"].includes((process.env.ADA_IOS_USE_SIMULATOR ?? "").trim().toLowerCase());
@@ -36,10 +39,6 @@ function runCommandCapture(
       resolve({ code: 1, stdout: "", stderr: "" });
     });
   });
-}
-
-export function defaultWdaServerUrl(): string {
-  return (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100").replace(/\/$/, "");
 }
 
 export function wdaBootstrapEnabled(): boolean {

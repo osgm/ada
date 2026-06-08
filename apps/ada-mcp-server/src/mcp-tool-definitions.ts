@@ -206,6 +206,44 @@ function buildAllAdaMcpToolDefinitions(): Array<{
       }
     },
     {
+      name: "ada_web_recipe",
+      description:
+        "L2 web recipe: clickPath (path expand+click+waitNavigation). " +
+        "Observation → ada_extract mode=viewTree. ARGS: sessionId, action=clickPath, path, strategy=auto|hover|click.",
+      inputSchema: {
+        type: "object",
+        title: "ada_web_recipe_input",
+        properties: {
+          sessionId: sessionIdField("web"),
+          requestId: requestIdField(),
+          action: {
+            type: "string",
+            enum: ["clickPath"],
+            description: "clickPath=expand path then activate leaf"
+          },
+          path: {
+            type: "array",
+            items: { type: "string" },
+            description: "clickPath labels from root to leaf; empty string uses triggerNth fallback"
+          },
+          strategy: {
+            type: "string",
+            enum: ["auto", "hover", "click"],
+            description: "Expand strategy for popup triggers (auto uses layout/heuristics)"
+          },
+          waitNavigation: {
+            type: "boolean",
+            description: "clickPath: wait for URL change after leaf activation (default true)"
+          },
+          payload: payloadProperty(),
+          allowMock: allowMockField(),
+          riskApproved: riskApprovedField()
+        },
+        required: ["action"],
+        additionalProperties: false
+      }
+    },
+    {
       name: "ada_web_dismiss_popups",
       description:
         "Dismiss web dialogs (ok if POPUP_NOT_FOUND). Prefer over click loops for 关闭/×. ARGS: sessionId, timeoutMs.",
@@ -548,7 +586,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_extract",
       description:
-        "Extract web text/list/table/viewTree. Not assertions → ada_assertions. ARGS: sessionId, mode=text|list|table|viewTree, payload.",
+        "Extract web text/list/table/viewTree. viewTree returns semantic tree + flat controls (path/triggerKind). " +
+        "Not assertions → ada_assertions. ARGS: sessionId, mode=text|list|table|viewTree, payload.",
       inputSchema: {
         type: "object",
         properties: {
@@ -556,9 +595,12 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           mode: {
             type: "string",
             enum: ["text", "list", "table", "viewTree"],
-            description: "Extraction shape: text, list, table rows, or semantic viewTree snapshot"
+            description: "viewTree: semantic tree + flat controls; payload.detail=tree|controls|full (default full)"
           },
-          payload: { type: "object", description: "CSS/xpath/locator and extraction options" },
+          payload: {
+            type: "object",
+            description: "viewTree: detail, href, name filters; other modes: CSS/xpath/locator options"
+          },
           allowMock: allowMockField(),
           riskApproved: riskApprovedField()
         },

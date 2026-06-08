@@ -1,12 +1,32 @@
 import { spawn } from "node:child_process";
+import {
+  defaultUia2ServerUrl,
+  resolveUia2UrlAfterForward,
+  syncUia2ServerUrlEnv
+} from "./android-uia2-endpoint.js";
+import { defaultWdaServerUrl } from "./ios-wda-endpoint.js";
 
-export function defaultUia2ServerUrl(): string {
-  return (process.env.ADA_ANDROID_UIA2_SERVER_URL?.trim() || "http://127.0.0.1:8200").replace(/\/$/, "");
-}
+export {
+  defaultUia2ServerUrl,
+  resolveUia2UrlAfterForward,
+  uia2ServerUrlForLocalPort,
+  syncUia2ServerUrlEnv
+} from "./android-uia2-endpoint.js";
 
 export function defaultUia2LocalPort(): number {
-  const fromEnv = Number(process.env.ADA_ANDROID_UIA2_LOCAL_PORT ?? "8200");
-  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 8200;
+  const fromEnv = process.env.ADA_ANDROID_UIA2_LOCAL_PORT?.trim();
+  if (fromEnv) {
+    const n = Number(fromEnv);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  try {
+    const parsed = new URL(defaultUia2ServerUrl());
+    const port = Number(parsed.port || 8200);
+    if (Number.isFinite(port) && port > 0) return port;
+  } catch {
+    // ignore
+  }
+  return 8200;
 }
 
 export function defaultUia2DevicePort(): number {
@@ -83,7 +103,7 @@ export async function probeAndroidUia2Runtime(options?: {
   detail: string;
   status?: Record<string, unknown>;
 }> {
-  const serverUrl = (options?.serverUrl ?? defaultUia2ServerUrl()).replace(/\/$/, "");
+  let serverUrl = (options?.serverUrl ?? defaultUia2ServerUrl()).replace(/\/$/, "");
   let forwarded = false;
   if (options?.ensureForward !== false) {
     const serial = await resolveAndroidDeviceSerial(options?.serial);
@@ -92,6 +112,10 @@ export async function probeAndroidUia2Runtime(options?: {
       const devicePort = defaultUia2DevicePort();
       const fwd = await runAdbCapture(serial, ["forward", `tcp:${localPort}`, `tcp:${devicePort}`]);
       forwarded = fwd.ok;
+      if (forwarded && !options?.serverUrl) {
+        serverUrl = resolveUia2UrlAfterForward({ localPort }, options?.serverUrl);
+        syncUia2ServerUrlEnv(serverUrl);
+      }
     }
   }
   const status = await fetchMobileStatus(serverUrl);
@@ -117,7 +141,7 @@ export async function probeWdaStatus(serverUrl?: string): Promise<{
   detail: string;
   status?: Record<string, unknown>;
 }> {
-  const wdaUrl = (serverUrl ?? (process.env.ADA_WDA_SERVER_URL?.trim() || "http://127.0.0.1:8100")).replace(/\/$/, "");
+  const wdaUrl = (serverUrl ?? defaultWdaServerUrl()).replace(/\/$/, "");
   const status = await fetchMobileStatus(wdaUrl);
   const value = (status.body?.value ?? status.body) as Record<string, unknown> | undefined;
   const ready = Boolean(status.ok && (value?.ready === true || value?.state === "success" || status.ok));

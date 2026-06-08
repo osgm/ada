@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.83",
+  "version": "0.1.84",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "private": false,
   "type": "commonjs",

@@ -1,13 +1,18 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-ledger.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import type { MonitorOptions } from "./monitoring.js";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
 
 export async function handleRunTaskFile(
   args: Record<string, unknown>,
   deps: {
     resolveTaskPath: (file: string) => string;
     loadTaskFile: (taskPath: string) => Promise<CommandEnvelope[]>;
-    runTaskset: (tasks: CommandEnvelope[]) => Promise<CommandResult[]>;
+    runCommand: (command: CommandEnvelope) => Promise<CommandResult>;
     parseMonitorOptions: (args: Record<string, unknown>) => MonitorOptions;
     runMonitorCapture: (command: CommandEnvelope, result: CommandResult, options: MonitorOptions) => Promise<void> | void;
     allowMock: (args: Record<string, unknown>) => boolean;
@@ -22,7 +27,14 @@ export async function handleRunTaskFile(
   }
   const taskPath = deps.resolveTaskPath(file);
   const tasks = await deps.loadTaskFile(taskPath);
-  const results = await deps.runTaskset(tasks);
+  const results: CommandResult[] = [];
+  for (const task of tasks) {
+    const payload = asRecord(task.payload);
+    guardWebCommandIfNeeded(task.platform, task.sessionId, task.command, payload);
+    const result = await deps.runCommand(task);
+    recordWebCommandIfNeeded(task.platform, task.sessionId, task.command, payload, result);
+    results.push(result);
+  }
   const monitor = deps.parseMonitorOptions(args);
   const monitorJobs: Promise<void>[] = [];
   for (let i = 0; i < tasks.length; i += 1) {
@@ -70,8 +82,11 @@ export async function handleExecute(
 ): Promise<any> {
   deps.ensureRiskAllowed(deps.normalizeCommand(args.command), args);
   const command = deps.toCommandEnvelope(args, deps.allowMock(args));
+  const payload = asRecord(command.payload);
+  guardWebCommandIfNeeded(command.platform, command.sessionId, command.command, payload);
   await deps.withTiming(`ensureMobileRuntimeReady(${command.platform})`, () => deps.mobilePreflight(command.platform));
   const result = await deps.withTiming(`runCommand(${command.platform}:${command.command})`, () => deps.runCommand(command));
+  recordWebCommandIfNeeded(command.platform, command.sessionId, command.command, payload, result);
   const maybeJob = deps.runMonitorCapture(command, result, deps.parseMonitorOptions(args));
   if (maybeJob) {
     await maybeJob;
