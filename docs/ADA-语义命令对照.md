@@ -56,7 +56,6 @@
 | 项 | 替代 |
 |----|------|
 | `command: home` | `pressHome`（系统 Home 键） |
-| `ada_execute`（T3） | `ada_web_action` / `ada_mobile_action` |
 | 直接写 `custom.action: fill_search` | `recipe` 或 `ada_mobile_recipe` |
 
 ## 传输层

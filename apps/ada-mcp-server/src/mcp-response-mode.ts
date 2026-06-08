@@ -1,14 +1,10 @@
 import type { CommandResult } from "@ada/contracts";
+import { envTruthy, mcpVerboseResultFromEnv } from "@ada/core-runtime";
 
 /** Runtime overrides (from config/default.yaml `mcp:` or applyMcpRuntimeConfigFromRecord). */
 let configVerboseResult: boolean | undefined;
 let configExtractRaw: boolean | undefined;
 let configJsonPretty: boolean | undefined;
-
-function envTruthy(name: string): boolean {
-  const v = process.env[name];
-  return v === "1" || v === "true" || v === "yes";
-}
 
 /**
  * Full CommandResult in MCP tool responses (default: slim).
@@ -17,10 +13,7 @@ function envTruthy(name: string): boolean {
  * - `config mcp.verboseResult: true` → verbose (after applyMcpRuntimeConfigFromRecord)
  */
 export function isMcpVerboseResult(): boolean {
-  if (envTruthy("ADA_MCP_VERBOSE_RESULT")) {
-    return true;
-  }
-  if (process.env.ADA_MCP_SLIM_RESULT === "0") {
+  if (mcpVerboseResultFromEnv()) {
     return true;
   }
   if (configVerboseResult === true) {
@@ -86,6 +79,7 @@ const MAX_INLINE_STRING = 1200;
 const MAX_STRUCTURED_STRING = 8000;
 const MAX_STRUCTURED_ARRAY = 100;
 const MAX_STRUCTURED_ARRAY_PREVIEW = 50;
+const MAX_STRUCTURED_DEPTH = 8;
 
 /** Keys whose values must stay machine-consumable in slim mode (evaluate/invoke/extract). */
 const STRUCTURED_RESULT_KEYS = new Set(["value", "items", "nodes", "root"]);
@@ -95,7 +89,10 @@ function isStructuredResultKey(key: string): boolean {
   return /^value\[\d+\]$/.test(key) || /^items\[\d+\]$/.test(key) || /^nodes\[\d+\]$/.test(key);
 }
 
-function slimStructuredValue(value: unknown, depth = 0): unknown {
+function slimStructuredValue(value: unknown, depth = 0, parentKey = ""): unknown {
+  if (depth >= MAX_STRUCTURED_DEPTH) {
+    return { _slim: true, reason: "max_depth" };
+  }
   if (value === null || value === undefined) {
     return value;
   }
@@ -110,21 +107,23 @@ function slimStructuredValue(value: unknown, depth = 0): unknown {
     return value;
   }
   if (Array.isArray(value)) {
-    if (value.length > MAX_STRUCTURED_ARRAY) {
+    const flatLike = parentKey === "flat" || parentKey === "matches" || parentKey === "tree";
+    const maxArray = flatLike ? Math.min(MAX_STRUCTURED_ARRAY, 80) : MAX_STRUCTURED_ARRAY;
+    if (value.length > maxArray) {
       return {
         _slim: true,
         length: value.length,
-        preview: value.slice(0, MAX_STRUCTURED_ARRAY_PREVIEW).map((item, idx) =>
-          slimStructuredValue(item, depth + 1)
+        preview: value.slice(0, MAX_STRUCTURED_ARRAY_PREVIEW).map((item) =>
+          slimStructuredValue(item, depth + 1, parentKey)
         )
       };
     }
-    return value.map((item) => slimStructuredValue(item, depth + 1));
+    return value.map((item) => slimStructuredValue(item, depth + 1, parentKey));
   }
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = slimStructuredValue(v, depth + 1);
+      out[k] = slimStructuredValue(v, depth + 1, k);
     }
     return out;
   }

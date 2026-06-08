@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildAdaMcpToolDefinitions } from "../apps/ada-mcp-server/src/mcp-tool-definitions.ts";
+import { buildAdaMcpToolDefinitions } from "@ada-mcp/mcp-server/testing";
 import {
   buildRecoveryHint,
   getToolTier,
   MCP_TOOL_LIST_ORDER,
   shouldHideAdvancedTools
-} from "../apps/ada-mcp-server/src/mcp-tool-tiers.ts";
+} from "@ada-mcp/mcp-server/testing";
 
 describe("mcp-tool-catalog", () => {
   const getT3Names = (names: string[]) => names.filter((name) => getToolTier(name) === "T3");
@@ -20,7 +20,7 @@ describe("mcp-tool-catalog", () => {
       assert.equal(shouldHideAdvancedTools(), false);
       const tools = buildAdaMcpToolDefinitions();
       const names = tools.map((tool) => tool.name);
-      assert.equal(names.length, 26);
+      assert.equal(names.length, 25);
       for (const advanced of getT3Names(names)) {
         assert.ok(names.includes(advanced), `missing advanced tool: ${advanced}`);
       }
@@ -40,7 +40,7 @@ describe("mcp-tool-catalog", () => {
     try {
       const names = buildAdaMcpToolDefinitions().map((tool) => tool.name);
       assert.equal(names.length, 23);
-      for (const advanced of ["ada_execute", "ada_invoke", "ada_risk_policy"]) {
+      for (const advanced of ["ada_invoke", "ada_risk_policy"]) {
         assert.equal(names.includes(advanced), false, `T3 tool should be hidden: ${advanced}`);
       }
     } finally {
@@ -74,7 +74,7 @@ describe("mcp-tool-catalog", () => {
     }
   });
 
-  it("buildRecoveryHint guides retry before invoke", () => {
+  it("buildRecoveryHint guides observe before invoke", () => {
     const hint = buildRecoveryHint({
       tool: "ada_web_action",
       envelope: {
@@ -87,7 +87,7 @@ describe("mcp-tool-catalog", () => {
       result: { requestId: "r1", success: false, errorMessage: "element not found" },
       errorKind: "command_failed"
     });
-    assert.match(hint, /ada_web_action/);
+    assert.match(hint, /ada_extract/);
     assert.match(hint, /ada_invoke/);
   });
 

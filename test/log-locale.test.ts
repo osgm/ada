@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { depsLogLine, localizeAdaLogLine } from "../packages/install-deps/src/log-locale.js";
+import { depsLogLine, localizeAdaLogLine } from "@ada/install-deps";
 
 const prevPlatform = process.platform;
 const prevLocale = process.env.ADA_MCP_LOG_LOCALE;

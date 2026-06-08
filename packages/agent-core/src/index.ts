@@ -1,6 +1,6 @@
 import { loadConfig, maskToken } from "@ada/agent/config";
 import { loadSecret } from "@ada/agent/secrets";
-import { getMcpBootstrapStatus, runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
+import { getMcpBootstrapStatus, runBootstrapInstallDeps } from "@ada/install-deps";
 import {
   ensureDriverDependencies,
   getDependencyHealth,
@@ -193,7 +193,7 @@ export {
   parseInstallDepsSpec,
   resolveBootstrapInstallDeps,
   runBootstrapInstallDeps
-} from "@ada/agent/bootstrap-deps";
+} from "@ada/install-deps";
 
 export type { InstallScope, InstallSummary, TaskRuntimeProbe } from "@ada/install-deps";
 export { getDependencyHealth, ensureDriverDependencies, probeRuntimesForTasks } from "@ada/install-deps";

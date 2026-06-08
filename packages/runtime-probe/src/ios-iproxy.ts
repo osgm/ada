@@ -379,17 +379,33 @@ export async function probeIosWdaRuntime(options?: {
   };
 }
 
-/** Stop tracked iproxy children (MCP shutdown / close all sessions). */
-export function stopAllIosIproxyForwards(): number {
+function stopIproxyKeys(keys: string[]): number {
   let stopped = 0;
-  for (const [, pid] of iproxyChildren) {
+  for (const key of keys) {
+    const pid = iproxyChildren.get(key);
+    if (pid === undefined) continue;
+    iproxyChildren.delete(key);
+    stopped += 1;
     try {
       process.kill(pid, "SIGTERM");
-      stopped += 1;
     } catch {
       // already exited
     }
   }
-  iproxyChildren.clear();
   return stopped;
+}
+
+/** Stop iproxy forwards for one physical device UDID (single session close). */
+export function stopIosIproxyForUdid(udid: string): number {
+  const id = udid.trim();
+  if (!id) return 0;
+  const prefix = `${id}:`;
+  const keys = [...iproxyChildren.keys()].filter((key) => key.startsWith(prefix));
+  return stopIproxyKeys(keys);
+}
+
+/** Stop tracked iproxy children (MCP shutdown / close all sessions). */
+export function stopAllIosIproxyForwards(): number {
+  const keys = [...iproxyChildren.keys()];
+  return stopIproxyKeys(keys);
 }

@@ -17,6 +17,7 @@ function isFalsyEnv(name) {
   return s === "0" || s === "false" || s === "no" || s === "off";
 }
 
+/** Env aliases: see docs/ADA-MCP-环境变量.md (ADA_MCP_FAST_START ↔ ADA_MCP_QUICK_START). */
 /** 快速握手（默认开启；完整测速设 ADA_MCP_SLOW_START=1，关闭快速设 ADA_MCP_FAST_START=0） */
 export function isMcpFastStartEnv() {
   if (isTruthyEnv("ADA_MCP_SLOW_START")) {

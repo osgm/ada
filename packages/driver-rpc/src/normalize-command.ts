@@ -9,7 +9,7 @@ const COMMAND_ALIASES: Record<string, CommandType> = {
   home: "pressHome"
 };
 
-export const MOBILE_RECIPE_ACTIONS = ["dump_ui", "tap_search", "fill_search"] as const;
+export const MOBILE_RECIPE_ACTIONS = ["dump_ui", "tap_search", "fill_search", "tap_path"] as const;
 export type MobileRecipeAction = (typeof MOBILE_RECIPE_ACTIONS)[number];
 
 export function normalizeCommandName(raw: string): CommandType {

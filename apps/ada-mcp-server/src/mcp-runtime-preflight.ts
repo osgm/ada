@@ -1,5 +1,4 @@
-import { awaitBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
-import type { AgentConfig } from "@ada/agent/types";
+import { awaitBootstrapInstallDeps, type InstallDepsConfig } from "@ada/install-deps";
 import { loadDeviceRegistry } from "@ada/agent-core";
 import { applyDeviceRegistryToEnv, commandExists, iosIproxyDisabled, probeAndroidRuntime, probeIosRuntime } from "@ada/runtime-probe";
 import { getDependencyHealth, probeHarmonyRuntime, type InstallDepsConfig } from "@ada/install-deps";
@@ -109,7 +108,7 @@ export async function ensureWebRuntimeReady(): Promise<void> {
 
 export async function ensureMobileRuntimeReady(
   platform: AdaPlatform,
-  loadConfig?: () => Promise<AgentConfig>
+  loadConfig?: () => Promise<InstallDepsConfig>
 ): Promise<void> {
   if (!isMobilePlatform(platform)) {
     return;
@@ -166,7 +165,7 @@ export async function ensureMobileRuntimeReady(
       return;
     }
     if (platform === "harmony") {
-      const config = loadConfig ? await loadConfig() : ((await loadAgentConfig()) as unknown as AgentConfig);
+      const config = loadConfig ? await loadConfig() : ((await loadAgentConfig()) as unknown as InstallDepsConfig);
       const harmony = await probeHarmonyRuntime(config as InstallDepsConfig);
       if (!harmony.hypiumDriverInstalled) {
         throw new Error(

@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSwipeDurationMs, SWIPE_DURATION_MS } from "@ada/driver-rpc";
 import {
   computePinchFingerEnds,
   resolvePinchDistance,
-  resolvePinchGesture
-} from "../scripts/lib/pinch-coords.mjs";
-import {
+  resolvePinchGesture,
+  resolveSwipeDurationMs,
   resolveSwipeEndpoints,
   resolveSwipePoint,
+  SWIPE_DURATION_MS,
   SWIPE_POINT_PRESETS
-} from "../scripts/lib/swipe-coords.mjs";
+} from "@ada/driver-rpc";
 
 const screen = { width: 1080, height: 2400 };
 

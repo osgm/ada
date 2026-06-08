@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { iosLocatorToUsing, isIosClearTypeOp } from "../plugins/driver-ios/src/ios-locator.js";
-import { capsOf } from "../plugins/driver-ios/src/session-signature.js";
+import { capsOf, iosLocatorToUsing, isIosClearTypeOp } from "@ada/driver-ios";
 
 test("iosLocatorToUsing maps text to label/name/value xpath", () => {
   const mapped = iosLocatorToUsing({ text: "搜索" });

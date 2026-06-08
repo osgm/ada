@@ -1,9 +1,9 @@
+import { uiDumpCacheTtlMsFromEnv } from "@ada/core-runtime";
+
 /** UI hierarchy / layout dump 缓存（recipe 与 adapter 共用） */
 
 export function readUiDumpCacheTtlMs(): number {
-  const raw = process.env.ADA_UI_DUMP_CACHE_MS ?? process.env.ADA_ANDROID_HIERARCHY_CACHE_MS ?? "2000";
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : 2000;
+  return uiDumpCacheTtlMsFromEnv(2000);
 }
 
 export function shouldInvalidateDumpOnAction(): boolean {

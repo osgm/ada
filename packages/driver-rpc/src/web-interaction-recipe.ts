@@ -1,3 +1,4 @@
+/** Shared observe/clickPath helpers for MCP + driver-playwright; bundled .cjs duplicates are intentional for publish. */
 export type ExpandStrategy = "auto" | "hover" | "click";
 
 export interface ControlObserveItem {
@@ -199,9 +200,6 @@ export const WEB_VIEW_SCRIPT = `(() => {
   };
 })()`;
 
-/** @deprecated Use WEB_VIEW_SCRIPT */
-export const WEB_OBSERVE_CONTROLS_SCRIPT = WEB_VIEW_SCRIPT;
-
 export function normalizeControlPath(path: unknown): string[] {
   if (!Array.isArray(path)) return [];
   return path.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0);
@@ -277,9 +275,81 @@ export type ViewTreeDetail = "tree" | "controls" | "full";
 
 export function shapeViewTreeExtract(
   snapshot: WebViewSnapshot & { matches?: ControlObserveItem[] },
-  detail: ViewTreeDetail = "full"
+  detail: ViewTreeDetail = "controls"
 ): unknown {
   if (detail === "tree") return snapshot.tree;
   if (detail === "controls") return snapshot.matches ?? snapshot.flat;
-  return snapshot;
+  const full: Record<string, unknown> = {
+    tree: snapshot.tree,
+    flat: snapshot.flat,
+    url: snapshot.url
+  };
+  if (snapshot.matches?.length) {
+    full.matches = snapshot.matches;
+  }
+  return full;
+}
+
+function truncateTreeNodeList(nodes: unknown[], maxNodes: number): { nodes: unknown[]; truncated: boolean } {
+  let count = 0;
+  let truncated = false;
+
+  function walk(list: unknown[]): unknown[] {
+    const out: unknown[] = [];
+    for (const node of list) {
+      if (count >= maxNodes) {
+        truncated = true;
+        break;
+      }
+      count += 1;
+      if (!node || typeof node !== "object") {
+        out.push(node);
+        continue;
+      }
+      const record = { ...(node as Record<string, unknown>) };
+      const children = record.children;
+      if (Array.isArray(children)) {
+        record.children = walk(children);
+      }
+      out.push(record);
+    }
+    return out;
+  }
+
+  return { nodes: walk(nodes), truncated };
+}
+
+/** Cap viewTree extract payloads for MCP responses (controls array or full object). */
+export function truncateViewTreeValue(
+  value: unknown,
+  maxItems: number
+): { value: unknown; truncated: boolean } {
+  const limit = Math.max(1, Math.floor(maxItems));
+  if (Array.isArray(value)) {
+    const truncated = value.length > limit;
+    return { value: value.slice(0, limit), truncated };
+  }
+  if (!value || typeof value !== "object") {
+    return { value, truncated: false };
+  }
+
+  const obj = value as Record<string, unknown>;
+  let truncated = false;
+  const out: Record<string, unknown> = { ...obj };
+
+  for (const key of ["flat", "matches"] as const) {
+    const arr = obj[key];
+    if (Array.isArray(arr) && arr.length > limit) {
+      out[key] = arr.slice(0, limit);
+      truncated = true;
+    }
+  }
+
+  if (Array.isArray(obj.tree)) {
+    const treeResult = truncateTreeNodeList(obj.tree, limit);
+    out.tree = treeResult.nodes;
+    truncated = truncated || treeResult.truncated;
+  }
+
+  return { value: out, truncated };
 }

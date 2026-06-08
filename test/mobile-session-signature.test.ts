@@ -1,10 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { androidSessionSignature } from "../plugins/driver-android/src/session-signature.js";
-import { iosSessionSignature } from "../plugins/driver-ios/src/session-signature.js";
-import { ElementIdCache, locatorCacheKey, isTransientMobileErrorCode } from "@ada/driver-rpc";
-import androidPlugin from "../plugins/driver-android/src/index.js";
-import iosPlugin from "../plugins/driver-ios/src/index.js";
+import androidPlugin, { androidSessionSignature } from "@ada/driver-android";
+import iosPlugin, { iosSessionSignature } from "@ada/driver-ios";
+import { ElementIdCache, isTransientMobileErrorCode, locatorCacheKey } from "@ada/driver-rpc";
 import type { CommandEnvelope } from "@ada/contracts";
 
 test("androidSessionSignature: stable across empty capabilities", () => {

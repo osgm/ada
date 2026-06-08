@@ -1,6 +1,7 @@
 import {
   recipeDumpUi,
   recipeFillSearch,
+  recipeTapPath,
   recipeTapSearch,
   type MobileRecipeContext,
   type RecipeOptions,
@@ -15,6 +16,7 @@ export type MobileCustomAction =
   | "dump_layout"
   | "tap_search"
   | "fill_search"
+  | "tap_path"
   | "smart_wait";
 
 export function normalizeMobileCustomAction(action: string, method?: string): string {
@@ -79,6 +81,12 @@ export async function runMobileCustomAction(
 
   if (action === "tap_search") {
     const recipe = await recipeTapSearch(ctx, recipeOpts);
+    const errorCode = recipe.ok ? undefined : recipeErrorCodeForAction(action, false);
+    return { handled: true, recipe, errorCode, value: recipe.detail };
+  }
+
+  if (action === "tap_path") {
+    const recipe = await recipeTapPath(ctx, recipeOpts);
     const errorCode = recipe.ok ? undefined : recipeErrorCodeForAction(action, false);
     return { handled: true, recipe, errorCode, value: recipe.detail };
   }

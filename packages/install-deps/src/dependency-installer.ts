@@ -46,6 +46,7 @@ import { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
 import { ensureIosLibimobiledeviceForConfig } from "./ios-libimobiledevice-install.js";
 import { ensureIosIdeviceBootstrap } from "./ios-idevice-bootstrap.js";
 import { isIosFullInstallScope, isIosHostSupported, isIosWdaBootstrapSupported } from "./platform-support.js";
+import { PINNED_PLAYWRIGHT_VERSION } from "./pinned-playwright-version.js";
 
 export {
   legacyDepsStateFileCandidates,
@@ -56,7 +57,6 @@ export {
   resolvePlaywrightBrowsersPath
 } from "./deps-install-paths.js";
 
-const PINNED_PLAYWRIGHT_VERSION = "1.59.1";
 const PINNED_HYPIUM_DRIVER_VERSION = "6.1.210";
 
 export type InstallScope = "all" | "playwright" | "mobile" | "android" | "ios" | "harmony" | "drivers";

@@ -1,10 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  buildAfcClientArgs,
-  parseIosRemotePath,
-  resolveIosDeviceUdid
-} from "../plugins/driver-ios/src/ios-afc-client.js";
+import { buildAfcClientArgs, parseIosRemotePath, resolveIosDeviceUdid } from "@ada/driver-ios";
 
 test("parseIosRemotePath: documents container", () => {
   const r = parseIosRemotePath("@com.example.app:documents/logs/app.log");

@@ -1,5 +1,5 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runBootstrapInstallDeps } from "@ada/agent/bootstrap-deps";
+import { runBootstrapInstallDeps } from "@ada/install-deps";
 
 if (!process.env.ADA_MCP_SERVER_ENTRY?.trim() && typeof __filename === "string") {
   process.env.ADA_MCP_SERVER_ENTRY = fileURLToPath(pathToFileURL(__filename).href);

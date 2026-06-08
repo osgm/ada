@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSinglePointerTapActions, tapAtPointWithFallback } from "../plugins/driver-ios/src/ios-tap-at.js";
+import { buildSinglePointerTapActions, tapAtPointWithFallback } from "@ada/driver-ios";
 
 test("buildSinglePointerTapActions emits pointer down/up at coordinates", () => {
   const actions = buildSinglePointerTapActions(120, 340);

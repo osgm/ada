@@ -1001,3 +1001,5 @@ const playwrightPlugin: DriverPlugin = {
 };
 
 export default playwrightPlugin;
+export { executeClickPath, observeViewOnPage } from "./web-interaction-recipe.js";
+export { locatorFromPayload, summarizeLocator } from "./playwright-locator.js";

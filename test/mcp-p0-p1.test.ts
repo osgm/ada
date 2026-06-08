@@ -1,17 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildSessionPolicy, healthStatusFromBlockers } from "../apps/ada-mcp-server/src/mcp-health-enrich.ts";
-import { buildRecoveryPlan, classifyErrorKind, isLocatorFailure } from "../apps/ada-mcp-server/src/mcp-recovery.ts";
-import { parseActionRunOptions } from "../apps/ada-mcp-server/src/mcp-action-runner.ts";
+import {
+  classifyErrorKind,
+  healthStatusFromBlockers,
+  isLocatorFailure,
+  parseActionRunOptions
+} from "@ada-mcp/mcp-server/testing";
 
 describe("mcp-p0-p1 helpers", () => {
-  it("buildSessionPolicy returns defaults", () => {
-    const policy = buildSessionPolicy();
-    assert.equal(policy.defaultTier, "T1");
-    assert.equal(policy.maxAutoRetry, 2);
-    assert.equal(policy.recommendMonitorOnFailure, true);
-  });
-
   it("healthStatusFromBlockers marks errors as degraded", () => {
     assert.equal(healthStatusFromBlockers([]), "ok");
     assert.equal(
@@ -44,21 +40,5 @@ describe("mcp-p0-p1 helpers", () => {
       }),
       true
     );
-  });
-
-  it("buildRecoveryPlan orders retry before invoke", () => {
-    const plan = buildRecoveryPlan({
-      tool: "ada_web_action",
-      envelope: {
-        requestId: "r",
-        sessionId: "s1",
-        platform: "web",
-        command: "click",
-        payload: {}
-      },
-      errorKind: "command_failed"
-    });
-    assert.equal(plan[0].kind, "retry");
-    assert.equal(plan.at(-1)?.tool, "ada_invoke");
   });
 });

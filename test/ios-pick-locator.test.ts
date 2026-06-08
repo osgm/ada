@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { iosPickToXpathCandidates } from "../plugins/driver-ios/src/ios-pick-locator.js";
+import { iosPickToXpathCandidates } from "@ada/driver-ios";
 
 test("iosPickToXpathCandidates prefers SearchField for input picks", () => {
   const paths = iosPickToXpathCandidates({ point: [1, 2], label: "请输入", kind: "input" });

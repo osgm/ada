@@ -19,8 +19,10 @@ import {
   isDirectInputTapDetail,
   resolveFillSearchSettleMs
 } from "./fill-search-transition.js";
+import { findMobileNodeForSegment, shapeMobileViewTreeFlat } from "./mobile-view-tree.js";
 import { RECIPE_ERROR_CODES } from "./recipe-errors.js";
 import { recipeSettleDelay, type UiDumpReader } from "./smart-wait.js";
+import { normalizeControlPath } from "./web-interaction-recipe.js";
 
 export type MobilePlatform = "android" | "harmony" | "ios";
 
@@ -201,7 +203,54 @@ async function tryHintChainFill(
 
 export async function recipeDumpUi(ctx: MobileRecipeContext): Promise<RecipeResult> {
   const nodes = await ctx.dumpUi();
-  return { ok: true, phase: "dump_ui", detail: `nodes=${nodes.length}`, data: { nodeCount: nodes.length } };
+  const { flat, truncated } = shapeMobileViewTreeFlat(nodes, 80);
+  return {
+    ok: true,
+    phase: "dump_ui",
+    detail: `nodes=${nodes.length}`,
+    data: { nodeCount: nodes.length, flat, flatTruncated: truncated || undefined }
+  };
+}
+
+export async function recipeTapPath(ctx: MobileRecipeContext, options?: RecipeOptions): Promise<RecipeResult> {
+  const path = normalizeControlPath(options?.payload?.path);
+  if (path.length === 0) {
+    return {
+      ok: false,
+      phase: "tap_path",
+      detail: "tap_path requires non-empty path array",
+      errorCode: RECIPE_ERROR_CODES.TAP_PATH_FAILED
+    };
+  }
+
+  for (let i = 0; i < path.length; i += 1) {
+    const segment = path[i] ?? "";
+    const nodes = await dumpWithRetry(ctx);
+    const target = findMobileNodeForSegment(nodes, segment);
+    if (!target) {
+      return {
+        ok: false,
+        phase: "tap_path",
+        detail: `segment not found: ${segment}`,
+        errorCode: RECIPE_ERROR_CODES.TAP_PATH_SEGMENT_NOT_FOUND,
+        data: { path, segment, index: i }
+      };
+    }
+    await ctx.clickPoint(target.point);
+    if (i < path.length - 1) {
+      ctx.invalidateDumpCache?.();
+      await recipeSettleDelay(ctx, options?.payload, 350);
+    }
+  }
+
+  const finalNodes = await safeDumpUi(ctx);
+  const { flat, truncated } = shapeMobileViewTreeFlat(finalNodes, 40);
+  return {
+    ok: true,
+    phase: "tap_path",
+    detail: `path=${path.join(">")}`,
+    data: { path, flat, flatTruncated: truncated || undefined }
+  };
 }
 
 export async function recipeTapSearch(ctx: MobileRecipeContext, options?: RecipeOptions): Promise<RecipeResult> {

@@ -4,7 +4,7 @@ ADA MCP server package that supports:
 
 - Local stdio mode (default) for MCP hosts
 - Remote HTTP mode (`server`) with API key authentication
-- MCP **Streamable HTTP** on `POST|GET|DELETE /mcp` (same port as legacy REST), with optional SSE per MCP spec (`@modelcontextprotocol/sdk` transport)
+- MCP **Streamable HTTP** on `POST|GET|DELETE /mcp` with optional SSE per MCP spec (`@modelcontextprotocol/sdk` transport)
 
 ## 标准安装（MCP）
 

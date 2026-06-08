@@ -16,9 +16,10 @@ test("isOptionalUiPayload", () => {
 test("suppressHypiumOptionalProbeLogs filters RpcClient noise", () => {
   const restore = suppressHypiumOptionalProbeLogs();
   try {
-    console.error("[RpcClient] [ERROR] RPC exception: Fail to resolve object");
-    console.trace("should be suppressed");
-    assert.ok(true);
+    assert.doesNotThrow(() => {
+      console.error("[RpcClient] [ERROR] RPC exception: Fail to resolve object");
+      console.trace("should be suppressed");
+    });
   } finally {
     restore();
   }

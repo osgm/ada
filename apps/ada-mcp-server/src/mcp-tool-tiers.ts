@@ -1,5 +1,51 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import { hideAdvancedToolsFromEnv } from "@ada/core-runtime";
 import { buildRecoveryPlan, classifyErrorKind } from "./mcp-recovery.js";
+
+/** Shared LLM routing copy (referenced from tool descriptions). */
+export const MCP_GLOBAL_POLICY =
+  "Policy: riskApproved=true for invoke/custom/launchApp/destructive deviceAdmin; allowMock=false unless offline demo; reuse sessionId; mobile: ada_devices(scan) then deviceParams.recommended; on failure read recoveryHint then retry=1 then extract/pageSource then invoke.";
+
+export const MCP_WORKFLOW_L0_L4 =
+  "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy.";
+
+export const UPGRADE_L2_L3_WEB =
+  "Escalate: Playwright page.* or CDP → ada_invoke; multi-step → ada_batch_actions or ada_run_task_file.";
+
+export const UPGRADE_L2_L3_MOBILE =
+  "Escalate: adapter HTTP/hdc/hypium or UI tree debug → ada_invoke; search heuristics → ada_mobile_recipe; multi-step → ada_batch_actions.";
+
+export const DEVICE_ADMIN_ACTION_ENUM = [
+  "listApps",
+  "appInfo",
+  "installApp",
+  "uninstallApp",
+  "pushFile",
+  "pullFile",
+  "shell",
+  "hdc",
+  "currentApp",
+  "clearAppData",
+  "openUrl",
+  "pressKey",
+  "longPress",
+  "setClipboard",
+  "getClipboard",
+  "deviceInfo",
+  "grantPermission",
+  "setOrientation",
+  "startScreenRecord",
+  "stopScreenRecord",
+  "reboot",
+  "killAllApps",
+  "wake"
+] as const;
+
+export const DEVICE_ADMIN_HINT =
+  "deviceAdmin: set command=deviceAdmin and payload.action (enum). Common: shell, currentApp, installApp, pushFile, hdc.";
+
+export const HARMONY_LAUNCH_HINT =
+  "Harmony launchApp: payload.appId (bundle) + payload.abilityId (e.g. EntryAbility); bundleId alias; copy deviceParams.harmonyLaunchApp.args; riskApproved=true.";
 
 export type McpToolTier = "T1" | "T2" | "T3";
 
@@ -38,7 +84,6 @@ export const MCP_TOOL_TIERS: Record<string, McpToolTier> = {
   ada_web_recipe: "T2",
   ada_run_task_file: "T2",
 
-  ada_execute: "T3",
   ada_invoke: "T3",
   ada_risk_policy: "T3"
 };
@@ -68,7 +113,6 @@ export const MCP_TOOL_DEPTH: Record<string, McpToolDepth> = {
   ada_web_recipe: "L2",
 
   ada_invoke: "L3",
-  ada_execute: "L3",
 
   ada_risk_policy: "L4"
 };
@@ -86,7 +130,6 @@ export const MCP_TOOL_LIST_ORDER: string[] = [
   "ada_web_action",
   "ada_web_recipe",
   "ada_invoke",
-  "ada_execute",
   "ada_web_dismiss_popups",
   "ada_extract",
   "ada_assertions",
@@ -122,10 +165,7 @@ export function getToolDepth(toolName: string): McpToolDepth {
 }
 
 export function shouldHideAdvancedTools(): boolean {
-  const raw = String(process.env.ADA_MCP_HIDE_ADVANCED ?? process.env.ADA_MCP_TOOL_VISIBILITY ?? "")
-    .trim()
-    .toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "hide-advanced" || raw === "primary-only";
+  return hideAdvancedToolsFromEnv();
 }
 
 /** advanced = longer T3/driver copy; compact (default) = shorter descriptions. */

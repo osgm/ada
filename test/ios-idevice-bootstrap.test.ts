@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "../packages/runtime-probe/src/ios-idevice-probe.js";
-import { ensureIosIdeviceBootstrap } from "../packages/install-deps/src/ios-idevice-bootstrap.js";
-import { isIosFullInstallScope } from "../packages/install-deps/src/platform-support.js";
+import { ensureIosIdeviceBootstrap, isIosFullInstallScope } from "@ada/install-deps";
+import { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "@ada/runtime-probe";
 
 test("ideviceBootstrapEnabled respects ADA_IOS_IDEVICE_BOOTSTRAP", () => {
   const prev = process.env.ADA_IOS_IDEVICE_BOOTSTRAP;
@@ -17,14 +16,13 @@ test("ideviceBootstrapEnabled respects ADA_IOS_IDEVICE_BOOTSTRAP", () => {
   }
 });
 
-test("probeIosIdeviceRuntime on non-darwin reports host unsupported", async () => {
-  if (process.platform === "darwin") {
-    const probe = await probeIosIdeviceRuntime();
+test("probeIosIdeviceRuntime reflects host OS support", async () => {
+  const probe = await probeIosIdeviceRuntime();
+  if (process.platform === "darwin" || process.platform === "win32") {
     assert.equal(probe.hostSupported, true);
     assert.equal(typeof probe.ideviceinstallerOk, "boolean");
     return;
   }
-  const probe = await probeIosIdeviceRuntime();
   assert.equal(probe.hostSupported, false);
   assert.equal(probe.ideviceinstallerOk, false);
 });
@@ -41,7 +39,7 @@ test("ensureIosIdeviceBootstrap without flag stays skipped/missing", async () =>
   try {
     delete process.env.ADA_IOS_IDEVICE_BOOTSTRAP;
     const { outcome } = await ensureIosIdeviceBootstrap();
-    if (process.platform !== "darwin") {
+    if (process.platform !== "darwin" && process.platform !== "win32") {
       assert.equal(outcome.id, "ios-idevice");
       assert.equal(outcome.status, "missing");
       return;

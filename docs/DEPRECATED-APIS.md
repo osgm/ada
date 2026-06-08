@@ -1,6 +1,6 @@
-# 已移除 / 不推荐 API
+# 已移除 API
 
-本项目**不做**旧名兼容层；下列 API 已从脚本与 MCP recipe 中删除，请勿在新脚本中使用。
+本项目**不做**旧名兼容层；下列 API 已删除，请勿在新脚本中使用。
 
 ## 脚本层（L0）
 
@@ -13,12 +13,19 @@
 
 ## 语义命令 / MCP
 
-| 已移除 / T3 | 替代 |
-|-------------|------|
+| 已移除 | 替代 |
+|--------|------|
 | `command: terminateApp` | `exitApp`（入口仍会把别名 normalize 为 `exitApp`） |
 | `recipe` / `go_home` | `phone.back()` + `phone.goto(...)` |
-| `ada_execute`（日常） | `ada_web_action` / `ada_mobile_action` / `ada_mobile_recipe` |
+| `ada_execute` | `ada_web_action` / `ada_mobile_action` / `ada_mobile_recipe` |
 | `swipeLeft` / `swipeRight` | `phone.swipe(from, to)` |
+| `POST /tool/call`（legacy REST） | `POST /mcp` Streamable HTTP |
+
+## invoke 载荷
+
+| 已移除 | 替代 |
+|--------|------|
+| `payload.custom.method` / `payload.custom.path` | `payload.http.method` / `payload.http.path`，或顶层 `mode` + `method` / `http`（见接入手册 §3.3） |
 
 ## 系统键命名
 
@@ -30,4 +37,6 @@
 
 ## MCP 工具可见性
 
-默认 `ADA_MCP_HIDE_ADVANCED=1`（`connectMcp` / 文档示例），隐藏 T3：`ada_execute`、`ada_invoke`、`ada_risk_policy`。需要通用信封时再设为 `0`。
+默认 `ADA_MCP_HIDE_ADVANCED=1`（`connectMcp` / 文档示例），隐藏 T3：`ada_invoke`、`ada_risk_policy`。需要驱动级 API 时设为 `0`。
+
+环境变量 canonical 名与别名见 [`ADA-MCP-环境变量.md`](ADA-MCP-环境变量.md)。

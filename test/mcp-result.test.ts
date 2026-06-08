@@ -7,7 +7,7 @@ import {
   wrapAssertionResult,
   wrapBestEffortCommandResult,
   wrapCommandToolResult
-} from "../apps/ada-mcp-server/src/mcp-result.ts";
+} from "@ada-mcp/mcp-server/testing";
 
 function withEnv(name: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[name];
@@ -115,7 +115,7 @@ describe("mcp-result", () => {
     assert.ok(parsed.uiCandidates);
   });
 
-  it("wrapCommandToolResult includes recoveryHint on failure", () => {
+  it("wrapCommandToolResult includes recoveryPlan on failure (slim)", () => {
     const envelope: CommandEnvelope = {
       requestId: "r1",
       sessionId: "sess-1",
@@ -134,8 +134,8 @@ describe("mcp-result", () => {
     const parsed = JSON.parse(out.content[0].text);
     assert.equal(parsed.sessionId, "sess-1");
     assert.equal(parsed.errorKind, "timeout");
-    assert.ok(typeof parsed.recoveryHint === "string" && parsed.recoveryHint.length > 0);
     assert.ok(Array.isArray(parsed.recoveryPlan) && parsed.recoveryPlan.length > 0);
+    assert.equal(parsed.recoveryHint, undefined);
     assert.equal(parsed.ok, false);
   });
 

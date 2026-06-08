@@ -3,8 +3,9 @@ import {
   pickBestDownloadProbe,
   probeDownloadSample
 } from "@ada/download-probe";
+import { PINNED_PLAYWRIGHT_VERSION as PINNED_PW } from "./pinned-playwright-version.js";
 
-const PINNED_PLAYWRIGHT_VERSION = process.env.ADA_PLAYWRIGHT_VERSION?.trim() || "1.59.1";
+const PINNED_PLAYWRIGHT_VERSION = process.env.ADA_PLAYWRIGHT_VERSION?.trim() || PINNED_PW;
 
 function normalizeRegistryUrl(url: string): string {
   return url.replace(/\/$/, "");

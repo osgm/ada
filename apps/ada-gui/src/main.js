@@ -157,13 +157,10 @@ function buildMcpRemoteConfigText() {
     {
       mcpServers: {
         "ada-mcp-remote": {
-          transport: "http",
-          baseUrl: url,
+          url: `${url}/mcp`,
           headers: {
             "x-api-key": apiKey || "<your_token>"
-          },
-          toolCallPath: "/tool/call",
-          healthPath: "/health"
+          }
         }
       }
     },

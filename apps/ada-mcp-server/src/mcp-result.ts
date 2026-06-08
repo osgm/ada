@@ -7,7 +7,7 @@ import {
   isLocatorFailure,
   suggestRecoveryTool
 } from "./mcp-recovery.js";
-import { buildRecoveryHint } from "./mcp-tool-tiers.js";
+import { resolveRecoveryFields } from "./mcp-payload-slim.js";
 import {
   isMcpJsonPretty,
   isMcpVerboseResult,
@@ -132,6 +132,7 @@ function buildFailureOptions(input: {
   const errorKind = classifyErrorKind(result, envelope.platform);
   const recoveryInput = { tool, envelope, result, errorKind };
   const locatorMiss = isLocatorFailure(result);
+  const recovery = resolveRecoveryFields(recoveryInput);
   return {
     isError: true as const,
     errorKind,
@@ -141,8 +142,7 @@ function buildFailureOptions(input: {
       errorKind === "assertion_failed" ||
       locatorMiss,
     suggestedNextTool: suggestRecoveryTool(result, envelope.platform),
-    recoveryHint: buildRecoveryHint(recoveryInput),
-    recoveryPlan: buildRecoveryPlan(recoveryInput),
+    ...recovery,
     uiCandidates: buildUiCandidatesHint({ platform: envelope.platform, tool, result })
   };
 }
@@ -275,8 +275,7 @@ export function wrapAssertionResult(input: {
       errorKind,
       recoverable: true,
       suggestedNextTool: extractTool,
-      recoveryHint: buildRecoveryHint(recoveryInput),
-      recoveryPlan: buildRecoveryPlan(recoveryInput)
+      ...resolveRecoveryFields(recoveryInput)
     });
   }
   return mcpTextResult(payload);

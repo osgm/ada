@@ -2,11 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
 import { resolveWorkspaceRoot as resolveWorkspaceRootByCoreRuntime } from "@ada/core-runtime";
-import {
-  ensureGlobalAdaHome,
-  legacyAdaAgentDataCandidates,
-  resolveAgentEffectiveConfigPathSync
-} from "@ada/install-deps";
+import { ensureGlobalAdaHome, readEffectiveAgentConfigYaml } from "@ada/install-deps";
 import type { AgentConfig } from "./types.js";
 import { bundledDefaultConfigYaml } from "./bundled-config.generated.js";
 
@@ -162,24 +158,11 @@ export async function ensureLocalDataDir(_cwd = process.cwd()): Promise<string> 
 }
 
 async function readEffectiveConfigOverrides(): Promise<Partial<AgentConfig> | null> {
-  const primary = resolveAgentEffectiveConfigPathSync();
-  try {
-    const effectiveFile = await fs.readFile(primary, "utf8");
-    return yaml.load(effectiveFile) as Partial<AgentConfig>;
-  } catch {
-    for (const legacy of await legacyAdaAgentDataCandidates("agent.config.yaml")) {
-      try {
-        const effectiveFile = await fs.readFile(legacy, "utf8");
-        const effective = yaml.load(effectiveFile) as Partial<AgentConfig>;
-        await ensureGlobalAdaHome();
-        await fs.writeFile(primary, effectiveFile, "utf8");
-        return effective;
-      } catch {
-        // try next legacy path
-      }
-    }
+  const effectiveFile = await readEffectiveAgentConfigYaml("agent.config.yaml");
+  if (!effectiveFile) {
     return null;
   }
+  return yaml.load(effectiveFile) as Partial<AgentConfig>;
 }
 
 export async function loadConfig(cwd = process.cwd()): Promise<AgentConfig> {

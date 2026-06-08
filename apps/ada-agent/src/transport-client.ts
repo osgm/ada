@@ -57,7 +57,7 @@ function remoteToolAction(command: CommandEnvelope): string {
   if (command.platform === "android" || command.platform === "ios" || command.platform === "harmony") {
     return "ada_mobile_action";
   }
-  return "ada_execute";
+  throw new Error(`unsupported remote platform for transport: ${command.platform}`);
 }
 
 function remoteToolPayload(command: CommandEnvelope): Record<string, unknown> {

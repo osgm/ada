@@ -8,8 +8,9 @@
 | **`ada_client.py`** | Python 唯一入口 |
 | `popups.py` / `popups.mjs` | 关弹窗 |
 | `read_device.py` / `read-device.mjs` | adb/hdc 设备探测 |
-| `swipe_duration.py` / `swipe-duration.mjs` | 滑动时长预设 |
-| `swipe_coords.py` / `swipe-coords.mjs` | 滑动坐标（像素默认、`relative`、占位符） |
+| `swipe_duration.py` / `swipe-duration.mjs` | 滑动时长预设（`.mjs` 由 `npm run sync:scripts-lib` 从 driver-rpc 生成） |
+| `swipe_coords.py` / `swipe-coords.mjs` | 滑动坐标（`.mjs` 同上；Python 需手工对齐） |
+| `fill-search-options.mjs` | fillSearch 选项（`sync:scripts-lib` 生成） |
 | `step_log.py` / `step_log.mjs` | 分步 trace（`ADA_STEP_LOG=1`） |
 | `run-python-example.mjs` | `npm run test:jd-*:py` 启动器 |
 

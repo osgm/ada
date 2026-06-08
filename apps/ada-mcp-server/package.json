@@ -6,7 +6,8 @@
   "type": "commonjs",
   "main": "./dist/cli.cjs",
   "exports": {
-    "./stdio": "./src/main.ts"
+    "./stdio": "./src/main.ts",
+    "./testing": "./src/testing-exports.ts"
   },
   "bin": {
     "mcp-server": "./dist/cli.cjs",
@@ -51,7 +52,6 @@
     "@ada/install-deps": "0.1.0",
     "@ada/runtime-probe": "0.1.0",
     "@ada/agent-core": "0.1.0",
-    "@ada/agent": "0.1.0",
     "@ada/contracts": "0.1.0",
     "@ada/core-kernel": "0.1.0",
     "@ada/core-runtime": "0.1.0",

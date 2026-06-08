@@ -30,7 +30,7 @@ function bridgeRequest(proc: ReturnType<typeof spawn>, body: Record<string, unkn
 }
 
 test("ada-mcp-bridge: health + shutdown", { timeout: 120_000 }, async () => {
-  const proc = spawn("npx", ["tsx", bridge], {
+  const proc = spawn(process.execPath, ["--import", "tsx", bridge], {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
     env: {

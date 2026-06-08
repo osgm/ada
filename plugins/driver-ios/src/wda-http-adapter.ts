@@ -158,7 +158,7 @@ async function executeInvoke(
     return fail(
       command,
       "INVOKE_INVALID_PAYLOAD",
-      "invoke requires http.method and http.path (or legacy custom.method/path)"
+      "invoke requires http.method and http.path"
     );
   }
   const udid = String(capsOf(payload).udid ?? "").trim();

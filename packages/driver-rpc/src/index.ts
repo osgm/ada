@@ -41,17 +41,16 @@ export function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** Normalize invoke fields from command payload (supports legacy `custom` block). */
+/** Normalize invoke fields from command payload. */
 export function normalizeInvokePayload(
   raw: Record<string, unknown> | undefined,
   defaultMode: InvokeMode
 ): InvokePayload | null {
   const payload = asRecord(raw);
-  const legacyCustom = asRecord(payload.custom);
   const httpBlock = asRecord(payload.http);
 
-  const httpMethod = getString(httpBlock.method) ?? getString(legacyCustom.method);
-  const httpPath = getString(httpBlock.path) ?? getString(legacyCustom.path);
+  const httpMethod = getString(httpBlock.method);
+  const httpPath = getString(httpBlock.path);
   const hasHttp = Boolean(httpMethod && httpPath);
 
   const method = getString(payload.method);
@@ -78,7 +77,7 @@ export function normalizeInvokePayload(
       http: {
         method: httpMethod,
         path: httpPath,
-        body: httpBlock.body ?? legacyCustom.body
+        body: httpBlock.body
       },
       options: asRecord(payload.options)
     };
@@ -249,8 +248,18 @@ export {
   type ParsedFillSearchOptions
 } from "./fill-search-options.js";
 export {
+  detectFillSearchPageTransition,
+  FILL_SEARCH_DEFAULT_SETTLE_MS,
+  FILL_SEARCH_DIRECT_INPUT_SETTLE_MS,
+  FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS,
+  isDirectInputTapDetail,
+  pickPointDistance,
+  resolveFillSearchSettleMs
+} from "./fill-search-transition.js";
+export {
   recipeDumpUi,
   recipeFillSearch,
+  recipeTapPath,
   recipeTapSearch,
   type MobileRecipeContext,
   type MobilePlatform,
@@ -277,7 +286,6 @@ export { UiDumpCache, readUiDumpCacheTtlMs, shouldInvalidateDumpOnAction } from 
 export { RECIPE_ERROR_CODES, platformRecipeErrorCode, recipeErrorCodeForAction } from "./recipe-errors.js";
 export {
   WEB_VIEW_SCRIPT,
-  WEB_OBSERVE_CONTROLS_SCRIPT,
   WEB_INTERACTION_ERROR_CODES,
   normalizeControlPath,
   normalizeRecipeAction,
@@ -288,6 +296,7 @@ export {
   parseWebViewSnapshot,
   applyControlFilters,
   shapeViewTreeExtract,
+  truncateViewTreeValue,
   type ExpandStrategy,
   type ControlObserveItem,
   type ControlObserveResult,
@@ -295,6 +304,14 @@ export {
   type ViewTreeDetail,
   type WebInteractionErrorCode
 } from "./web-interaction-recipe.js";
+export {
+  extractMobilePageSourceText,
+  findMobileControlByPath,
+  findMobileNodeForSegment,
+  parseMobileHierarchy,
+  shapeMobileViewTreeFlat,
+  type MobileControlItem
+} from "./mobile-view-tree.js";
 export {
   mergeSmartWait,
   parseSmartWaitFromPayload,

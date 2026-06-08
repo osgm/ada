@@ -1153,3 +1153,4 @@ const harmonyPlugin: DriverPlugin = {
 };
 
 export default harmonyPlugin;
+export { buildHarmonyPinchPointerMatrix, executeHarmonyPinch } from "./harmony-pinch.js";

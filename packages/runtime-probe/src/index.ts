@@ -53,7 +53,8 @@ export {
   resolveIproxyCommand,
   resolveWdaLocalPortForUdid,
   waitForLocalPortReachable,
-  stopAllIosIproxyForwards
+  stopAllIosIproxyForwards,
+  stopIosIproxyForUdid
 } from "./ios-iproxy.js";
 export { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "./ios-idevice-probe.js";
 export type {

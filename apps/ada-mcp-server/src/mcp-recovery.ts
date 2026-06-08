@@ -92,7 +92,7 @@ export function buildUiCandidatesHint(input: {
   }
   return {
     suggestTools: ["ada_mobile_extract", "ada_mobile_recipe"],
-    note: "Locator miss — run ada_mobile_extract type=pageSource or ada_mobile_recipe action=dump_ui, then adjust strategy/value.",
+    note: "Locator miss — ada_mobile_extract type=viewTree, then ada_mobile_recipe tap_path or adjust locator strategy/value.",
     retryPayloadHints: ["payload.locator.strategy+xpath", "payload.locator.strategy=text"]
   };
 }
@@ -139,22 +139,22 @@ export function buildRecoveryPlan(input: {
   if (input.tool === "ada_web_recipe" || input.tool === "ada_web_action") {
     const steps: RecoveryPlanStep[] = [
       {
-        kind: "retry",
-        tool: "ada_web_action",
-        note: "Retry same command with wait",
-        args: { sessionId, command, retry: 1, payload: { waitMs: 1500 } }
-      },
-      {
         kind: "observe",
         tool: "ada_extract",
-        note: "Read viewTree (semantic tree + flat controls) before retry",
-        args: { sessionId, mode: "viewTree", payload: { detail: "full" } }
+        note: "Read viewTree (flat controls + path) before changing locator",
+        args: { sessionId, mode: "viewTree", payload: { detail: "controls" } }
+      },
+      {
+        kind: "retry",
+        tool: input.tool === "ada_web_recipe" ? "ada_web_recipe" : "ada_web_action",
+        note: "Retry with path/locator from viewTree",
+        args: { sessionId, command }
       },
       {
         kind: "retry",
         tool: "ada_web_action",
-        note: "Retry click/type with adjusted locator",
-        args: { sessionId, command }
+        note: "Retry with waitMs if element was still loading",
+        args: { sessionId, command, retry: 1, payload: { waitMs: 1500 } }
       },
       {
         kind: "escalate",
@@ -168,19 +168,19 @@ export function buildRecoveryPlan(input: {
 
   if (input.tool === "ada_mobile_action") {
     return [
-      { kind: "retry", tool: "ada_mobile_action", note: "Retry same gesture", args: { sessionId, platform, command, retry: 1 } },
       {
         kind: "observe",
         tool: "ada_mobile_extract",
-        note: "Dump UI hierarchy",
-        args: { sessionId, platform, type: "pageSource" }
+        note: "Read flat mobile controls (viewTree) before adjusting locator",
+        args: { sessionId, platform, type: "viewTree" }
       },
       {
         kind: "tool",
         tool: "ada_mobile_recipe",
-        note: "Heuristic UI dump",
-        args: { platform, action: "dump_ui", sessionId }
+        note: "tap_path when labels/path are known; else dump_ui / search recipes",
+        args: { platform, action: "tap_path", sessionId }
       },
+      { kind: "retry", tool: "ada_mobile_action", note: "Retry gesture with updated locator", args: { sessionId, platform, command, retry: 1 } },
       {
         kind: "escalate",
         tool: "ada_invoke",

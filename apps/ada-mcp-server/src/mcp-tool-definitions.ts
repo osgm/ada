@@ -25,9 +25,7 @@ import {
   MCP_GLOBAL_POLICY,
   MCP_WORKFLOW_L0_L4,
   UPGRADE_L2_L3_MOBILE,
-  UPGRADE_L2_L3_WEB
-} from "./mcp-tool-policy.js";
-import {
+  UPGRADE_L2_L3_WEB,
   formatTieredDescription,
   getToolTier,
   isAdvancedDescriptionMode,
@@ -337,8 +335,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_recipe",
       description:
-        "L2 mobile recipes: dump_ui, tap_search, fill_search (prefer over click+type chains). " +
-        "Requires ada_devices + same sessionId. ARGS: platform, action, text (fill_search).",
+        "L2 mobile recipes: dump_ui, viewTree via ada_mobile_extract, tap_path (path labels), tap_search, fill_search. " +
+        "Requires ada_devices + same sessionId. ARGS: platform, action, path (tap_path), text (fill_search).",
       inputSchema: {
         type: "object",
         title: "ada_mobile_recipe_input",
@@ -348,8 +346,13 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           requestId: requestIdField(),
           action: {
             type: "string",
-            enum: ["dump_ui", "tap_search", "fill_search"],
+            enum: ["dump_ui", "tap_search", "fill_search", "tap_path"],
             description: "Recipe action name"
+          },
+          path: {
+            type: "array",
+            items: { type: "string" },
+            description: "tap_path: label segments from root to target (re-dumps UI between segments)"
           },
           text: { type: "string", description: "Required for fill_search" },
           payload: payloadProperty(),
@@ -361,69 +364,10 @@ function buildAllAdaMcpToolDefinitions(): Array<{
       }
     },
     {
-      name: "ada_execute",
-      description:
-        "L3 unified CommandEnvelope (web+mobile) for generic task runners. " +
-        "Prefer ada_web_action / ada_mobile_action for E2E; use ada_invoke for driver RPC. " +
-        `Aliases: terminateApp→exitApp, fill→type. ${policyRef()}` +
-        advancedExtra("Supports invoke/recipe/custom in one schema for CI task JSON."),
-      inputSchema: {
-        type: "object",
-        title: "ada_execute_input",
-        properties: {
-          requestId: requestIdField(),
-          sessionId: sessionIdField("any"),
-          platform: platformAnyField(),
-          command: {
-            type: "string",
-            title: "command",
-            description:
-              "Semantic command 语义命令（web+mobile 全集）: navigate, click, swipe, launchApp, newTab, invoke, …",
-            enum: [
-              "click",
-              "type",
-              "swipe",
-              "assertVisible",
-              "screenshot",
-              "navigate",
-              "hover",
-              "press",
-              "select",
-              "scroll",
-              "forward",
-              "newTab",
-              "switchTab",
-              "uploadFile",
-              "dragDrop",
-              "wait",
-              "assertText",
-              "getText",
-              "back",
-              "reload",
-              "closeTab",
-              "pressHome",
-              "home",
-              "launchApp",
-              "exitApp",
-              "recipe",
-              "custom",
-              "invoke"
-            ]
-          },
-          payload: payloadProperty(),
-          allowMock: allowMockField(),
-          riskApproved: riskApprovedField(),
-          monitor: monitorProperty()
-        },
-        required: ["platform", "command"],
-        additionalProperties: false
-      }
-    },
-    {
       name: "ada_invoke",
       description:
         "L3 driver RPC. Web: mode=method (page|locator + method + args). Mobile: mode=http (WebDriver/hdc path) + capabilities from ada_devices. " +
-        "REQUIRES riskApproved=true. VS ada_execute: invoke=RPC; execute=task envelope. " +
+        "REQUIRES riskApproved=true. Driver RPC — not semantic ada_web_action / ada_mobile_action. " +
         `${policyRef()}` +
         advancedExtra(
           "Web: page.evaluate, context.cookies. Android: GET /source. Harmony: hdc shell via http path."
@@ -595,7 +539,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           mode: {
             type: "string",
             enum: ["text", "list", "table", "viewTree"],
-            description: "viewTree: semantic tree + flat controls; payload.detail=tree|controls|full (default full)"
+            description: "viewTree: flat controls (default) or tree/full; payload.detail=controls|tree|full; maxItems caps controls/tree nodes"
           },
           payload: {
             type: "object",
@@ -634,7 +578,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_extract",
       description:
-        "Mobile text or pageSource (debug tree before ada_invoke). ARGS: platform, sessionId, type=text|pageSource.",
+        "Mobile observe: type=viewTree (flat clickable controls), text, or pageSource (raw XML). " +
+        "Pair viewTree → ada_mobile_recipe tap_path. ARGS: platform, sessionId, type.",
       inputSchema: {
         type: "object",
         properties: {
@@ -642,8 +587,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           sessionId: { type: "string", description: "Active mobile session" },
           type: {
             type: "string",
-            enum: ["text", "pageSource"],
-            description: "text=visible text; pageSource=UI hierarchy XML"
+            enum: ["text", "pageSource", "viewTree"],
+            description: "viewTree=flat clickable controls; text=visible text; pageSource=raw hierarchy XML"
           },
           payload: { type: "object" },
           allowMock: allowMockField(),

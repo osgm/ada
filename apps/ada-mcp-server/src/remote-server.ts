@@ -6,7 +6,6 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Request, RequestHandler, Response } from "express";
 import { listActiveSessions } from "./executor.js";
 import { createAdaMcpProtocolServer } from "./main.js";
-import { callLegacyTool } from "./mcp-legacy-remote.js";
 
 export interface RemoteServerOptions {
   host: string;
@@ -112,20 +111,6 @@ export async function startRemoteServer(options: RemoteServerOptions): Promise<v
   app.get("/sessions", auth, (_req: Request, res: Response) => {
     const sessions = listActiveSessions();
     res.json({ count: sessions.length, sessions });
-  });
-
-  app.post("/tool/call", auth, async (req: Request, res: Response) => {
-    try {
-      const body = (req.body ?? {}) as Record<string, unknown>;
-      const name = String(body.name ?? "");
-      stats.toolCalls += 1;
-      stats.lastToolName = name || null;
-      const args = (body.arguments as Record<string, unknown> | undefined) ?? {};
-      const data = await callLegacyTool(name, args, options);
-      res.json({ ok: true, data });
-    } catch (error) {
-      res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-    }
   });
 
   const mcpPostHandler: RequestHandler = async (req, res) => {

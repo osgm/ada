@@ -9,8 +9,11 @@ import {
   type ControlObserveItem,
   type WebViewSnapshot,
   type ExpandStrategy,
-  serializeRpcResult
+  serializeRpcResult,
+  truncateViewTreeValue
 } from "@ada/driver-rpc";
+
+const CLICK_PATH_CONTROLS_PREVIEW = 40;
 import { autoWaitEnabled, resolveAutoWaitMs } from "./playwright-locator.js";
 
 type PlaywrightPageLike = {
@@ -144,8 +147,8 @@ export async function executeClickPath(
     return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_INVALID, "clickPath requires non-empty path array");
   }
   const waitMs = resolveAutoWaitMs(payload);
-  const observed = await observeViewOnPage(page);
-  const targetMeta = findControlByPath(observed.flat, path);
+  let observed = await observeViewOnPage(page);
+  let targetMeta = findControlByPath(observed.flat, path);
   const beforeUrl = page.url();
 
   for (let i = 0; i < path.length - 1; i += 1) {
@@ -161,6 +164,8 @@ export async function executeClickPath(
         businessCode: WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED
       });
     }
+    observed = await observeViewOnPage(page);
+    targetMeta = findControlByPath(observed.flat, path);
   }
 
   const leaf = path[path.length - 1];
@@ -205,7 +210,9 @@ export async function executeClickPath(
       strategy: leafStrategy,
       navigated: nav.navigated,
       url: nav.url,
-      controls: serializeRpcResult(observed.flat),
+      controls: serializeRpcResult(truncateViewTreeValue(observed.flat, CLICK_PATH_CONTROLS_PREVIEW).value),
+      controlsTruncated: observed.flat.length > CLICK_PATH_CONTROLS_PREVIEW ? true : undefined,
+      reObservedAfterExpand: path.length > 1 ? true : undefined,
       businessCode: "PATH_CLICK_OK"
     }
   };

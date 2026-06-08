@@ -99,12 +99,6 @@ export class DriverSessionManager {
       this.sessions.delete(key);
       return direct;
     }
-    const legacyKey = `${platform}:${sessionId}`;
-    const legacy = this.sessions.get(legacyKey);
-    if (legacy) {
-      this.sessions.delete(legacyKey);
-      return legacy;
-    }
     let closed: DriverSession | undefined;
     for (const k of Array.from(this.sessions.keys())) {
       const parsed = parseKernelSessionKey(k);

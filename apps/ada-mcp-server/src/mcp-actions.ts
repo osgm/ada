@@ -4,7 +4,13 @@ import type { ActionRunOptions } from "./mcp-action-runner.js";
 import type { MonitorOptions } from "./monitoring.js";
 import { isBestEffortRequest, wrapBestEffortCommandResult } from "./mcp-result.js";
 import { isLocatorFailure } from "./mcp-recovery.js";
-import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-ledger.js";
+import {
+  guardMobileCommandIfNeeded,
+  guardWebCommandIfNeeded,
+  recordMobileCommandIfNeeded,
+  recordWebCommandIfNeeded
+} from "./mcp-action-ledger.js";
+import { invalidateMobileDumpAfterCommand } from "./mcp-mobile-dump-cache.js";
 import { trackWebLastUrl } from "./mcp-session-liveness.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -88,6 +94,8 @@ export async function handleMobileRecipe(
     allowMock: (args: Record<string, unknown>) => boolean;
     withTiming: <T>(label: string, fn: () => Promise<T>) => Promise<T>;
     mobilePreflight: (platform: AdaPlatform) => Promise<void>;
+    ensureSessionActive?: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureMobileSessionReady?: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
     runCommand: (command: CommandEnvelope) => Promise<CommandResult>;
     assertRealResult: (result: CommandResult, context: string, allowMockMode: boolean) => void;
     wrapCommandToolResult: (input: {
@@ -103,21 +111,34 @@ export async function handleMobileRecipe(
   if (!action) {
     throw new Error("ada_mobile_recipe requires action");
   }
+  const payload = {
+    ...(asRecord(args.payload) || {}),
+    action,
+    ...(args.path !== undefined ? { path: args.path } : {}),
+    ...(args.text != null && args.text !== "" ? { text: args.text } : {})
+  };
   const envelope = deps.toCommandEnvelope(
     {
       ...args,
       platform,
       command: "recipe",
-      payload: {
-        ...(asRecord(args.payload) || {}),
-        action,
-        ...(args.text != null && args.text !== "" ? { text: args.text } : {})
-      }
+      payload
     },
     deps.allowMock(args)
   );
   await deps.withTiming(`ensureMobileRuntimeReady(${platform})`, () => deps.mobilePreflight(platform));
+  if (deps.ensureSessionActive) {
+    await deps.ensureSessionActive(platform, envelope.sessionId, "recipe");
+  }
+  if (deps.ensureMobileSessionReady) {
+    await deps.ensureMobileSessionReady(platform, envelope.sessionId, "recipe");
+  }
+  guardMobileCommandIfNeeded(platform, envelope.sessionId, "recipe", payload);
   const result = await deps.withTiming(`runCommand(${platform}:recipe:${action})`, () => deps.runCommand(envelope));
+  if (result.success) {
+    invalidateMobileDumpAfterCommand(platform, envelope.sessionId, "recipe");
+    recordMobileCommandIfNeeded(platform, envelope.sessionId, "recipe", payload, result);
+  }
   deps.assertRealResult(result, "ada_mobile_recipe", deps.allowMock(args));
   return deps.wrapCommandToolResult({ tool: "ada_mobile_recipe", envelope, result });
 }
@@ -133,6 +154,7 @@ export async function handleMobileAction(
     withTiming: <T>(label: string, fn: () => Promise<T>) => Promise<T>;
     mobilePreflight: (platform: AdaPlatform) => Promise<void>;
     ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureMobileSessionReady?: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
     parseActionRunOptions: (args: Record<string, unknown>) => ActionRunOptions;
     runCommandWithRetry: (
       command: CommandEnvelope,
@@ -164,8 +186,17 @@ export async function handleMobileAction(
   );
   await deps.withTiming(`ensureMobileRuntimeReady(${envelope.platform})`, () => deps.mobilePreflight(envelope.platform));
   await deps.ensureSessionActive(envelope.platform, envelope.sessionId, command);
+  if (deps.ensureMobileSessionReady) {
+    await deps.ensureMobileSessionReady(envelope.platform, envelope.sessionId, command);
+  }
+  const payload = asRecord(envelope.payload);
+  guardMobileCommandIfNeeded(envelope.platform, envelope.sessionId, command, payload);
   const runOpts = deps.parseActionRunOptions(args);
   const { result, attempts } = await deps.withTiming(`runCommand(${envelope.platform}:${command})`, () => deps.runCommandWithRetry(envelope, runOpts));
+  if (result.success) {
+    invalidateMobileDumpAfterCommand(envelope.platform, envelope.sessionId, command);
+    recordMobileCommandIfNeeded(envelope.platform, envelope.sessionId, command, payload, result);
+  }
   const maybeJob = deps.runMonitorCapture(envelope, result, deps.parseMonitorOptions(args));
   if (maybeJob) {
     await maybeJob;

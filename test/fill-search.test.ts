@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fillSearchPayloadFromArg } from "../scripts/lib/fill-search-options.mjs";
-import { parseFillSearchPayload } from "../packages/driver-rpc/src/fill-search-options.ts";
 import {
   detectFillSearchPageTransition,
+  fillSearchPayloadFromArg,
   isDirectInputTapDetail,
+  parseFillSearchPayload,
   resolveFillSearchSettleMs
-} from "../packages/driver-rpc/src/fill-search-transition.ts";
-import { pickNodeByTextHints } from "../packages/mobile-ui/src/heuristics.ts";
+} from "@ada/driver-rpc";
+import { pickNodeByTextHints } from "@ada/mobile-ui";
 
 const screen = { width: 1080, height: 2400 };
 

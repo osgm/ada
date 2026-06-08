@@ -31,7 +31,9 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // ../../plugins/driver-harmony/src/index.ts
 var index_exports = {};
 __export(index_exports, {
-  default: () => index_default
+  buildHarmonyPinchPointerMatrix: () => buildHarmonyPinchPointerMatrix,
+  default: () => index_default,
+  executeHarmonyPinch: () => executeHarmonyPinch
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -162,6 +164,20 @@ function harmonySwipePixels(screen, from, to, durationMs, options = {}) {
   };
 }
 
+// ../../packages/core-runtime/src/ada-env.ts
+function firstEnv(...names) {
+  for (const name of names) {
+    const v = process.env[name]?.trim();
+    if (v) return v;
+  }
+  return void 0;
+}
+function uiDumpCacheTtlMsFromEnv(defaultMs = 2e3) {
+  const raw = firstEnv("ADA_UI_DUMP_CACHE_MS", "ADA_ANDROID_HIERARCHY_CACHE_MS") ?? String(defaultMs);
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : defaultMs;
+}
+
 // ../../packages/driver-rpc/src/fill-search-options.ts
 function asStringList(v) {
   if (v == null) return [];
@@ -217,6 +233,41 @@ function parseFillSearchPayload(payload) {
       payload: p
     }
   };
+}
+
+// ../../packages/driver-rpc/src/fill-search-transition.ts
+var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
+var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 500;
+var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
+function resourceIdFromLabel(label) {
+  const m = label.match(/([\w.]+:id\/\w+)/i);
+  return (m?.[1] ?? label).toLowerCase();
+}
+function pickPointDistance(a, b) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+function detectFillSearchPageTransition(tapPick, afterPick, screen, beforeNodeCount = 0, afterNodeCount = 0) {
+  if (tapPick?.point && afterPick?.point) {
+    const threshold = Math.min(screen.width, screen.height) * 0.06;
+    if (pickPointDistance(tapPick.point, afterPick.point) >= threshold) return true;
+    const tapLabel = (tapPick.label ?? "").trim();
+    const afterLabel = (afterPick.label ?? "").trim();
+    if (tapLabel && afterLabel && tapLabel !== afterLabel) {
+      if (resourceIdFromLabel(tapLabel) !== resourceIdFromLabel(afterLabel)) return true;
+    }
+  }
+  if (beforeNodeCount > 0 && afterNodeCount > 0) {
+    const ratio = afterNodeCount / beforeNodeCount;
+    if (ratio < 0.55 || ratio > 1.75) return true;
+  }
+  return false;
+}
+function isDirectInputTapDetail(detail) {
+  return typeof detail === "string" && detail.includes("direct input");
+}
+function resolveFillSearchSettleMs(tapDetail, userSettleMs) {
+  if (typeof userSettleMs === "number" && userSettleMs > 0) return userSettleMs;
+  return isDirectInputTapDetail(tapDetail) ? FILL_SEARCH_DIRECT_INPUT_SETTLE_MS : FILL_SEARCH_DEFAULT_SETTLE_MS;
 }
 
 // ../../packages/mobile-ui/src/heuristics-config.ts
@@ -444,39 +495,67 @@ function findUiNode(nodes, options) {
   return null;
 }
 
-// ../../packages/driver-rpc/src/fill-search-transition.ts
-var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
-var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 500;
-var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
-function resourceIdFromLabel(label) {
-  const m = label.match(/([\w.]+:id\/\w+)/i);
-  return (m?.[1] ?? label).toLowerCase();
+// ../../packages/driver-rpc/src/web-interaction-recipe.ts
+function normalizeControlPath(path3) {
+  if (!Array.isArray(path3)) return [];
+  return path3.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0);
 }
-function pickPointDistance(a, b) {
-  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+// ../../packages/driver-rpc/src/mobile-view-tree.ts
+function nodeLabel2(node) {
+  const text = node.text?.trim();
+  if (text) return text;
+  const desc = node.desc?.trim();
+  if (desc) return desc;
+  const id = node.id?.trim();
+  if (id) {
+    const short = id.includes("/") ? id.split("/").pop() : id;
+    return short;
+  }
+  return "";
 }
-function detectFillSearchPageTransition(tapPick, afterPick, screen, beforeNodeCount = 0, afterNodeCount = 0) {
-  if (tapPick?.point && afterPick?.point) {
-    const threshold = Math.min(screen.width, screen.height) * 0.06;
-    if (pickPointDistance(tapPick.point, afterPick.point) >= threshold) return true;
-    const tapLabel = (tapPick.label ?? "").trim();
-    const afterLabel = (afterPick.label ?? "").trim();
-    if (tapLabel && afterLabel && tapLabel !== afterLabel) {
-      if (resourceIdFromLabel(tapLabel) !== resourceIdFromLabel(afterLabel)) return true;
+function normalizeLabel(value) {
+  return value.trim().toLowerCase();
+}
+function shapeMobileViewTreeFlat(nodes, maxItems = 80) {
+  const limit = Math.max(1, Math.floor(maxItems));
+  const seen = /* @__PURE__ */ new Set();
+  const flat = [];
+  for (const node of nodes) {
+    const name = nodeLabel2(node);
+    if (!name && !node.clickable) continue;
+    if (!node.clickable && !name) continue;
+    const key = `${name}|${node.point[0]}|${node.point[1]}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    flat.push({
+      name: name || "(node)",
+      text: node.text?.trim() || void 0,
+      desc: node.desc?.trim() || void 0,
+      resourceId: node.id?.trim() || void 0,
+      clickable: node.clickable,
+      point: node.point,
+      bounds: node.bounds,
+      path: name ? [name] : []
+    });
+    if (flat.length >= limit) {
+      return { flat, truncated: true };
     }
   }
-  if (beforeNodeCount > 0 && afterNodeCount > 0) {
-    const ratio = afterNodeCount / beforeNodeCount;
-    if (ratio < 0.55 || ratio > 1.75) return true;
-  }
-  return false;
+  return { flat, truncated: false };
 }
-function isDirectInputTapDetail(detail) {
-  return typeof detail === "string" && detail.includes("direct input");
-}
-function resolveFillSearchSettleMs(tapDetail, userSettleMs) {
-  if (typeof userSettleMs === "number" && userSettleMs > 0) return userSettleMs;
-  return isDirectInputTapDetail(tapDetail) ? FILL_SEARCH_DIRECT_INPUT_SETTLE_MS : FILL_SEARCH_DEFAULT_SETTLE_MS;
+function findMobileNodeForSegment(nodes, segment) {
+  const target = normalizeLabel(segment);
+  if (!target) return void 0;
+  const candidates = nodes.filter((node) => node.clickable);
+  const scored = candidates.map((node) => {
+    const label = normalizeLabel(nodeLabel2(node));
+    if (!label) return { node, score: -1 };
+    if (label === target) return { node, score: 100 };
+    if (label.includes(target) || target.includes(label)) return { node, score: 60 };
+    return { node, score: -1 };
+  }).filter((item) => item.score >= 0).sort((a, b) => b.score - a.score);
+  return scored[0]?.node;
 }
 
 // ../../packages/driver-rpc/src/recipe-errors.ts
@@ -487,7 +566,9 @@ var RECIPE_ERROR_CODES = {
   FILL_SEARCH_NO_INPUT: "RECIPE_FILL_SEARCH_NO_INPUT",
   FILL_SEARCH_TYPE_FAILED: "RECIPE_FILL_SEARCH_TYPE_FAILED",
   DUMP_UI_FAILED: "RECIPE_DUMP_UI_FAILED",
-  FILL_SEARCH_MISSING_TEXT: "RECIPE_FILL_SEARCH_MISSING_TEXT"
+  FILL_SEARCH_MISSING_TEXT: "RECIPE_FILL_SEARCH_MISSING_TEXT",
+  TAP_PATH_FAILED: "RECIPE_TAP_PATH_FAILED",
+  TAP_PATH_SEGMENT_NOT_FOUND: "RECIPE_TAP_PATH_SEGMENT_NOT_FOUND"
 };
 function recipeErrorCodeForAction(action, ok) {
   if (ok) return void 0;
@@ -498,6 +579,8 @@ function recipeErrorCodeForAction(action, ok) {
       return RECIPE_ERROR_CODES.FILL_SEARCH_FAILED;
     case "dump_ui":
       return RECIPE_ERROR_CODES.DUMP_UI_FAILED;
+    case "tap_path":
+      return RECIPE_ERROR_CODES.TAP_PATH_FAILED;
     default:
       return "RECIPE_FAILED";
   }
@@ -703,7 +786,51 @@ async function tryHintChainFill(ctx, parsed, text, payload) {
 }
 async function recipeDumpUi(ctx) {
   const nodes = await ctx.dumpUi();
-  return { ok: true, phase: "dump_ui", detail: `nodes=${nodes.length}`, data: { nodeCount: nodes.length } };
+  const { flat, truncated } = shapeMobileViewTreeFlat(nodes, 80);
+  return {
+    ok: true,
+    phase: "dump_ui",
+    detail: `nodes=${nodes.length}`,
+    data: { nodeCount: nodes.length, flat, flatTruncated: truncated || void 0 }
+  };
+}
+async function recipeTapPath(ctx, options) {
+  const path3 = normalizeControlPath(options?.payload?.path);
+  if (path3.length === 0) {
+    return {
+      ok: false,
+      phase: "tap_path",
+      detail: "tap_path requires non-empty path array",
+      errorCode: RECIPE_ERROR_CODES.TAP_PATH_FAILED
+    };
+  }
+  for (let i = 0; i < path3.length; i += 1) {
+    const segment = path3[i] ?? "";
+    const nodes = await dumpWithRetry(ctx);
+    const target = findMobileNodeForSegment(nodes, segment);
+    if (!target) {
+      return {
+        ok: false,
+        phase: "tap_path",
+        detail: `segment not found: ${segment}`,
+        errorCode: RECIPE_ERROR_CODES.TAP_PATH_SEGMENT_NOT_FOUND,
+        data: { path: path3, segment, index: i }
+      };
+    }
+    await ctx.clickPoint(target.point);
+    if (i < path3.length - 1) {
+      ctx.invalidateDumpCache?.();
+      await recipeSettleDelay(ctx, options?.payload, 350);
+    }
+  }
+  const finalNodes = await safeDumpUi(ctx);
+  const { flat, truncated } = shapeMobileViewTreeFlat(finalNodes, 40);
+  return {
+    ok: true,
+    phase: "tap_path",
+    detail: `path=${path3.join(">")}`,
+    data: { path: path3, flat, flatTruncated: truncated || void 0 }
+  };
 }
 async function recipeTapSearch(ctx, options) {
   const parsed = parseFillSearchPayload(options?.payload);
@@ -969,6 +1096,11 @@ async function runMobileCustomAction(rawAction, ctx, options) {
     const errorCode = recipe.ok ? void 0 : recipeErrorCodeForAction(action, false);
     return { handled: true, recipe, errorCode, value: recipe.detail };
   }
+  if (action === "tap_path") {
+    const recipe = await recipeTapPath(ctx, recipeOpts);
+    const errorCode = recipe.ok ? void 0 : recipeErrorCodeForAction(action, false);
+    return { handled: true, recipe, errorCode, value: recipe.detail };
+  }
   if (action === "fill_search") {
     const text = String(options?.text ?? "");
     if (!text) {
@@ -1060,9 +1192,7 @@ function deviceAdminFail(command, code, message) {
 
 // ../../packages/driver-rpc/src/ui-dump-cache.ts
 function readUiDumpCacheTtlMs() {
-  const raw = process.env.ADA_UI_DUMP_CACHE_MS ?? process.env.ADA_ANDROID_HIERARCHY_CACHE_MS ?? "2000";
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : 2e3;
+  return uiDumpCacheTtlMsFromEnv(2e3);
 }
 var UiDumpCache = class {
   constructor(ttlMs = readUiDumpCacheTtlMs()) {
@@ -1185,10 +1315,9 @@ function getString(value) {
 }
 function normalizeInvokePayload(raw, defaultMode) {
   const payload = asRecord(raw);
-  const legacyCustom = asRecord(payload.custom);
   const httpBlock = asRecord(payload.http);
-  const httpMethod = getString(httpBlock.method) ?? getString(legacyCustom.method);
-  const httpPath = getString(httpBlock.path) ?? getString(legacyCustom.path);
+  const httpMethod = getString(httpBlock.method);
+  const httpPath = getString(httpBlock.path);
   const hasHttp = Boolean(httpMethod && httpPath);
   const method = getString(payload.method);
   const target = getString(payload.target);
@@ -1212,7 +1341,7 @@ function normalizeInvokePayload(raw, defaultMode) {
       http: {
         method: httpMethod,
         path: httpPath,
-        body: httpBlock.body ?? legacyCustom.body
+        body: httpBlock.body
       },
       options: asRecord(payload.options)
     };
@@ -2543,3 +2672,8 @@ var harmonyPlugin = {
   }
 };
 var index_default = harmonyPlugin;
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  buildHarmonyPinchPointerMatrix,
+  executeHarmonyPinch
+});

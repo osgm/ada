@@ -56,4 +56,8 @@ const iosPlugin: DriverPlugin = {
 };
 
 export default iosPlugin;
-export { iosSessionSignature };
+export { buildAfcClientArgs, parseIosRemotePath, resolveIosDeviceUdid } from "./ios-afc-client.js";
+export { iosLocatorToUsing, isIosClearTypeOp } from "./ios-locator.js";
+export { iosPickToXpathCandidates } from "./ios-pick-locator.js";
+export { buildSinglePointerTapActions, tapAtPointWithFallback } from "./ios-tap-at.js";
+export { capsOf, iosSessionSignature } from "./session-signature.js";

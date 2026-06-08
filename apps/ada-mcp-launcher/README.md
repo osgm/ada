@@ -76,7 +76,7 @@ npx -y @ada-mcp/launcher@0.1.75
 | `ADA_MCP_LOG_LEVEL` | 默认 **`info`**（测速、安装进度）；仅要错误时设 `error`，或 `ADA_MCP_QUIET=1` |
 | `ADA_MCP_LOG_INFO_STDERR` | `1` 时 info 仍写 stderr（部分 Host 会标成 error；**默认 info 写 stdout**） |
 | `ADA_MCP_SKIP_REGISTRY_PROBE` | `1` 时跳过测速（用候选列表第一项） |
-| `ADA_MCP_REGISTRY_PROBE_TTL_MS` | 测速缓存有效期（默认 **300000**，即 5 分钟） |
+| `ADA_MCP_REGISTRY_PROBE_TTL_MS` | 测速缓存有效期（默认 **3600000**，即 1 小时） |
 | `ADA_MCP_REGISTRY_PROBE_CACHE_FILE` | 覆盖缓存路径（默认 `~/.ada/launcher-registry-probe.json`） |
 | `ADA_MCP_INSTALL_DEPS` 等 | 写在 `args` 末尾，传给 mcp-server（见 `@ada-mcp/mcp-server` README） |
 

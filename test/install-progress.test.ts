@@ -4,7 +4,7 @@ import {
   getLatestInstallProgress,
   registerInstallProgressSink,
   tryEmitProgressFromLogLine
-} from "../packages/install-deps/src/install-progress.js";
+} from "@ada/install-deps";
 
 const prev = process.env.ADA_MCP_STRUCTURED_PROGRESS;
 const collected: unknown[] = [];

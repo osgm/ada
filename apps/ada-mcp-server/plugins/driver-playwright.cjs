@@ -31,7 +31,11 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // ../../plugins/driver-playwright/src/index.ts
 var index_exports = {};
 __export(index_exports, {
-  default: () => index_default
+  default: () => index_default,
+  executeClickPath: () => executeClickPath,
+  locatorFromPayload: () => locatorFromPayload,
+  observeViewOnPage: () => observeViewOnPage,
+  summarizeLocator: () => summarizeLocator
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -280,6 +284,58 @@ function parseWebViewSnapshot(raw) {
   const regions = Array.isArray(value.regions) ? value.regions : [];
   const url = typeof value.url === "string" ? value.url : "";
   return { tree, flat, regions, url };
+}
+function truncateTreeNodeList(nodes, maxNodes) {
+  let count = 0;
+  let truncated = false;
+  function walk(list) {
+    const out = [];
+    for (const node of list) {
+      if (count >= maxNodes) {
+        truncated = true;
+        break;
+      }
+      count += 1;
+      if (!node || typeof node !== "object") {
+        out.push(node);
+        continue;
+      }
+      const record = { ...node };
+      const children = record.children;
+      if (Array.isArray(children)) {
+        record.children = walk(children);
+      }
+      out.push(record);
+    }
+    return out;
+  }
+  return { nodes: walk(nodes), truncated };
+}
+function truncateViewTreeValue(value, maxItems) {
+  const limit = Math.max(1, Math.floor(maxItems));
+  if (Array.isArray(value)) {
+    const truncated2 = value.length > limit;
+    return { value: value.slice(0, limit), truncated: truncated2 };
+  }
+  if (!value || typeof value !== "object") {
+    return { value, truncated: false };
+  }
+  const obj = value;
+  let truncated = false;
+  const out = { ...obj };
+  for (const key of ["flat", "matches"]) {
+    const arr = obj[key];
+    if (Array.isArray(arr) && arr.length > limit) {
+      out[key] = arr.slice(0, limit);
+      truncated = true;
+    }
+  }
+  if (Array.isArray(obj.tree)) {
+    const treeResult = truncateTreeNodeList(obj.tree, limit);
+    out.tree = treeResult.nodes;
+    truncated = truncated || treeResult.truncated;
+  }
+  return { value: out, truncated };
 }
 
 // ../../packages/driver-rpc/src/cdp-auto-launch.ts
@@ -570,10 +626,9 @@ function getString2(value) {
 }
 function normalizeInvokePayload(raw, defaultMode) {
   const payload = asRecord3(raw);
-  const legacyCustom = asRecord3(payload.custom);
   const httpBlock = asRecord3(payload.http);
-  const httpMethod = getString2(httpBlock.method) ?? getString2(legacyCustom.method);
-  const httpPath = getString2(httpBlock.path) ?? getString2(legacyCustom.path);
+  const httpMethod = getString2(httpBlock.method);
+  const httpPath = getString2(httpBlock.path);
   const hasHttp = Boolean(httpMethod && httpPath);
   const method = getString2(payload.method);
   const target = getString2(payload.target);
@@ -597,7 +652,7 @@ function normalizeInvokePayload(raw, defaultMode) {
       http: {
         method: httpMethod,
         path: httpPath,
-        body: httpBlock.body ?? legacyCustom.body
+        body: httpBlock.body
       },
       options: asRecord3(payload.options)
     };
@@ -874,6 +929,7 @@ function locatorFromPayload(page, payload) {
 }
 
 // ../../plugins/driver-playwright/src/web-interaction-recipe.ts
+var CLICK_PATH_CONTROLS_PREVIEW = 40;
 function failResult(command, code, message, data) {
   return {
     requestId: command.requestId,
@@ -963,8 +1019,8 @@ async function executeClickPath(command, page, payload) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_INVALID, "clickPath requires non-empty path array");
   }
   const waitMs = resolveAutoWaitMs(payload);
-  const observed = await observeViewOnPage(page);
-  const targetMeta = findControlByPath(observed.flat, path3);
+  let observed = await observeViewOnPage(page);
+  let targetMeta = findControlByPath(observed.flat, path3);
   const beforeUrl = page.url();
   for (let i = 0; i < path3.length - 1; i += 1) {
     const segment = path3[i];
@@ -979,6 +1035,8 @@ async function executeClickPath(command, page, payload) {
         businessCode: WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED
       });
     }
+    observed = await observeViewOnPage(page);
+    targetMeta = findControlByPath(observed.flat, path3);
   }
   const leaf = path3[path3.length - 1];
   const leafStrategy = resolveExpandStrategy(payload?.strategy, targetMeta);
@@ -1020,7 +1078,9 @@ async function executeClickPath(command, page, payload) {
       strategy: leafStrategy,
       navigated: nav.navigated,
       url: nav.url,
-      controls: serializeRpcResult(observed.flat),
+      controls: serializeRpcResult(truncateViewTreeValue(observed.flat, CLICK_PATH_CONTROLS_PREVIEW).value),
+      controlsTruncated: observed.flat.length > CLICK_PATH_CONTROLS_PREVIEW ? true : void 0,
+      reObservedAfterExpand: path3.length > 1 ? true : void 0,
       businessCode: "PATH_CLICK_OK"
     }
   };
@@ -1855,3 +1915,10 @@ var playwrightPlugin = {
   }
 };
 var index_default = playwrightPlugin;
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  executeClickPath,
+  locatorFromPayload,
+  observeViewOnPage,
+  summarizeLocator
+});

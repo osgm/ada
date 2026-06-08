@@ -1,4 +1,3 @@
-import type { AgentConfig } from "@ada/agent/types";
 import { buildMcpReadinessHints } from "./mcp-health-enrich.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -49,11 +48,14 @@ export async function handleHealthTool(
   args: Record<string, unknown>,
   deps: {
     loadAgentConfig: () => Promise<Record<string, unknown>>;
-    getHealthSnapshot: (options: { config: AgentConfig; includeHarmony: boolean }) => Promise<Record<string, unknown>>;
+    getHealthSnapshot: (options: {
+      config: Record<string, unknown>;
+      includeHarmony: boolean;
+    }) => Promise<Record<string, unknown>>;
     buildHealthBlockers: (
       snapshot: Record<string, unknown>,
       scope: "web" | "mobile" | "all",
-      config?: AgentConfig
+      config?: Record<string, unknown>
     ) => Promise<any[]>;
     buildSessionPolicy: () => unknown;
     healthStatusFromBlockers: (blockers: any[]) => "ok" | "degraded";
@@ -61,7 +63,7 @@ export async function handleHealthTool(
   }
 ): Promise<any> {
   const scope = normalizeHealthScope(args.scope);
-  const config = (await deps.loadAgentConfig()) as unknown as AgentConfig;
+  const config = await deps.loadAgentConfig();
   const includeHarmony = scope === "mobile" || scope === "all";
   const snapshot = await deps.getHealthSnapshot({ config, includeHarmony });
   const scoped = scopedHealthSnapshot(snapshot, scope);

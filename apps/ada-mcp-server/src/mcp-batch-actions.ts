@@ -1,5 +1,12 @@
 import type { CommandResult } from "@ada/contracts";
-import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-ledger.js";
+import {
+  guardMobileCommandIfNeeded,
+  guardWebCommandIfNeeded,
+  recordMobileCommandIfNeeded,
+  recordWebCommandIfNeeded
+} from "./mcp-action-ledger.js";
+import { resolveRecoveryFields, slimBatchStepResults } from "./mcp-payload-slim.js";
+import { suggestRecoveryTool } from "./mcp-recovery.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 
 type McpResult = ReturnType<
@@ -28,8 +35,7 @@ export interface BatchActionDeps {
   executeWithTimeout: (envelope: any, timeoutMs?: number) => Promise<CommandResult>;
   assertRealResult: (result: CommandResult, context: string, allowMockMode: boolean) => void;
   mcpTextResult: (data: Record<string, unknown>, options?: any) => McpResult;
-  buildRecoveryHint: (input: any) => string;
-  buildRecoveryPlan: (input: any) => unknown;
+  buildRecoveryFields: (input: any) => { recoveryPlan: unknown; recoveryHint?: string };
 }
 
 function resolveOnFailure(args: Record<string, unknown>): "stop" | "continue" {
@@ -151,6 +157,7 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
       );
       result = await deps.withTiming(`batch-action(${platform}:${command})`, () => deps.executeWithTimeout(envelope, timeoutMs));
       recordWebCommandIfNeeded(platform, sessionId, command, payload, result);
+      recordMobileCommandIfNeeded(platform, sessionId, command, payload, result);
       if (result.success) {
         break;
       }
@@ -165,6 +172,25 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
   const successCount = results.filter((item) => item.result.success).length;
   const failureCount = results.length - successCount;
   const timeoutCount = results.filter((item) => item.result.errorCode === "MCP_ACTION_TIMEOUT").length;
+  const failedStep = results.find((item) => !item.result.success);
+  const errorKind = timeoutCount > 0 ? "timeout" : "command_failed";
+  const slimResults = slimBatchStepResults(results);
+  const recoveryInput = {
+    tool: "ada_batch_actions",
+    sessionId,
+    platform,
+    errorKind,
+    result: failedStep?.result,
+    envelope: failedStep
+      ? {
+          requestId: failedStep.result.requestId,
+          sessionId,
+          platform,
+          command: failedStep.command,
+          payload: {}
+        }
+      : undefined
+  };
   return deps.mcpTextResult(
     {
       status: failureCount > 0 ? "failed" : "ok",
@@ -181,26 +207,17 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
         timeoutCount,
         stoppedOnFailure: failureCount > 0 && onFailure === "stop"
       },
-      results
+      ...slimResults
     },
     failureCount > 0
       ? {
           isError: true,
-          errorKind: timeoutCount > 0 ? "timeout" : "command_failed",
+          errorKind,
           recoverable: onFailure === "continue",
-          suggestedNextTool: "ada_sessions",
-          recoveryHint: deps.buildRecoveryHint({
-            tool: "ada_batch_actions",
-            sessionId,
-            platform,
-            errorKind: timeoutCount > 0 ? "timeout" : "command_failed"
-          }),
-          recoveryPlan: deps.buildRecoveryPlan({
-            tool: "ada_batch_actions",
-            sessionId,
-            platform,
-            errorKind: timeoutCount > 0 ? "timeout" : "command_failed"
-          })
+          suggestedNextTool:
+            (failedStep && suggestRecoveryTool(failedStep.result, platform)) ??
+            (platform === "web" ? "ada_extract" : "ada_mobile_extract"),
+          ...resolveRecoveryFields(recoveryInput)
         }
       : undefined
   );

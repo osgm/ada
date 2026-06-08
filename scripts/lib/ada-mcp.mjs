@@ -73,8 +73,8 @@ export async function connectMcp(options = {}) {
   const root = options.root ?? repoRoot;
   const cli = path.join(root, "apps", "ada-mcp-server", "src", "cli.ts");
   const transport = new StdioClientTransport({
-    command: "npx",
-    args: ["tsx", cli, "--skip-install-deps"],
+    command: process.execPath,
+    args: ["--import", "tsx", cli, "--skip-install-deps"],
     cwd: root,
     env: toolsPathEnv({
       ...process.env,

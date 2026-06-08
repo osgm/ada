@@ -30,6 +30,7 @@ export function readActionLedgerConfig(): {
 }
 
 export const GUARDED_WEB_COMMANDS = new Set(["click", "hover", "clickPath"]);
+export const GUARDED_MOBILE_COMMANDS = new Set(["click", "swipe"]);
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -51,6 +52,23 @@ export function buildWebActionLedgerKey(command: string, payload: Record<string,
     return buildPathActionKey(path, pathCommand);
   }
   return buildLocatorActionKey(command, payload.locator ?? payload.selector);
+}
+
+export function buildMobileActionLedgerKey(command: string, payload: Record<string, unknown>): string {
+  const path = normalizeControlPath(payload.path);
+  if (path.length > 0) {
+    return buildPathActionKey(path, command === "recipe" ? "tap_path" : command);
+  }
+  const locator = payload.locator ?? payload.selector;
+  if (locator !== undefined) {
+    return buildLocatorActionKey(command, locator);
+  }
+  const x = payload.x ?? payload.fromX;
+  const y = payload.y ?? payload.fromY;
+  if (typeof x === "number" && typeof y === "number") {
+    return `${command}:point:${x},${y}`;
+  }
+  return buildLocatorActionKey(command, payload);
 }
 
 function getLedger(sessionId: string): LedgerEntry[] {
@@ -139,6 +157,15 @@ function resolveWebLedgerCommand(command: string, payload: Record<string, unknow
   return null;
 }
 
+function resolveMobileLedgerCommand(command: string, payload: Record<string, unknown>): string | null {
+  if (GUARDED_MOBILE_COMMANDS.has(command)) return command;
+  if (command === "recipe") {
+    const action = String(payload.action ?? "").toLowerCase();
+    if (action === "tap_path" || action === "tappath") return "tap_path";
+  }
+  return null;
+}
+
 export function guardWebCommandIfNeeded(
   platform: string,
   sessionId: string,
@@ -163,5 +190,47 @@ export function recordWebCommandIfNeeded(
   if (!ledgerCommand) return;
   const data = asRecord(result.data);
   recordWebAction(sessionId, ledgerCommand, payload, typeof data.url === "string" ? data.url : undefined);
+}
+
+export function guardMobileAction(sessionId: string, command: string, payload: Record<string, unknown>): void {
+  if (!GUARDED_MOBILE_COMMANDS.has(command) && command !== "recipe") return;
+  const ledgerCommand = resolveMobileLedgerCommand(command, payload);
+  if (!ledgerCommand) return;
+  assertActionAllowed(sessionId, buildMobileActionLedgerKey(ledgerCommand, payload));
+}
+
+export function recordMobileAction(
+  sessionId: string,
+  command: string,
+  payload: Record<string, unknown>
+): void {
+  const ledgerCommand = resolveMobileLedgerCommand(command, payload);
+  if (!ledgerCommand) return;
+  recordAction(sessionId, buildMobileActionLedgerKey(ledgerCommand, payload));
+}
+
+export function guardMobileCommandIfNeeded(
+  platform: string,
+  sessionId: string,
+  command: string,
+  payload: Record<string, unknown>
+): void {
+  if (platform === "web") return;
+  if (platform !== "android" && platform !== "ios" && platform !== "harmony") return;
+  guardMobileAction(sessionId, command, payload);
+}
+
+export function recordMobileCommandIfNeeded(
+  platform: string,
+  sessionId: string,
+  command: string,
+  payload: Record<string, unknown>,
+  result: { success: boolean }
+): void {
+  if (!result.success) return;
+  if (platform !== "android" && platform !== "ios" && platform !== "harmony") return;
+  const ledgerCommand = resolveMobileLedgerCommand(command, payload);
+  if (!ledgerCommand) return;
+  recordAction(sessionId, buildMobileActionLedgerKey(ledgerCommand, payload));
 }
 

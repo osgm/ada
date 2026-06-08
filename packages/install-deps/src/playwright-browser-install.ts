@@ -13,7 +13,7 @@ import type { DriverInstallOutcome } from "./install-summary.js";
 import { resolvePlaywrightBrowsersPath } from "./deps-install-paths.js";
 import { depsRequire, ensurePackageResolution, isPackageAvailable } from "./deps-resolution.js";
 
-const PINNED_PLAYWRIGHT_VERSION = "1.59.1";
+import { PINNED_PLAYWRIGHT_VERSION } from "./pinned-playwright-version.js";
 
 function shouldUseShell(command: string): boolean {
   return process.platform === "win32" && !path.isAbsolute(command) && !command.includes(path.sep);

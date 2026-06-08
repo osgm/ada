@@ -9,6 +9,14 @@ export {
   resolvePlaywrightHostFilePathSync,
   resolveUserHomeDirSync
 } from "./ada-home.js";
+export {
+  envTruthy,
+  fastStartFromEnv,
+  firstEnv,
+  hideAdvancedToolsFromEnv,
+  mcpVerboseResultFromEnv,
+  uiDumpCacheTtlMsFromEnv
+} from "./ada-env.js";
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

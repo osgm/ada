@@ -25,7 +25,8 @@
   "dependencies": {
     "@ada/core-runtime": "0.1.0",
     "@ada/download-probe": "0.1.0",
-    "@ada/runtime-probe": "0.1.0"
+    "@ada/runtime-probe": "0.1.0",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0"

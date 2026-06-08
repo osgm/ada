@@ -3,7 +3,7 @@ import {
   resolveDefaultPlaywrightDownloadHost,
   shouldProbeNpmRegistry,
   shouldProbePlaywrightCdn
-} from "../packages/install-deps/src/download-probe-persist.js";
+} from "@ada/install-deps";
 
 const prev = { ...process.env };
 

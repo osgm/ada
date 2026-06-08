@@ -126,7 +126,7 @@ ada/
 
 - `apps/ada-agent/src/transport-client.ts`
   - `TransportSelector`（`stream/http/auto`）
-  - 统一将 `CommandEnvelope` 透传为远程 `ada_execute` 请求（传输层 `action` 字段；MCP 日常 E2E 优先 `ada_web_action` / `ada_mobile_action`，`ada_execute` 为 T3）
+  - 将 `CommandEnvelope` 映射为远程 `ada_web_action` / `ada_mobile_action` / `ada_mobile_recipe`（传输层 `action` 字段）
   - 将远端返回规范化为 `CommandResult`，并在 `auto` 模式下实现 `stream -> http` 回退
 
 - `packages/core-runtime`

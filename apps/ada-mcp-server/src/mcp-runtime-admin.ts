@@ -1,4 +1,5 @@
 import type { InstallScope } from "@ada/install-deps";
+import { slimInstallDepsLogs } from "./mcp-payload-slim.js";
 
 export async function handleDevices(
   args: Record<string, unknown>,
@@ -36,13 +37,13 @@ export async function handleInstallDeps(
   const logs: string[] = [];
   const summary = await deps.installDependencies(only, force, (line: string) => logs.push(line));
   deps.invalidateRuntimeCaches();
+  const logPayload = slimInstallDepsLogs(logs);
   return deps.mcpTextResult({
     status: "ok",
     only,
     force,
-    logLines: logs.length,
-    logs,
-    summary
+    summary,
+    ...logPayload
   });
 }
 

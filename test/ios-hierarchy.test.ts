@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseIosHierarchy } from "../packages/mobile-ui/src/ios.js";
-import { pickNodeByTextHints } from "../packages/mobile-ui/src/heuristics.js";
+import { parseIosHierarchy, pickNodeByTextHints } from "@ada/mobile-ui";
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 <AppiumAUT>

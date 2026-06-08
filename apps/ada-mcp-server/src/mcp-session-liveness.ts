@@ -1,6 +1,23 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import { clearWebViewTreeCache } from "./mcp-view-tree-cache.js";
 
 const lastUrlBySession = new Map<string, string>();
+
+const pageProbeCache = new Map<string, { at: number; url: string }>();
+
+function pageProbeTtlMs(): number {
+  const raw = process.env.ADA_WEB_PAGE_PROBE_TTL_MS?.trim();
+  const n = raw ? Number(raw) : 2000;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2000;
+}
+
+export function clearWebPageProbeCache(sessionId?: string): void {
+  if (sessionId) {
+    pageProbeCache.delete(sessionId);
+    return;
+  }
+  pageProbeCache.clear();
+}
 
 const PAGE_PROBE_SCRIPT = `(() => ({
   url: location.href,
@@ -13,7 +30,12 @@ export function trackWebLastUrl(sessionId: string, url: string): void {
   if (!sessionId || !trimmed || trimmed === "about:blank" || trimmed === "about:srcdoc") {
     return;
   }
+  const prev = lastUrlBySession.get(sessionId);
   lastUrlBySession.set(sessionId, trimmed);
+  if (prev !== trimmed) {
+    clearWebPageProbeCache(sessionId);
+    clearWebViewTreeCache(sessionId);
+  }
 }
 
 export function getWebLastUrl(sessionId: string): string | undefined {
@@ -22,10 +44,14 @@ export function getWebLastUrl(sessionId: string): string | undefined {
 
 export function clearWebSessionTrack(sessionId: string): void {
   lastUrlBySession.delete(sessionId);
+  clearWebPageProbeCache(sessionId);
+  clearWebViewTreeCache(sessionId);
 }
 
 export function clearAllWebSessionTracks(): void {
   lastUrlBySession.clear();
+  clearWebPageProbeCache();
+  clearWebViewTreeCache();
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -58,6 +84,13 @@ export async function ensureWebPageReady(
     return;
   }
 
+  const ttlMs = pageProbeTtlMs();
+  const cached = pageProbeCache.get(sessionId);
+  if (cached && ttlMs > 0 && Date.now() - cached.at < ttlMs && cached.url) {
+    trackWebLastUrl(sessionId, cached.url);
+    return;
+  }
+
   const probe = await deps.runCommand(
     deps.toCommandEnvelope(
       {
@@ -84,6 +117,7 @@ export async function ensureWebPageReady(
 
   if (!blank && url) {
     trackWebLastUrl(sessionId, url);
+    pageProbeCache.set(sessionId, { at: Date.now(), url });
     return;
   }
 
@@ -103,6 +137,7 @@ export async function ensureWebPageReady(
     );
     if (recovered.success) {
       trackWebLastUrl(sessionId, lastUrl);
+      pageProbeCache.set(sessionId, { at: Date.now(), url: lastUrl });
       return;
     }
   }

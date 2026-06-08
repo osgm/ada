@@ -4,7 +4,7 @@ import {
   normalizeCommand,
   normalizePlatform,
   requireMobilePlatform
-} from "../apps/ada-mcp-server/src/mcp-normalize.ts";
+} from "@ada-mcp/mcp-server/testing";
 
 describe("mcp-normalize", () => {
   it("normalizePlatform requires explicit value by default", () => {
@@ -24,10 +24,8 @@ describe("mcp-normalize", () => {
     assert.equal(normalizeCommand("click"), "click");
   });
 
-  it("normalizeCommand maps deprecated aliases", () => {
+  it("normalizeCommand delegates alias mapping to driver-rpc", () => {
     assert.equal(normalizeCommand("terminateApp"), "exitApp");
-    assert.equal(normalizeCommand("fill"), "type");
-    assert.equal(normalizeCommand("home"), "pressHome");
     assert.equal(normalizeCommand("recipe"), "recipe");
   });
 

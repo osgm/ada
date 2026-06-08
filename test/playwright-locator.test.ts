@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { locatorFromPayload, summarizeLocator } from "../plugins/driver-playwright/src/playwright-locator.ts";
+import { locatorFromPayload, summarizeLocator } from "@ada/driver-playwright";
 
 function mockPage() {
   const chain = (label: string) => {

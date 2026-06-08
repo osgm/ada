@@ -1,4 +1,4 @@
-import { DEVICE_ADMIN_ACTION_ENUM } from "./mcp-tool-policy.js";
+import { DEVICE_ADMIN_ACTION_ENUM } from "./mcp-tool-tiers.js";
 
 /** Shared JSON Schema fragments for MCP tool inputSchema (title + description for AI clients) */
 

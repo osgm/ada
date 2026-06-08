@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  parseAndroidCurrentApp,
-  parsePackageList,
-  readDeviceAdminAction
-} from "../packages/driver-rpc/src/mobile-device-admin.ts";
+import { parseAndroidCurrentApp, parsePackageList, readDeviceAdminAction } from "@ada/driver-rpc";
 
 test("readDeviceAdminAction aliases", () => {
   assert.equal(readDeviceAdminAction({ action: "appList" }), "listApps");

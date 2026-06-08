@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  MOBILE_RECIPE_ACTIONS,
   normalizeCommandEnvelope,
   normalizeCommandName,
   normalizePayload
@@ -23,6 +24,10 @@ test("normalizePayload: appId and durationMs canonical", () => {
   assert.equal(p.bundleId, undefined);
   assert.equal(p.durationMs, 400);
   assert.equal(p.waitTimeoutMs, 20_000);
+});
+
+test("MOBILE_RECIPE_ACTIONS lists mobile observe/interact recipes", () => {
+  assert.deepEqual([...MOBILE_RECIPE_ACTIONS], ["dump_ui", "tap_search", "fill_search", "tap_path"]);
 });
 
 test("normalizeCommandEnvelope: recipe expands to custom", () => {

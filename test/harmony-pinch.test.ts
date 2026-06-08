@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  buildHarmonyPinchPointerMatrix,
-  executeHarmonyPinch
-} from "../plugins/driver-harmony/src/harmony-pinch.ts";
+import { buildHarmonyPinchPointerMatrix, executeHarmonyPinch } from "@ada/driver-harmony";
 
 class MockPoint {
   x: number;

@@ -61,14 +61,6 @@ export async function runCommand(command: CommandEnvelope): Promise<CommandResul
   return getExecutor().execute(await enrichCommand(normalized));
 }
 
-export async function runTaskset(commands: CommandEnvelope[]): Promise<CommandResult[]> {
-  const results: CommandResult[] = [];
-  for (const command of commands) {
-    results.push(await runCommand(command));
-  }
-  return results;
-}
-
 export function listActiveSessions(): Array<{
   platform: string;
   sessionId: string;

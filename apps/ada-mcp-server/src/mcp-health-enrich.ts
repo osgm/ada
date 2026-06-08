@@ -1,4 +1,3 @@
-import type { AgentConfig } from "@ada/agent/types";
 import { getCachedMobileProbes } from "./mcp-runtime-preflight.js";
 
 export interface HealthBlocker {
@@ -82,7 +81,7 @@ export function buildSessionPolicy(): SessionPolicy {
 export async function buildHealthBlockers(
   snapshot: Record<string, unknown>,
   scope: "web" | "mobile" | "all",
-  _config?: AgentConfig
+  _config?: Record<string, unknown>
 ): Promise<HealthBlocker[]> {
   const blockers: HealthBlocker[] = [];
   const deps = asRecord(snapshot.dependencies);
