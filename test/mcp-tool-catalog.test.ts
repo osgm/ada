@@ -66,8 +66,8 @@ describe("mcp-tool-catalog", () => {
         assert.match(tool.description, /^\[L[0-4]/);
       }
       const invoke = tools.find((tool) => tool.name === "ada_invoke");
-      assert.ok(invoke?.description.includes("Driver-level"));
       assert.ok(invoke?.description.includes("riskApproved"));
+      assert.ok(invoke?.description.includes("[L3-driver]"));
     } finally {
       if (prev === undefined) delete process.env.ADA_MCP_HIDE_ADVANCED;
       else process.env.ADA_MCP_HIDE_ADVANCED = prev;
@@ -123,6 +123,29 @@ describe("mcp-tool-catalog", () => {
     const props = ((tool as { inputSchema: { properties?: Record<string, unknown> } }).inputSchema.properties ?? {});
     assert.ok("dryRun" in props, "dryRun should be part of inputSchema.properties");
     assert.match(tool!.description, /dryRun/);
+  });
+
+  it("compact descriptions are shorter and anchor policy on ada_health", () => {
+    const prev = process.env.ADA_MCP_DESC_MODE;
+    delete process.env.ADA_MCP_DESC_MODE;
+    try {
+      const compact = buildAdaMcpToolDefinitions();
+      process.env.ADA_MCP_DESC_MODE = "advanced";
+      const advanced = buildAdaMcpToolDefinitions();
+      const compactTotal = compact.reduce((n, t) => n + t.description.length, 0);
+      const advancedTotal = advanced.reduce((n, t) => n + t.description.length, 0);
+      assert.ok(compactTotal < advancedTotal, `compact ${compactTotal} should be < advanced ${advancedTotal}`);
+      const health = compact.find((t) => t.name === "ada_health");
+      const invoke = compact.find((t) => t.name === "ada_invoke");
+      assert.ok(health?.description.includes("START ada_health"));
+      assert.ok(health?.description.includes("ada://guide/routing"));
+      assert.ok(health?.description.includes("Policy:"));
+      assert.ok(!invoke?.description.includes("Policy:"));
+      assert.ok(!invoke?.description.includes("Primary semantic entry"));
+    } finally {
+      if (prev === undefined) delete process.env.ADA_MCP_DESC_MODE;
+      else process.env.ADA_MCP_DESC_MODE = prev;
+    }
   });
 
   it("ada_invoke includes web/android/harmony examples", () => {

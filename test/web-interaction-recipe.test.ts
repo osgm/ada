@@ -4,11 +4,15 @@ import {
   applyControlFilters,
   findControlsByName,
   findControlByPath,
+  findSearchEntryInFlat,
+  findSearchInputInFlat,
+  labelMatchesHints,
   normalizeControlPath,
   parseWebViewSnapshot,
   resolveExpandStrategy,
   shapeViewTreeExtract,
-  truncateViewTreeValue
+  truncateViewTreeValue,
+  WEB_RECIPE_ACTIONS
 } from "@ada/driver-rpc";
 
 describe("web-interaction-recipe helpers", () => {
@@ -65,6 +69,20 @@ describe("web-interaction-recipe helpers", () => {
     const controls = truncateViewTreeValue(flat, 2);
     assert.equal(controls.truncated, true);
     assert.equal((controls.value as unknown[]).length, 2);
+  });
+
+  it("WEB_RECIPE_ACTIONS includes fill_search", () => {
+    assert.deepEqual([...WEB_RECIPE_ACTIONS], ["clickPath", "fill_search"]);
+  });
+
+  it("findSearchEntryInFlat and findSearchInputInFlat match hints", () => {
+    const flat = [
+      { role: "button", name: "搜索", path: ["搜索"] },
+      { role: "textbox", name: "请输入关键词", path: ["搜索", "请输入关键词"] }
+    ];
+    assert.ok(labelMatchesHints("Site Search", ["search"]));
+    assert.equal(findSearchEntryInFlat(flat, ["搜索"])?.name, "搜索");
+    assert.equal(findSearchInputInFlat(flat, ["请输入"])?.role, "textbox");
   });
 
   it("applyControlFilters adds matches for href/name lookup", () => {

@@ -82,26 +82,11 @@
     "setup": "tsx src/main.ts setup",
     "demo": "tsx src/main.ts run-demo",
     "prepublishOnly": "npm run build",
-    "prebuild": "node ../../scripts/build/generate-bundled-config.mjs",
     "build": "tsc -p tsconfig.json --noCheck",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ada/install-deps": "0.1.0",
-    "@ada/runtime-probe": "0.1.0",
     "@ada/agent-core": "0.1.0",
-    "@ada/download-probe": "0.1.0",
-    "@ada/contracts": "0.1.0",
-    "@ada/core-kernel": "0.1.0",
-    "@ada/core-runtime": "0.1.0",
-    "@ada/plugin-host": "0.1.0",
-    "@ada/transport-http": "0.1.0",
-    "@ada/transport-stream": "0.1.0",
-    "@ada/driver-playwright": "0.1.0",
-    "@ada/driver-android": "0.1.0",
-    "@ada/driver-ios": "0.1.0",
-    "@ada/driver-harmony": "0.1.0",
-    "js-yaml": "^4.1.0",
-    "jimp": "^1.6.0"
+    "@ada/install-deps": "0.1.0"
   }
 }

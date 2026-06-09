@@ -27,14 +27,34 @@ export interface WebViewSnapshot {
   url: string;
 }
 
+export const WEB_RECIPE_ACTIONS = ["clickPath", "fill_search"] as const;
+export type WebRecipeAction = (typeof WEB_RECIPE_ACTIONS)[number];
+
 export const WEB_INTERACTION_ERROR_CODES = {
   CONTROL_NOT_FOUND: "CONTROL_NOT_FOUND",
   PATH_NOT_EXPANDED: "PATH_NOT_EXPANDED",
   ACTION_TOGGLE_LOOP: "ACTION_TOGGLE_LOOP",
   ACTION_CIRCUIT_OPEN: "ACTION_CIRCUIT_OPEN",
   NAV_TIMEOUT: "NAV_TIMEOUT",
-  PATH_INVALID: "PATH_INVALID"
+  PATH_INVALID: "PATH_INVALID",
+  FILL_SEARCH_MISSING_TEXT: "FILL_SEARCH_MISSING_TEXT",
+  FILL_SEARCH_NO_ENTRY: "FILL_SEARCH_NO_ENTRY",
+  FILL_SEARCH_NO_INPUT: "FILL_SEARCH_NO_INPUT",
+  FILL_SEARCH_TYPE_FAILED: "FILL_SEARCH_TYPE_FAILED"
 } as const;
+
+export const DEFAULT_WEB_SEARCH_ENTRY_HINTS = ["search", "query", "find", "搜索"];
+export const DEFAULT_WEB_SEARCH_INPUT_HINTS = [
+  "search",
+  "query",
+  "type",
+  "enter",
+  "input",
+  "hint",
+  "搜索",
+  "请输入",
+  "输入"
+];
 
 export type WebInteractionErrorCode = (typeof WEB_INTERACTION_ERROR_CODES)[keyof typeof WEB_INTERACTION_ERROR_CODES];
 
@@ -249,6 +269,41 @@ export function findControlsByName(flat: ControlObserveItem[], name: string): Co
     const n = (item.name ?? item.ariaLabel ?? "").toLowerCase();
     return n.includes(needle);
   });
+}
+
+export function labelMatchesHints(label: string | undefined, hints: string[]): boolean {
+  if (!label?.trim() || hints.length === 0) return false;
+  const lower = label.toLowerCase();
+  return hints.some((hint) => hint.trim().length > 0 && lower.includes(hint.trim().toLowerCase()));
+}
+
+export function findSearchEntryInFlat(
+  flat: ControlObserveItem[],
+  entryHints: string[]
+): ControlObserveItem | undefined {
+  const hints = entryHints.length ? entryHints : DEFAULT_WEB_SEARCH_ENTRY_HINTS;
+  const entryRoles = new Set(["button", "link", "menuitem", "searchbox"]);
+  for (const item of flat) {
+    const role = (item.role ?? "").toLowerCase();
+    if (!entryRoles.has(role)) continue;
+    if (labelMatchesHints(item.name ?? item.ariaLabel, hints)) return item;
+  }
+  return undefined;
+}
+
+export function findSearchInputInFlat(
+  flat: ControlObserveItem[],
+  inputHints: string[]
+): ControlObserveItem | undefined {
+  const hints = inputHints.length ? inputHints : DEFAULT_WEB_SEARCH_INPUT_HINTS;
+  const inputRoles = new Set(["searchbox", "textbox", "input", "combobox"]);
+  for (const item of flat) {
+    const role = (item.role ?? "").toLowerCase();
+    if (!inputRoles.has(role)) continue;
+    const label = item.name ?? item.ariaLabel;
+    if (role === "searchbox" || labelMatchesHints(label, hints)) return item;
+  }
+  return undefined;
 }
 
 export function parseWebViewSnapshot(raw: unknown): WebViewSnapshot {

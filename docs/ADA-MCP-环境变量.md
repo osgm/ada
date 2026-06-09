@@ -9,6 +9,7 @@
 | `ADA_MCP_HIDE_ADVANCED` | `ADA_MCP_TOOL_VISIBILITY`（`hide` / `1` / `primary-only`） | 隐藏 T3：`ada_invoke`、`ada_risk_policy` |
 | `ADA_MCP_VERBOSE_RESULT` | — | `1` 时 MCP 返回完整 `CommandResult` |
 | `ADA_MCP_SLIM_RESULT` | — | `0` 等同 verbose（显式关闭 slim） |
+| `ADA_MCP_DESC_MODE` | — | 默认 **compact**（短描述，全局策略集中在 `ada_health` + `ada://guide/routing`）；`advanced` / `full` 恢复完整 WORKFLOW/POLICY 前缀 |
 
 ## 启动 / 握手
 

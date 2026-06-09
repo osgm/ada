@@ -28,11 +28,11 @@ ${MCP_GLOBAL_POLICY}
 6. ada_close_session when done
 
 ## Tree walk (Web / Mobile)
-- Web: ada_extract mode=viewTree → ada_web_recipe action=clickPath
+- Web: ada_extract mode=viewTree → ada_web_recipe action=clickPath; search → ada_web_recipe action=fill_search
 - Mobile: ada_mobile_extract type=viewTree → ada_mobile_recipe action=tap_path
 
 ## Escalation
-- Web: semantic insufficient → ada_invoke (method mode); multi-step → ada_batch_actions
+- Web: search box → ada_web_recipe fill_search; semantic insufficient → ada_invoke (method mode); multi-step → ada_batch_actions
 - Mobile: search UI → ada_mobile_recipe; shell/hdc/tree → ada_invoke (http); device ops → deviceAdmin
 - Harmony launch: never appId-only — use deviceParams.harmonyLaunchApp.args or payload.abilityId
 
@@ -41,7 +41,7 @@ Tools are grouped: env → web (action, recipe, invoke) → mobile → orchestra
 
 ## Env
 - ADA_MCP_HIDE_ADVANCED: keep unset/false to expose ada_invoke / ada_risk_policy (T3)
-- ADA_MCP_DESC_MODE=advanced: longer L3 descriptions in ListTools
+- ADA_MCP_DESC_MODE: default compact (short ListTools); advanced/full for longer L3 + repeated policy copy
 - ADA_HARMONY_APP_ID / ADA_HARMONY_ABILITY_ID: optional defaults for deviceParams.harmonyLaunchApp template
 
 ## Anti-patterns

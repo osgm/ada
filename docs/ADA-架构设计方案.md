@@ -48,10 +48,10 @@
 
 ### 1.5 当前实现映射（2026-04）
 
-当前仓库已落地为“**实现集中在 ada-agent + 稳定导出 agent-core** + 多入口适配层”：
+当前仓库已落地为“**编排实现在 agent-core + CLI 薄入口 ada-agent** + 多入口适配层”：
 
-- **实现层**：`apps/ada-agent`（`doctor` 编排、`runtime`、`queue-runner`、Web 控制台等）；`packages/install-deps`（依赖安装）
-- **稳定导出层**：`packages/agent-core`（对外 `health` / `doctor` / `install-deps` / `setup` / `start` / `run`，内部转发 ada-agent）
+- **编排实现层**：`packages/agent-core`（`config` / `doctor` / `runtime` / `queue-runner` / `device-store` 及对外 `health` / `setup` / `start` / `run`）；`packages/install-deps`（依赖安装）
+- **CLI 入口层**：`apps/ada-agent`（`main` 命令分发、`web` 控制台、`mcp` 子命令转发；子路径 export 兼容转发至 `agent-core`）
 - **入口层**：
   - `ada-agent`（CLI）
   - `ada-mcp`（MCP/stdio）

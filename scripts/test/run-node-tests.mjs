@@ -23,6 +23,7 @@ const MCP_UNIT_FILES = new Set([
   "mcp-admin-cleanup.test.ts",
   "mcp-payload-slim.test.ts",
   "web-interaction-recipe.test.ts",
+  "web-fill-search-e2e.test.ts",
   "view-tree-e2e.test.ts"
 ]);
 

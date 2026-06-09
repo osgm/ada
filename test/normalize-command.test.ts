@@ -30,7 +30,7 @@ test("MOBILE_RECIPE_ACTIONS lists mobile observe/interact recipes", () => {
   assert.deepEqual([...MOBILE_RECIPE_ACTIONS], ["dump_ui", "tap_search", "fill_search", "tap_path"]);
 });
 
-test("normalizeCommandEnvelope: recipe expands to custom", () => {
+test("normalizeCommandEnvelope: mobile recipe expands to custom", () => {
   const out = normalizeCommandEnvelope({
     requestId: "r1",
     sessionId: "s1",
@@ -41,4 +41,17 @@ test("normalizeCommandEnvelope: recipe expands to custom", () => {
   assert.equal(out.command, "custom");
   assert.equal((out.payload?.custom as { action?: string })?.action, "fill_search");
   assert.equal(out.payload?.text, "AA");
+});
+
+test("normalizeCommandEnvelope: web recipe stays recipe", () => {
+  const out = normalizeCommandEnvelope({
+    requestId: "r2",
+    sessionId: "jd-web",
+    platform: "web",
+    command: "recipe",
+    payload: { action: "fill_search", text: "phone" }
+  });
+  assert.equal(out.command, "recipe");
+  assert.equal(out.payload?.action, "fill_search");
+  assert.equal(out.payload?.text, "phone");
 });

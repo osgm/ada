@@ -24,16 +24,19 @@ const EXTERNALS = ["playwright", "hypium-driver", "express", "jimp"];
 
 /** 从 monorepo 源码解析 @ada/*，避免发布包依赖陈旧 dist */
 const WORKSPACE_PACKAGES = {
-  "@ada/agent": { root: path.join(root, "apps", "ada-agent", "src"), entry: "main" },
   "@ada/install-deps": { root: path.join(root, "packages", "install-deps", "src"), entry: "index" },
   "@ada/runtime-probe": { root: path.join(root, "packages", "runtime-probe", "src"), entry: "index" },
   "@ada/agent-core": { root: path.join(root, "packages", "agent-core", "src"), entry: "index" },
+  "@ada/core-kernel": { root: path.join(root, "packages", "core-kernel", "src"), entry: "index" },
   "@ada/download-probe": { root: path.join(root, "packages", "download-probe", "src"), entry: "index" },
   "@ada/core-runtime": { root: path.join(root, "packages", "core-runtime", "src"), entry: "index" },
   "@ada/contracts": { root: path.join(root, "packages", "contracts", "src"), entry: "index" },
   "@ada/plugin-host": { root: path.join(root, "packages", "plugin-host", "src"), entry: "index" },
   "@ada/plugin-sdk": { root: path.join(root, "packages", "plugin-sdk", "src"), entry: "index" },
-  "@ada/driver-rpc": { root: path.join(root, "packages", "driver-rpc", "src"), entry: "index" }
+  "@ada/driver-rpc": { root: path.join(root, "packages", "driver-rpc", "src"), entry: "index" },
+  "@ada/transport-http": { root: path.join(root, "packages", "transport-http", "src"), entry: "index" },
+  "@ada/transport-stream": { root: path.join(root, "packages", "transport-stream", "src"), entry: "index" },
+  "@ada/mobile-ui": { root: path.join(root, "packages", "mobile-ui", "src"), entry: "index" }
 };
 
 function adaWorkspaceSrcPlugin() {

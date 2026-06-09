@@ -33,6 +33,7 @@ var index_exports = {};
 __export(index_exports, {
   default: () => index_default,
   executeClickPath: () => executeClickPath,
+  executeFillSearch: () => executeFillSearch,
   locatorFromPayload: () => locatorFromPayload,
   observeViewOnPage: () => observeViewOnPage,
   summarizeLocator: () => summarizeLocator
@@ -82,6 +83,74 @@ function resolvePlaywrightBringToFront(payload) {
   return true;
 }
 
+// ../../packages/driver-rpc/src/fill-search-options.ts
+function asStringList(v) {
+  if (v == null) return [];
+  if (typeof v === "string") return v.trim() ? [v.trim()] : [];
+  if (Array.isArray(v)) {
+    return v.map((x) => String(x).trim()).filter(Boolean);
+  }
+  return [];
+}
+function mergeUnique(...lists) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const list of lists) {
+    for (const item of list) {
+      const key = item.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+}
+function parseFillSearchPayload(payload) {
+  const p = payload ?? {};
+  const nested = typeof p.fillSearch === "object" && p.fillSearch !== null ? p.fillSearch : {};
+  const ui = p.uiHeuristics ?? nested.uiHeuristics;
+  const legacyHints = asStringList(p.hints ?? nested.hints);
+  const entryHints = mergeUnique(
+    asStringList(p.entryHints ?? nested.entryHints),
+    asStringList(ui?.searchEntryLabels),
+    legacyHints
+  );
+  const inputHints = mergeUnique(
+    asStringList(p.inputHints ?? nested.inputHints),
+    asStringList(ui?.searchInputLabels),
+    legacyHints
+  );
+  const heuristics = entryHints.length || inputHints.length || ui ? {
+    ...ui,
+    ...entryHints.length ? { searchEntryLabels: entryHints } : {},
+    ...inputHints.length ? { searchInputLabels: inputHints } : {}
+  } : ui;
+  const strict = p.strict === true || nested.strict === true;
+  const settleMs = typeof p.settleMs === "number" ? p.settleMs : typeof nested.settleMs === "number" ? nested.settleMs : void 0;
+  return {
+    heuristics,
+    entryHints,
+    inputHints,
+    strict,
+    recipeOptions: {
+      settleMs,
+      skipRedundantDump: p.skipRedundantDump === true || nested.skipRedundantDump === true,
+      payload: p
+    }
+  };
+}
+
+// ../../packages/driver-rpc/src/fill-search-transition.ts
+var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
+var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
+function isDirectInputTapDetail(detail) {
+  return typeof detail === "string" && detail.includes("direct input");
+}
+function resolveFillSearchSettleMs(tapDetail, userSettleMs) {
+  if (typeof userSettleMs === "number" && userSettleMs > 0) return userSettleMs;
+  return isDirectInputTapDetail(tapDetail) ? FILL_SEARCH_DIRECT_INPUT_SETTLE_MS : FILL_SEARCH_DEFAULT_SETTLE_MS;
+}
+
 // ../../packages/driver-rpc/src/web-interaction-recipe.ts
 var WEB_INTERACTION_ERROR_CODES = {
   CONTROL_NOT_FOUND: "CONTROL_NOT_FOUND",
@@ -89,8 +158,24 @@ var WEB_INTERACTION_ERROR_CODES = {
   ACTION_TOGGLE_LOOP: "ACTION_TOGGLE_LOOP",
   ACTION_CIRCUIT_OPEN: "ACTION_CIRCUIT_OPEN",
   NAV_TIMEOUT: "NAV_TIMEOUT",
-  PATH_INVALID: "PATH_INVALID"
+  PATH_INVALID: "PATH_INVALID",
+  FILL_SEARCH_MISSING_TEXT: "FILL_SEARCH_MISSING_TEXT",
+  FILL_SEARCH_NO_ENTRY: "FILL_SEARCH_NO_ENTRY",
+  FILL_SEARCH_NO_INPUT: "FILL_SEARCH_NO_INPUT",
+  FILL_SEARCH_TYPE_FAILED: "FILL_SEARCH_TYPE_FAILED"
 };
+var DEFAULT_WEB_SEARCH_ENTRY_HINTS = ["search", "query", "find", "\u641C\u7D22"];
+var DEFAULT_WEB_SEARCH_INPUT_HINTS = [
+  "search",
+  "query",
+  "type",
+  "enter",
+  "input",
+  "hint",
+  "\u641C\u7D22",
+  "\u8BF7\u8F93\u5165",
+  "\u8F93\u5165"
+];
 var WEB_VIEW_SCRIPT = `(() => {
   const maxNodes = 80;
   const maxDepth = 8;
@@ -276,6 +361,32 @@ function findControlByPath(flat, path3) {
     }
   }
   return best;
+}
+function labelMatchesHints(label, hints) {
+  if (!label?.trim() || hints.length === 0) return false;
+  const lower = label.toLowerCase();
+  return hints.some((hint) => hint.trim().length > 0 && lower.includes(hint.trim().toLowerCase()));
+}
+function findSearchEntryInFlat(flat, entryHints) {
+  const hints = entryHints.length ? entryHints : DEFAULT_WEB_SEARCH_ENTRY_HINTS;
+  const entryRoles = /* @__PURE__ */ new Set(["button", "link", "menuitem", "searchbox"]);
+  for (const item of flat) {
+    const role = (item.role ?? "").toLowerCase();
+    if (!entryRoles.has(role)) continue;
+    if (labelMatchesHints(item.name ?? item.ariaLabel, hints)) return item;
+  }
+  return void 0;
+}
+function findSearchInputInFlat(flat, inputHints) {
+  const hints = inputHints.length ? inputHints : DEFAULT_WEB_SEARCH_INPUT_HINTS;
+  const inputRoles = /* @__PURE__ */ new Set(["searchbox", "textbox", "input", "combobox"]);
+  for (const item of flat) {
+    const role = (item.role ?? "").toLowerCase();
+    if (!inputRoles.has(role)) continue;
+    const label = item.name ?? item.ariaLabel;
+    if (role === "searchbox" || labelMatchesHints(label, hints)) return item;
+  }
+  return void 0;
 }
 function parseWebViewSnapshot(raw) {
   const value = typeof raw === "object" && raw !== null ? raw : {};
@@ -930,6 +1041,9 @@ function locatorFromPayload(page, payload) {
 
 // ../../plugins/driver-playwright/src/web-interaction-recipe.ts
 var CLICK_PATH_CONTROLS_PREVIEW = 40;
+function getString4(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : void 0;
+}
 function failResult(command, code, message, data) {
   return {
     requestId: command.requestId,
@@ -1012,6 +1126,157 @@ async function expandPathSegment(page, label, strategy, waitMs, nthFallback) {
   }
   await page.waitForTimeout(250);
   return { ok: true };
+}
+async function firstVisibleLocator(locator, waitMs) {
+  try {
+    const count = await locator.count();
+    if (count <= 0) return null;
+    const first = locator.first();
+    await autoWaitEnabled(first, waitMs);
+    return first;
+  } catch {
+    return null;
+  }
+}
+async function resolveSearchInputLocator(page, inputHints, waitMs, flat) {
+  const searchbox = await firstVisibleLocator(page.getByRole("searchbox"), waitMs);
+  if (searchbox) return { locator: searchbox, mode: "searchbox" };
+  const typeSearch = await firstVisibleLocator(page.locator('input[type="search"]'), waitMs);
+  if (typeSearch) return { locator: typeSearch, mode: "input-type-search" };
+  for (const hint of inputHints) {
+    for (const role of ["textbox", "searchbox"]) {
+      const byRole = await firstVisibleLocator(page.getByRole(role, { name: hint }), waitMs);
+      if (byRole) return { locator: byRole, mode: `role-${role}` };
+    }
+    const byPlaceholder = await firstVisibleLocator(page.getByPlaceholder(hint), waitMs);
+    if (byPlaceholder) return { locator: byPlaceholder, mode: "placeholder" };
+  }
+  const headerInput = await firstVisibleLocator(
+    page.locator('header input, nav input, [role="search"] input, form input[type="search"]'),
+    waitMs
+  );
+  if (headerInput) return { locator: headerInput, mode: "header-input" };
+  const observed = flat ?? (await observeViewOnPage(page)).flat;
+  const meta = findSearchInputInFlat(observed, inputHints);
+  const label = meta?.name ?? meta?.ariaLabel;
+  if (label) {
+    const fromFlat = await resolveLabelLocator(page, label);
+    if (fromFlat) return { locator: fromFlat, mode: "flat-input" };
+  }
+  return null;
+}
+async function resolveSearchEntryLocator(page, entryHints, waitMs, flat) {
+  for (const hint of entryHints) {
+    for (const role of ["button", "link", "menuitem"]) {
+      const byRole = await firstVisibleLocator(page.getByRole(role, { name: hint }), waitMs);
+      if (byRole) return { locator: byRole, mode: `entry-${role}` };
+    }
+  }
+  const observed = flat ?? (await observeViewOnPage(page)).flat;
+  const meta = findSearchEntryInFlat(observed, entryHints);
+  const label = meta?.name ?? meta?.ariaLabel;
+  if (label) {
+    const fromFlat = await resolveLabelLocator(page, label);
+    if (fromFlat) return { locator: fromFlat, mode: "flat-entry", meta };
+  }
+  return null;
+}
+async function executeFillSearch(command, page, payload) {
+  const text = getString4(payload?.text);
+  if (!text) {
+    return failResult(
+      command,
+      WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_MISSING_TEXT,
+      "fill_search requires text"
+    );
+  }
+  const parsed = parseFillSearchPayload(payload);
+  const waitMs = resolveAutoWaitMs(payload);
+  const beforeUrl = page.url();
+  let mode = "direct";
+  let tapMode;
+  let tapMeta;
+  let input = await resolveSearchInputLocator(page, parsed.inputHints, waitMs);
+  if (!input) {
+    const entry = await resolveSearchEntryLocator(page, parsed.entryHints, waitMs);
+    if (!entry) {
+      if (parsed.strict) {
+        return failResult(
+          command,
+          WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY,
+          "search entry not found (strict)",
+          { entryHints: parsed.entryHints, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY }
+        );
+      }
+      return failResult(
+        command,
+        WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY,
+        "search entry not found",
+        { entryHints: parsed.entryHints, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY }
+      );
+    }
+    tapMode = entry.mode;
+    tapMeta = entry.meta;
+    await entry.locator.click({ timeout: waitMs });
+    mode = "entryTap";
+    const settleMs = resolveFillSearchSettleMs(
+      entry.mode.includes("flat") ? "direct input" : void 0,
+      parsed.recipeOptions.settleMs
+    );
+    await page.waitForTimeout(settleMs);
+    input = await resolveSearchInputLocator(page, parsed.inputHints, waitMs);
+  }
+  if (!input) {
+    if (parsed.strict) {
+      return failResult(
+        command,
+        WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT,
+        "search input not found (strict)",
+        { inputHints: parsed.inputHints, tapMode, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT }
+      );
+    }
+    return failResult(
+      command,
+      WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT,
+      "search input not found",
+      { inputHints: parsed.inputHints, tapMode, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT }
+    );
+  }
+  try {
+    await input.locator.fill(text, { timeout: waitMs });
+    await input.locator.press("Enter", { timeout: waitMs });
+  } catch (error) {
+    return failResult(
+      command,
+      WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_TYPE_FAILED,
+      error instanceof Error ? error.message : String(error),
+      {
+        mode,
+        inputMode: input.mode,
+        tapMode,
+        businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_TYPE_FAILED
+      }
+    );
+  }
+  const nav = await waitAfterNavigation(page, { ...payload, waitNavigation: payload?.waitNavigation === true }, beforeUrl);
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "playwright",
+      command: "recipe",
+      action: "fill_search",
+      text,
+      mode,
+      inputMode: input.mode,
+      tapMode,
+      tapMeta,
+      enterOk: true,
+      navigated: nav.navigated,
+      url: nav.url,
+      businessCode: "FILL_SEARCH_OK"
+    }
+  };
 }
 async function executeClickPath(command, page, payload) {
   const path3 = normalizeControlPath(payload?.path);
@@ -1826,10 +2091,13 @@ var playwrightPlugin = {
         if (action === "clickpath") {
           return executeClickPath(command, page, payload);
         }
+        if (action === "fill_search" || action === "fillsearch") {
+          return executeFillSearch(command, page, payload);
+        }
         return failResult2(
           command,
           "UNSUPPORTED_COMMAND",
-          `unsupported web recipe action: ${action ?? "(missing)"}; use ada_extract mode=viewTree for observation`
+          `unsupported web recipe action: ${action ?? "(missing)"}; supported: clickPath, fill_search`
         );
       } else if (command.command === "custom") {
         const action = getString2(payload?.action)?.toLowerCase();
@@ -1918,6 +2186,7 @@ var index_default = playwrightPlugin;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   executeClickPath,
+  executeFillSearch,
   locatorFromPayload,
   observeViewOnPage,
   summarizeLocator

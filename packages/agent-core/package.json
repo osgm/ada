@@ -4,15 +4,96 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./config": {
+      "types": "./src/config.ts",
+      "default": "./src/config.ts"
+    },
+    "./secrets": {
+      "types": "./src/secrets.ts",
+      "default": "./src/secrets.ts"
+    },
+    "./doctor": {
+      "types": "./src/doctor.ts",
+      "default": "./src/doctor.ts"
+    },
+    "./plugin-registry": {
+      "types": "./src/plugin-registry.ts",
+      "default": "./src/plugin-registry.ts"
+    },
+    "./setup-cli": {
+      "types": "./src/setup-cli.ts",
+      "default": "./src/setup-cli.ts"
+    },
+    "./setup-native": {
+      "types": "./src/setup-native.ts",
+      "default": "./src/setup-native.ts"
+    },
+    "./bootstrap-ui": {
+      "types": "./src/bootstrap-ui.ts",
+      "default": "./src/bootstrap-ui.ts"
+    },
+    "./setup-state": {
+      "types": "./src/setup-state.ts",
+      "default": "./src/setup-state.ts"
+    },
+    "./transport-client": {
+      "types": "./src/transport-client.ts",
+      "default": "./src/transport-client.ts"
+    },
+    "./queue-runner": {
+      "types": "./src/queue-runner.ts",
+      "default": "./src/queue-runner.ts"
+    },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "default": "./src/runtime.ts"
+    },
+    "./task-loader": {
+      "types": "./src/task-loader.ts",
+      "default": "./src/task-loader.ts"
+    },
+    "./logger": {
+      "types": "./src/logger.ts",
+      "default": "./src/logger.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    },
+    "./device-store": {
+      "types": "./src/device-store.ts",
+      "default": "./src/device-store.ts"
+    },
+    "./monitoring": {
+      "types": "./src/monitoring.ts",
+      "default": "./src/monitoring.ts"
+    }
+  },
   "scripts": {
+    "prebuild": "node ../../scripts/build/generate-bundled-config.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ada/agent": "0.1.0",
     "@ada/contracts": "0.1.0",
+    "@ada/core-kernel": "0.1.0",
+    "@ada/core-runtime": "0.1.0",
+    "@ada/driver-android": "0.1.0",
+    "@ada/driver-harmony": "0.1.0",
+    "@ada/driver-ios": "0.1.0",
+    "@ada/driver-playwright": "0.1.0",
     "@ada/driver-rpc": "0.1.0",
     "@ada/install-deps": "0.1.0",
-    "@ada/runtime-probe": "0.1.0"
+    "@ada/plugin-host": "0.1.0",
+    "@ada/runtime-probe": "0.1.0",
+    "@ada/transport-http": "0.1.0",
+    "@ada/transport-stream": "0.1.0",
+    "jimp": "^1.6.0",
+    "js-yaml": "^4.1.0"
   }
 }

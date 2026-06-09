@@ -2,18 +2,31 @@ import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { hideAdvancedToolsFromEnv } from "@ada/core-runtime";
 import { buildRecoveryPlan, classifyErrorKind } from "./mcp-recovery.js";
 
-/** Shared LLM routing copy (referenced from tool descriptions). */
+/** Full policy copy — advanced mode or ada://guide/routing resource. */
 export const MCP_GLOBAL_POLICY =
   "Policy: riskApproved=true for invoke/custom/launchApp/destructive deviceAdmin; allowMock=false unless offline demo; reuse sessionId; mobile: ada_devices(scan) then deviceParams.recommended; on failure read recoveryHint then retry=1 then extract/pageSource then invoke.";
+
+/** Compact policy — single ada_health anchor; keeps trial-reduction essentials. */
+export const MCP_GLOBAL_POLICY_COMPACT =
+  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId; mobile: ada_devices(scan) first; on fail: recoveryHint→retry→extract→invoke.";
 
 export const MCP_WORKFLOW_L0_L4 =
   "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy.";
 
+export const MCP_WORKFLOW_COMPACT =
+  "START ada_health(scope=web|mobile|all) once per session → L1 action → L2 recipe/batch → L3 invoke. ada://guide/routing.";
+
 export const UPGRADE_L2_L3_WEB =
   "Escalate: Playwright page.* or CDP → ada_invoke; multi-step → ada_batch_actions or ada_run_task_file.";
 
+export const UPGRADE_WEB_COMPACT =
+  "Escalate: ada_web_recipe|ada_batch_actions|ada_invoke. Popups: ada_web_dismiss_popups.";
+
 export const UPGRADE_L2_L3_MOBILE =
   "Escalate: adapter HTTP/hdc/hypium or UI tree debug → ada_invoke; search heuristics → ada_mobile_recipe; multi-step → ada_batch_actions.";
+
+export const UPGRADE_MOBILE_COMPACT =
+  "Escalate: ada_mobile_recipe|ada_batch_actions|ada_invoke. Popups: ada_mobile_dismiss_popups.";
 
 export const DEVICE_ADMIN_ACTION_ENUM = [
   "listApps",
@@ -44,8 +57,13 @@ export const DEVICE_ADMIN_ACTION_ENUM = [
 export const DEVICE_ADMIN_HINT =
   "deviceAdmin: set command=deviceAdmin and payload.action (enum). Common: shell, currentApp, installApp, pushFile, hdc.";
 
+export const DEVICE_ADMIN_COMPACT = "deviceAdmin: command=deviceAdmin + payload.action (shell|currentApp|hdc|…).";
+
 export const HARMONY_LAUNCH_HINT =
   "Harmony launchApp: payload.appId (bundle) + payload.abilityId (e.g. EntryAbility); bundleId alias; copy deviceParams.harmonyLaunchApp.args; riskApproved=true.";
+
+export const HARMONY_LAUNCH_COMPACT =
+  "Harmony launchApp: appId+abilityId (e.g. EntryAbility); copy deviceParams.harmonyLaunchApp; riskApproved=true.";
 
 export type McpToolTier = "T1" | "T2" | "T3";
 
@@ -168,29 +186,26 @@ export function shouldHideAdvancedTools(): boolean {
   return hideAdvancedToolsFromEnv();
 }
 
-/** advanced = longer T3/driver copy; compact (default) = shorter descriptions. */
+/** advanced/full = longer copy; compact (default) = shorter ListTools with routing in ada_health + resource. */
 export function isAdvancedDescriptionMode(): boolean {
   const raw = String(process.env.ADA_MCP_DESC_MODE ?? "").trim().toLowerCase();
   return raw === "advanced" || raw === "full";
 }
 
+export function isCompactDescriptionMode(): boolean {
+  return !isAdvancedDescriptionMode();
+}
+
 export function formatTieredDescription(toolName: string, description: string): string {
   const depth = getToolDepth(toolName);
   const prefix = DEPTH_PREFIX[depth];
+  const advanced = isAdvancedDescriptionMode();
   if (depth === "L3") {
-    return `[${prefix}] Driver-level: use when semantic commands or recipes are insufficient. ${description}`;
+    const lead = advanced ? "Driver-level: use when L1/L2 insufficient. " : "";
+    return `[${prefix}] ${lead}${description}`;
   }
-  if (depth === "L2") {
-    return `[${prefix}] ${description}`;
-  }
-  if (depth === "L4") {
-    return `[${prefix}] ${description}`;
-  }
-  if (PRIMARY_SEMANTIC_TOOLS.has(toolName)) {
+  if (PRIMARY_SEMANTIC_TOOLS.has(toolName) && advanced) {
     return `[${prefix}] Primary semantic entry. ${description}`;
-  }
-  if (depth === "L0") {
-    return `[${prefix}] ${description}`;
   }
   return `[${prefix}] ${description}`;
 }

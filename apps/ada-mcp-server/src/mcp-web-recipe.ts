@@ -24,19 +24,26 @@ export async function handleWebRecipe(
     throw new Error("ada_web_recipe requires action");
   }
   const normalizedAction = normalizeRecipeAction(action);
-  if (normalizedAction !== "clickpath") {
+  const supported = new Set(["clickpath", "fill_search"]);
+  if (!supported.has(normalizedAction)) {
     throw new Error(
-      `ada_web_recipe only supports action=clickPath; use ada_extract mode=viewTree for page observation (got: ${action})`
+      `ada_web_recipe supports action=clickPath|fill_search; use ada_extract mode=viewTree for observation (got: ${action})`
     );
   }
 
   const sessionId = String(args.sessionId ?? "mcp-web-recipe");
+  const text = args.text != null ? String(args.text).trim() : "";
+  if (normalizedAction === "fill_search" && !text) {
+    throw new Error("ada_web_recipe fill_search requires text");
+  }
+
   const payload = {
     ...asRecord(args.payload),
     action: normalizedAction,
     ...(args.path !== undefined ? { path: args.path } : {}),
     ...(args.strategy !== undefined ? { strategy: args.strategy } : {}),
-    ...(args.waitNavigation !== undefined ? { waitNavigation: args.waitNavigation } : {})
+    ...(args.waitNavigation !== undefined ? { waitNavigation: args.waitNavigation } : {}),
+    ...(text ? { text } : {})
   };
 
   guardWebCommandIfNeeded("web", sessionId, "recipe", payload);

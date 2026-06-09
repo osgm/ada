@@ -1,5 +1,5 @@
-import { loadConfig, maskToken } from "@ada/agent/config";
-import { loadSecret } from "@ada/agent/secrets";
+import { loadConfig, maskToken } from "./config.js";
+import { loadSecret } from "./secrets.js";
 import { getMcpBootstrapStatus, runBootstrapInstallDeps } from "@ada/install-deps";
 import {
   ensureDriverDependencies,
@@ -9,11 +9,11 @@ import {
   type InstallScope,
   type InstallSummary
 } from "@ada/install-deps";
-import { checkJavaRuntime, runDoctor } from "@ada/agent/doctor";
-import { listBuiltInPluginManifests } from "@ada/agent/plugin-registry";
-import { runSetupCli } from "@ada/agent/setup-cli";
-import { runSetupNative } from "@ada/agent/setup-native";
-import { runSetupUi } from "@ada/agent/bootstrap-ui";
+import { checkJavaRuntime, runDoctor } from "./doctor.js";
+import { listBuiltInPluginManifests } from "./plugin-registry.js";
+import { runSetupCli } from "./setup-cli.js";
+import { runSetupNative } from "./setup-native.js";
+import { runSetupUi } from "./bootstrap-ui.js";
 import {
   applyDeviceRegistryToEnv,
   buildDeviceParamsGuide,
@@ -27,14 +27,14 @@ import {
   isDeviceAutoScanEnabled,
   loadDeviceRegistry,
   scanAndPersistDevices
-} from "@ada/agent/device-store";
-import { patchRemoteCredentials, persistAgentSetup } from "@ada/agent/setup-state";
-import { createRuntimeTransport } from "@ada/agent/transport-client";
-import { processQueueOnce, watchQueue } from "@ada/agent/queue-runner";
-import { runDemoTaskset, runForegroundLoop, runTaskset } from "@ada/agent/runtime";
-import { loadTaskFile } from "@ada/agent/task-loader";
-import { log } from "@ada/agent/logger";
-import type { AgentConfig, BootstrapInput, SetupMode } from "@ada/agent/types";
+} from "./device-store.js";
+import { patchRemoteCredentials, persistAgentSetup } from "./setup-state.js";
+import { createRuntimeTransport } from "./transport-client.js";
+import { processQueueOnce, watchQueue } from "./queue-runner.js";
+import { runDemoTaskset, runForegroundLoop, runTaskset } from "./runtime.js";
+import { loadTaskFile } from "./task-loader.js";
+import { log } from "./logger.js";
+import type { AgentConfig, BootstrapInput, SetupMode } from "./types.js";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import fs from "node:fs/promises";
 
@@ -201,7 +201,7 @@ export {
   isDeviceAutoScanEnabled,
   loadDeviceRegistry,
   scanAndPersistDevices
-} from "@ada/agent/device-store";
+} from "./device-store.js";
 
 export type InstallDependencyExtras = {
   playwrightInstallTargetsOverride?: string[];

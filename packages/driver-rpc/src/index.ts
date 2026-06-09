@@ -286,13 +286,19 @@ export { UiDumpCache, readUiDumpCacheTtlMs, shouldInvalidateDumpOnAction } from 
 export { RECIPE_ERROR_CODES, platformRecipeErrorCode, recipeErrorCodeForAction } from "./recipe-errors.js";
 export {
   WEB_VIEW_SCRIPT,
+  WEB_RECIPE_ACTIONS,
   WEB_INTERACTION_ERROR_CODES,
+  DEFAULT_WEB_SEARCH_ENTRY_HINTS,
+  DEFAULT_WEB_SEARCH_INPUT_HINTS,
   normalizeControlPath,
   normalizeRecipeAction,
   resolveExpandStrategy,
   findControlByPath,
   findControlsByHref,
   findControlsByName,
+  labelMatchesHints,
+  findSearchEntryInFlat,
+  findSearchInputInFlat,
   parseWebViewSnapshot,
   applyControlFilters,
   shapeViewTreeExtract,
@@ -302,7 +308,8 @@ export {
   type ControlObserveResult,
   type WebViewSnapshot,
   type ViewTreeDetail,
-  type WebInteractionErrorCode
+  type WebInteractionErrorCode,
+  type WebRecipeAction
 } from "./web-interaction-recipe.js";
 export {
   extractMobilePageSourceText,

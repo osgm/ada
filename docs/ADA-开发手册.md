@@ -2,7 +2,7 @@
 
 本手册用于指导 ADA monorepo 本地研发，面向开发、测试与运维联调同学。
 
-**实现与导出关系**：依赖安装在 **`packages/install-deps`**，移动运行时探针在 **`packages/runtime-probe`**；任务编排、`doctor` 编排、`runtime`、`queue-runner` 等在 **`apps/ada-agent`**。`packages/agent-core` 是对外**稳定能力导出层**（`health` / `doctor` / `install-deps` / `setup` / `start` / `run`）。CLI / MCP / GUI 应优先 `import` **`@ada/install-deps`** 或 **`agent-core`**，不在入口重复实现安装逻辑。
+**实现与导出关系**：依赖安装在 **`packages/install-deps`**，移动运行时探针在 **`packages/runtime-probe`**；编排实现（`config` / `doctor` / `runtime` / `queue-runner` / `device-store` 等）在 **`packages/agent-core`**。`apps/ada-agent` 为 **CLI 薄入口**（`main` / `web` / `mcp` 子命令）；`agent-core` 对外导出 `health` / `doctor` / `install-deps` / `setup` / `start` / `run`。CLI / MCP / GUI 应优先 `import` **`@ada/install-deps`** 或 **`@ada/agent-core`**，不在入口重复实现安装逻辑。
 
 **架构示意图**：总体分层见 [`ADA-架构设计方案.md`](ADA-架构设计方案.md) 第 3 节；可视化蓝图见仓库 [`canvases/ada-architecture-blueprint.canvas.tsx`](../canvases/ada-architecture-blueprint.canvas.tsx)（与架构文档 §17.1 驱动执行层一致）。
 
@@ -41,7 +41,7 @@ ada/
     ada-gui/                # Tauri 桌面 GUI
     ada-agent/src/web*.ts   # Web 控制台（可 pkg 为 ada-web.exe）
   packages/
-    agent-core/             # 稳定能力导出层（转发 apps/ada-agent 编排实现）
+    agent-core/             # 编排实现 + 稳定能力导出（health/doctor/start/run/device-store）
     install-deps/           # 依赖安装（npm/浏览器/hdc、InstallSummary）
     runtime-probe/          # 移动/Web 运行时探针（adb、WDA 等）
     contracts/              # 统一协议与类型
@@ -184,8 +184,15 @@ macOS / Linux 下 agent / mcp / web 为 pkg 输出的无后缀可执行文件（
 npm run demo
 npm run health
 npm run plugins
-npm run test:conformance
+npm test                    # unit + mcp:unit + conformance + entrypoints（无 release 产物时跳过）
 npm run test:unit
+```
+
+打包后严格验收四入口：
+
+```bash
+npm run build:exe
+npm run test:entrypoints -- --strict
 ```
 
 移动 mock 联调（无需真机）：

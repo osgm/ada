@@ -14,7 +14,7 @@ node_modules/
 # Downloaded / local runtime (not source)
 dirver/
 ANDROID_HOME/
-release/
+/release/
 artifacts/
 
 # Build outputs（仅仓库根 build/；勿匹配 scripts/build/）

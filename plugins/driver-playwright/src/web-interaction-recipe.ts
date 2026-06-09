@@ -1,9 +1,13 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import {
   findControlByPath,
+  findSearchEntryInFlat,
+  findSearchInputInFlat,
   normalizeControlPath,
+  parseFillSearchPayload,
   parseWebViewSnapshot,
   resolveExpandStrategy,
+  resolveFillSearchSettleMs,
   WEB_INTERACTION_ERROR_CODES,
   WEB_VIEW_SCRIPT,
   type ControlObserveItem,
@@ -21,9 +25,18 @@ type PlaywrightPageLike = {
   evaluate: (script: string) => Promise<unknown>;
   waitForTimeout: (ms: number) => Promise<void>;
   getByRole: (role: string, options?: Record<string, unknown>) => any;
+  getByPlaceholder: (text: string, options?: Record<string, unknown>) => any;
   locator: (selector: string) => any;
   waitForLoadState: (state: string, options?: Record<string, unknown>) => Promise<void>;
   waitForURL: (predicate: string | RegExp | ((url: URL) => boolean), options?: Record<string, unknown>) => Promise<void>;
+};
+
+type PlaywrightLocatorLike = {
+  count: () => Promise<number>;
+  first: () => PlaywrightLocatorLike;
+  click: (options?: Record<string, unknown>) => Promise<void>;
+  fill: (value: string, options?: Record<string, unknown>) => Promise<void>;
+  press: (key: string, options?: Record<string, unknown>) => Promise<void>;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -135,6 +148,192 @@ async function expandPathSegment(
   }
   await page.waitForTimeout(250);
   return { ok: true };
+}
+
+async function firstVisibleLocator(
+  locator: PlaywrightLocatorLike,
+  waitMs: number
+): Promise<PlaywrightLocatorLike | null> {
+  try {
+    const count = await locator.count();
+    if (count <= 0) return null;
+    const first = locator.first();
+    await autoWaitEnabled(first, waitMs);
+    return first;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveSearchInputLocator(
+  page: PlaywrightPageLike,
+  inputHints: string[],
+  waitMs: number,
+  flat?: ControlObserveItem[]
+): Promise<{ locator: PlaywrightLocatorLike; mode: string } | null> {
+  const searchbox = await firstVisibleLocator(page.getByRole("searchbox"), waitMs);
+  if (searchbox) return { locator: searchbox, mode: "searchbox" };
+
+  const typeSearch = await firstVisibleLocator(page.locator('input[type="search"]'), waitMs);
+  if (typeSearch) return { locator: typeSearch, mode: "input-type-search" };
+
+  for (const hint of inputHints) {
+    for (const role of ["textbox", "searchbox"] as const) {
+      const byRole = await firstVisibleLocator(page.getByRole(role, { name: hint }), waitMs);
+      if (byRole) return { locator: byRole, mode: `role-${role}` };
+    }
+    const byPlaceholder = await firstVisibleLocator(page.getByPlaceholder(hint), waitMs);
+    if (byPlaceholder) return { locator: byPlaceholder, mode: "placeholder" };
+  }
+
+  const headerInput = await firstVisibleLocator(
+    page.locator('header input, nav input, [role="search"] input, form input[type="search"]'),
+    waitMs
+  );
+  if (headerInput) return { locator: headerInput, mode: "header-input" };
+
+  const observed = flat ?? (await observeViewOnPage(page)).flat;
+  const meta = findSearchInputInFlat(observed, inputHints);
+  const label = meta?.name ?? meta?.ariaLabel;
+  if (label) {
+    const fromFlat = await resolveLabelLocator(page, label);
+    if (fromFlat) return { locator: fromFlat, mode: "flat-input" };
+  }
+
+  return null;
+}
+
+async function resolveSearchEntryLocator(
+  page: PlaywrightPageLike,
+  entryHints: string[],
+  waitMs: number,
+  flat?: ControlObserveItem[]
+): Promise<{ locator: PlaywrightLocatorLike; mode: string; meta?: ControlObserveItem } | null> {
+  for (const hint of entryHints) {
+    for (const role of ["button", "link", "menuitem"] as const) {
+      const byRole = await firstVisibleLocator(page.getByRole(role, { name: hint }), waitMs);
+      if (byRole) return { locator: byRole, mode: `entry-${role}` };
+    }
+  }
+
+  const observed = flat ?? (await observeViewOnPage(page)).flat;
+  const meta = findSearchEntryInFlat(observed, entryHints);
+  const label = meta?.name ?? meta?.ariaLabel;
+  if (label) {
+    const fromFlat = await resolveLabelLocator(page, label);
+    if (fromFlat) return { locator: fromFlat, mode: "flat-entry", meta };
+  }
+
+  return null;
+}
+
+export async function executeFillSearch(
+  command: CommandEnvelope,
+  page: PlaywrightPageLike,
+  payload?: Record<string, unknown>
+): Promise<CommandResult> {
+  const text = getString(payload?.text);
+  if (!text) {
+    return failResult(
+      command,
+      WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_MISSING_TEXT,
+      "fill_search requires text"
+    );
+  }
+
+  const parsed = parseFillSearchPayload(payload);
+  const waitMs = resolveAutoWaitMs(payload);
+  const beforeUrl = page.url();
+  let mode = "direct";
+  let tapMode: string | undefined;
+  let tapMeta: ControlObserveItem | undefined;
+
+  let input = await resolveSearchInputLocator(page, parsed.inputHints, waitMs);
+  if (!input) {
+    const entry = await resolveSearchEntryLocator(page, parsed.entryHints, waitMs);
+    if (!entry) {
+      if (parsed.strict) {
+        return failResult(
+          command,
+          WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY,
+          "search entry not found (strict)",
+          { entryHints: parsed.entryHints, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY }
+        );
+      }
+      return failResult(
+        command,
+        WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY,
+        "search entry not found",
+        { entryHints: parsed.entryHints, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_ENTRY }
+      );
+    }
+
+    tapMode = entry.mode;
+    tapMeta = entry.meta;
+    await entry.locator.click({ timeout: waitMs });
+    mode = "entryTap";
+    const settleMs = resolveFillSearchSettleMs(
+      entry.mode.includes("flat") ? "direct input" : undefined,
+      parsed.recipeOptions.settleMs
+    );
+    await page.waitForTimeout(settleMs);
+    input = await resolveSearchInputLocator(page, parsed.inputHints, waitMs);
+  }
+
+  if (!input) {
+    if (parsed.strict) {
+      return failResult(
+        command,
+        WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT,
+        "search input not found (strict)",
+        { inputHints: parsed.inputHints, tapMode, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT }
+      );
+    }
+    return failResult(
+      command,
+      WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT,
+      "search input not found",
+      { inputHints: parsed.inputHints, tapMode, businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_NO_INPUT }
+    );
+  }
+
+  try {
+    await input.locator.fill(text, { timeout: waitMs });
+    await input.locator.press("Enter", { timeout: waitMs });
+  } catch (error) {
+    return failResult(
+      command,
+      WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_TYPE_FAILED,
+      error instanceof Error ? error.message : String(error),
+      {
+        mode,
+        inputMode: input.mode,
+        tapMode,
+        businessCode: WEB_INTERACTION_ERROR_CODES.FILL_SEARCH_TYPE_FAILED
+      }
+    );
+  }
+
+  const nav = await waitAfterNavigation(page, { ...payload, waitNavigation: payload?.waitNavigation === true }, beforeUrl);
+
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "playwright",
+      command: "recipe",
+      action: "fill_search",
+      text,
+      mode,
+      inputMode: input.mode,
+      tapMode,
+      tapMeta,
+      enterOk: true,
+      navigated: nav.navigated,
+      url: nav.url,
+      businessCode: "FILL_SEARCH_OK"
+    }
+  };
 }
 
 export async function executeClickPath(

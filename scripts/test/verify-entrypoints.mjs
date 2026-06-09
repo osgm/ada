@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 
 const root = process.cwd();
 const releaseDir = path.join(root, "release");
+const strict = process.argv.includes("--strict");
+const ifPresent = process.argv.includes("--if-present");
 
 function exists(p) {
   return fs
@@ -68,6 +70,21 @@ async function main() {
     }
   }
   if (missing.length > 0) {
+    if (ifPresent && !strict) {
+      console.log(
+        JSON.stringify(
+          {
+            status: "skipped",
+            reason: "release artifacts not built",
+            hint: "run npm run build:exe then npm run test:entrypoints",
+            missing
+          },
+          null,
+          2
+        )
+      );
+      return;
+    }
     throw new Error(`release artifacts missing:\n${missing.join("\n")}`);
   }
 

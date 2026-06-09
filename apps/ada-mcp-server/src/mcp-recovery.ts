@@ -74,7 +74,7 @@ export function buildUiCandidatesHint(input: {
       suggestTools: hasPreview ? ["ada_extract", "ada_web_action"] : ["ada_extract", "ada_web_action", "ada_web_recipe"],
       note: hasPreview
         ? "Locator miss — pageTextPreview is in the error payload; retry with payload.locator (css/role) or within+nth (do not call ada_close_all_sessions)."
-        : "Locator miss — ada_extract mode=viewTree (tree+flat controls), then retry with scoped locator or ada_web_recipe clickPath.",
+        : "Locator miss — ada_extract mode=viewTree (tree+flat controls), then ada_web_recipe clickPath/fill_search or scoped locator.",
       acceptedLocatorFormats: [
         "payload.locator.css",
         "payload.selector",

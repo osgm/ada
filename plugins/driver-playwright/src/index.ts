@@ -115,7 +115,7 @@ import {
   resolveAutoWaitMs,
   summarizeLocator
 } from "./playwright-locator.js";
-import { executeClickPath, waitAfterNavigation } from "./web-interaction-recipe.js";
+import { executeClickPath, executeFillSearch, waitAfterNavigation } from "./web-interaction-recipe.js";
 
 function parseHeadless(payload?: Record<string, unknown>): boolean {
   return resolvePlaywrightHeadless(payload);
@@ -907,10 +907,13 @@ const playwrightPlugin: DriverPlugin = {
         if (action === "clickpath") {
           return executeClickPath(command, page, payload);
         }
+        if (action === "fill_search" || action === "fillsearch") {
+          return executeFillSearch(command, page, payload);
+        }
         return failResult(
           command,
           "UNSUPPORTED_COMMAND",
-          `unsupported web recipe action: ${action ?? "(missing)"}; use ada_extract mode=viewTree for observation`
+          `unsupported web recipe action: ${action ?? "(missing)"}; supported: clickPath, fill_search`
         );
       } else if (command.command === "custom") {
         const action = getString(payload?.action)?.toLowerCase();
@@ -1001,5 +1004,5 @@ const playwrightPlugin: DriverPlugin = {
 };
 
 export default playwrightPlugin;
-export { executeClickPath, observeViewOnPage } from "./web-interaction-recipe.js";
+export { executeClickPath, executeFillSearch, observeViewOnPage } from "./web-interaction-recipe.js";
 export { locatorFromPayload, summarizeLocator } from "./playwright-locator.js";

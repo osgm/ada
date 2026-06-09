@@ -73,6 +73,10 @@ export function normalizeCommandEnvelope(envelope: CommandEnvelope): CommandEnve
   const payload = normalizePayload(envelope.payload ?? {});
 
   if (command === "recipe") {
+    // Web recipes (clickPath, fill_search) stay on command=recipe for driver-playwright.
+    if (envelope.platform === "web") {
+      return { ...envelope, command, payload };
+    }
     return expandRecipeToCustom({ ...envelope, command }, payload);
   }
 

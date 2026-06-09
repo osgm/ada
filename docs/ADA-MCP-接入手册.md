@@ -200,7 +200,7 @@ MCP 服务端对安装与移动探针直接依赖 **`@ada/install-deps`**、**`@
 | 7 | `ada_perf_summary` | 观测 | 统计各工具耗时 p50/p95 |
 | 8 | `ada_start_once` | 配置 | 模拟 agent `start --once` 启动流程 |
 | 9 | `ada_web_action` | 执行-Web | **首选**：网页 navigate/click/type/截图等 |
-| 10 | `ada_web_recipe` | 执行-Web | 路径点击 `action=clickPath`（配合 viewTree 的 path） |
+| 10 | `ada_web_recipe` | 执行-Web | `clickPath`（viewTree path 点击）/ `fill_search`（搜索框启发式输入+回车） |
 | 11 | `ada_invoke` | 执行-底层（**T3**） | Playwright/Android/iOS/Harmony 原生 API（需 `riskApproved`） |
 | 12 | `ada_web_dismiss_popups` | 执行-Web | 关闭 Web 弹窗/对话框（找不到弹窗不报错） |
 | 13 | `ada_extract` | 数据-Web | 提取 text/list/table；**遍历观察**用 `mode=viewTree`（含扁平 controls + path） |
@@ -227,7 +227,7 @@ MCP 服务端对安装与移动探针直接依赖 **`@ada/install-deps`**、**`@
 探活/装依赖 → ada_health / ada_install_deps
 移动前置    → ada_devices（scan）→ 复用 sessionId + capabilities
 Web E2E     → ada_web_action（playwright=本机浏览器 Profile）
-Web 遍历    → ada_extract viewTree → ada_web_recipe clickPath
+Web 遍历/搜索 → ada_extract viewTree → ada_web_recipe clickPath / fill_search
 Mobile 遍历 → ada_mobile_extract viewTree → ada_mobile_recipe tap_path
 弹窗        → ada_web_dismiss_popups / ada_mobile_dismiss_popups
 App         → ada_mobile_action；业务 recipe → ada_mobile_recipe
@@ -265,6 +265,7 @@ npm run mcp:check:versions    # launcher 与 mcp-server 版本对齐
 npm run test:mcp:unit         # MCP 单元测试（含 viewTree / ledger / slim）
 npm run test:mcp:bridge       # launcher ↔ mcp-server 桥接冒烟
 npm run mcp:preflight         # build:npm + 插件校验 + test:mcp:unit + bridge + bundled
+npm test                      # 含 test:entrypoints（无 release/ 产物时自动跳过）
 ```
 
 详见 [`scripts/README.md`](../scripts/README.md)、[`scripts/脚本清单.md`](../scripts/脚本清单.md)。

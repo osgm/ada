@@ -20,12 +20,18 @@ import {
   webEngineField
 } from "./mcp-schemas.js";
 import {
+  DEVICE_ADMIN_COMPACT,
   DEVICE_ADMIN_HINT,
+  HARMONY_LAUNCH_COMPACT,
   HARMONY_LAUNCH_HINT,
   MCP_GLOBAL_POLICY,
+  MCP_GLOBAL_POLICY_COMPACT,
+  MCP_WORKFLOW_COMPACT,
   MCP_WORKFLOW_L0_L4,
   UPGRADE_L2_L3_MOBILE,
   UPGRADE_L2_L3_WEB,
+  UPGRADE_MOBILE_COMPACT,
+  UPGRADE_WEB_COMPACT,
   formatTieredDescription,
   getToolTier,
   isAdvancedDescriptionMode,
@@ -33,8 +39,32 @@ import {
   sortToolsByTier
 } from "./mcp-tool-tiers.js";
 
-function policyRef(): string {
-  return MCP_GLOBAL_POLICY;
+/** Global policy appears once on ada_health (compact) to save tokens across ListTools. */
+function healthPolicyRef(): string {
+  return isAdvancedDescriptionMode() ? ` ${MCP_GLOBAL_POLICY}` : ` ${MCP_GLOBAL_POLICY_COMPACT}`;
+}
+
+function workflowRef(): string {
+  return isAdvancedDescriptionMode() ? `${MCP_WORKFLOW_L0_L4} ` : `${MCP_WORKFLOW_COMPACT} `;
+}
+
+function upgradeWebRef(): string {
+  return isAdvancedDescriptionMode()
+    ? `${UPGRADE_L2_L3_WEB} Popups → ada_web_dismiss_popups. `
+    : `${UPGRADE_WEB_COMPACT} `;
+}
+
+function upgradeMobileRef(): string {
+  return isAdvancedDescriptionMode()
+    ? `${UPGRADE_L2_L3_MOBILE} Popups → ada_mobile_dismiss_popups. `
+    : `${UPGRADE_MOBILE_COMPACT} `;
+}
+
+function mobileLaunchHints(): string {
+  if (isAdvancedDescriptionMode()) {
+    return `${HARMONY_LAUNCH_HINT} ${DEVICE_ADMIN_HINT} `;
+  }
+  return `${HARMONY_LAUNCH_COMPACT} ${DEVICE_ADMIN_COMPACT} `;
 }
 
 function advancedExtra(text: string): string {
@@ -50,9 +80,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_health",
       description:
-        `${MCP_WORKFLOW_L0_L4} Runtime health: Node, Playwright, adb/WDA/hdc, plugins, dependency gaps. ` +
+        `${workflowRef()}Runtime health: Node, Playwright, adb/WDA/hdc, plugins, dependency gaps. ` +
         "USE: session start, after ada_install_deps, or missing-binary errors. Not deep debug → ada_diagnostics. " +
-        `ARGS: scope=web|mobile|all (default web). ${policyRef()}`,
+        `ARGS: scope=web|mobile|all (default web).${healthPolicyRef()}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -169,7 +199,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
       description:
         "Playwright web UI step. Common: navigate, click, type, screenshot, wait, newTab. Full commands: schema.enum. " +
         "ARGS: command (required), sessionId, payload (locator, url, cdpEndpoint, userDataDir, headless). " +
-        `${UPGRADE_L2_L3_WEB} Popups → ada_web_dismiss_popups. monitor.onFailureOnly on critical steps.`,
+        `${upgradeWebRef()}monitor.onFailureOnly on critical steps.`,
       inputSchema: {
         type: "object",
         title: "ada_web_action_input",
@@ -206,8 +236,8 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_web_recipe",
       description:
-        "L2 web recipe: clickPath (path expand+click+waitNavigation). " +
-        "Observation → ada_extract mode=viewTree. ARGS: sessionId, action=clickPath, path, strategy=auto|hover|click.",
+        "L2 web recipe: clickPath (path expand+click+waitNavigation), fill_search (search entry→input→Enter). " +
+        "Observation → ada_extract mode=viewTree. ARGS: sessionId, action, path (clickPath), text (fill_search), entryHints/inputHints in payload.",
       inputSchema: {
         type: "object",
         title: "ada_web_recipe_input",
@@ -216,14 +246,15 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           requestId: requestIdField(),
           action: {
             type: "string",
-            enum: ["clickPath"],
-            description: "clickPath=expand path then activate leaf"
+            enum: ["clickPath", "fill_search"],
+            description: "clickPath=expand path then activate leaf; fill_search=heuristic search box fill"
           },
           path: {
             type: "array",
             items: { type: "string" },
             description: "clickPath labels from root to leaf; empty string uses triggerNth fallback"
           },
+          text: { type: "string", description: "Required for fill_search" },
           strategy: {
             type: "string",
             enum: ["auto", "hover", "click"],
@@ -238,7 +269,21 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           riskApproved: riskApprovedField()
         },
         required: ["action"],
-        additionalProperties: false
+        additionalProperties: false,
+        examples: [
+          {
+            action: "clickPath",
+            sessionId: "jd-web",
+            path: ["搜索"],
+            waitNavigation: false
+          },
+          {
+            action: "fill_search",
+            sessionId: "jd-web",
+            text: "手机",
+            payload: { entryHints: ["搜索"], inputHints: ["请输入", "搜索"] }
+          }
+        ]
       }
     },
     {
@@ -263,10 +308,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
       description:
         "Mobile UI step (android|ios|harmony). Requires ada_devices(scan) → deviceParams.recommended (platform, sessionId, capabilities). " +
         "Common: click, type, launchApp, screenshot, back, deviceAdmin. " +
-        `${HARMONY_LAUNCH_HINT} ` +
-        `${DEVICE_ADMIN_HINT} ` +
+        `${mobileLaunchHints()}` +
         `ARGS: platform, command, sessionId, payload (real, keepSession, capabilities, appId, abilityId, locator). ` +
-        `${UPGRADE_L2_L3_MOBILE} Popups → ada_mobile_dismiss_popups.`,
+        `${upgradeMobileRef()}`,
       inputSchema: {
         type: "object",
         title: "ada_mobile_action_input",
@@ -368,7 +412,9 @@ function buildAllAdaMcpToolDefinitions(): Array<{
       description:
         "L3 driver RPC. Web: mode=method (page|locator + method + args). Mobile: mode=http (WebDriver/hdc path) + capabilities from ada_devices. " +
         "REQUIRES riskApproved=true. Driver RPC — not semantic ada_web_action / ada_mobile_action. " +
-        `${policyRef()}` +
+        advancedExtra(
+          `${MCP_GLOBAL_POLICY} `
+        ) +
         advancedExtra(
           "Web: page.evaluate, context.cookies. Android: GET /source. Harmony: hdc shell via http path."
         ),
