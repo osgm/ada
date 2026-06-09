@@ -39,3 +39,9 @@ test("resolveLaunchSettleWait: default max is 8000 for all platforms", () => {
   assert.equal(resolveLaunchSettleWait("ios").timeoutMs, 8000);
   assert.equal(resolveLaunchSettleWait("harmony").timeoutMs, 8000);
 });
+
+test("resolveLaunchSettleWait: ios defaults to timeout (WDA /source is slow)", () => {
+  const w = resolveLaunchSettleWait("ios", 2500);
+  assert.equal(w.until, "timeout");
+  assert.equal(w.timeoutMs, 2500);
+});

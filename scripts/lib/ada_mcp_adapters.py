@@ -396,6 +396,14 @@ class McpIosDevice(IosDevice):
     def kill_all_apps(self, exclude: list[str] | None = None) -> dict[str, Any]:
         return self._runners["kill_all_apps"]({"excludePackages": exclude} if exclude else {})
 
+    def dismiss_popups(
+        self, timeout_ms: int | dict[str, Any] | None = None, attempts: int | None = None
+    ) -> dict[str, Any]:
+        return self._runners["dismiss_popups"](timeout_ms, attempts)
+
+    def fill_search(self, text: str, hints_or_opts: str | list[str] | dict[str, Any] | None = None) -> None:
+        self._runners["recipe"]("fill_search", text, _ui_for_search(hints_or_opts))
+
     def _session_close(self) -> None:
         self._runners["close"]()
 

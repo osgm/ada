@@ -100,6 +100,42 @@ async function tapAtPoint(session: IOSAdapterSession, point: [number, number], w
   await tapAtPointWithFallback(wdaFetch, session.serverUrl, session.sessionId, point);
 }
 
+const IOS_BACK_BUTTON_XPATHS = [
+  "//XCUIElementTypeButton[@name='Back']",
+  "//XCUIElementTypeButton[contains(@label,'返回')]",
+  "//XCUIElementTypeButton[contains(@name,'back')]",
+  "//XCUIElementTypeNavigationBar//XCUIElementTypeButton[1]"
+];
+
+async function navigateBackWithFallback(
+  session: IOSAdapterSession,
+  wdaFetch: WdaFetchFn,
+  swipe: (from: [number, number], to: [number, number], durationSec?: number) => Promise<void>
+): Promise<void> {
+  const backRes = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/back`);
+  if (backRes.ok) return;
+
+  const btnRes = await wdaFetch("POST", `${session.serverUrl}/wda/pressButton`, { name: "back" });
+  if (btnRes.ok) return;
+
+  for (const xpath of IOS_BACK_BUTTON_XPATHS) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) continue;
+    const clickRes = await wdaFetch(
+      "POST",
+      `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/click`
+    );
+    if (clickRes.ok) return;
+  }
+
+  const screen = await wdaFetch("GET", `${session.serverUrl}/wda/screen`);
+  const rect = (screen.value ?? {}) as { width?: number; height?: number };
+  const w = Number(rect.width ?? 390);
+  const h = Number(rect.height ?? 844);
+  const y = Math.round(h * 0.5);
+  await swipe([8, y], [Math.round(w * 0.55), y], 0.28);
+}
+
 async function clickPickElement(
   session: IOSAdapterSession,
   pick: UiPickResult,
@@ -116,7 +152,36 @@ async function clickPickElement(
     await control.click(el.elementId);
     return;
   }
+  if (pick.point?.length === 2) {
+    await tapAtPoint(session, pick.point, wdaFetch);
+    return;
+  }
   throw new Error(lastErr);
+}
+
+const IOS_GENERIC_INPUT_XPATHS = [
+  "//XCUIElementTypeSearchField[@visible='true']",
+  "//XCUIElementTypeSearchField",
+  "//XCUIElementTypeTextField[@visible='true']",
+  '//XCUIElementTypeTextField[@enabled="true"]'
+];
+
+async function typeIntoElement(
+  session: IOSAdapterSession,
+  elementId: string,
+  text: string,
+  wdaFetch: WdaFetchFn,
+  control: IOSControlChannel
+): Promise<void> {
+  await control.click(elementId);
+  const clearRes = await wdaFetch(
+    "POST",
+    `${session.serverUrl}/session/${session.sessionId}/element/${elementId}/clear`
+  );
+  if (!clearRes.ok) {
+    await control.type(elementId, "");
+  }
+  await control.type(elementId, text);
 }
 
 async function typeOnPickElement(
@@ -133,15 +198,28 @@ async function typeOnPickElement(
       lastErr = el.message;
       continue;
     }
-    await control.click(el.elementId);
-    const clearRes = await wdaFetch(
-      "POST",
-      `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/clear`
-    );
-    if (!clearRes.ok) {
-      await control.type(el.elementId, "");
+    await typeIntoElement(session, el.elementId, text, wdaFetch, control);
+    return;
+  }
+  for (const xpath of IOS_GENERIC_INPUT_XPATHS) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) {
+      lastErr = el.message;
+      continue;
     }
-    await control.type(el.elementId, text);
+    await typeIntoElement(session, el.elementId, text, wdaFetch, control);
+    return;
+  }
+  const keysRes = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
+    value: Array.from(text)
+  });
+  if (keysRes.ok) return;
+  if (pick.point?.length === 2) {
+    await tapAtPoint(session, pick.point, wdaFetch);
+    const retryKeys = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
+      value: Array.from(text)
+    });
+    if (!retryKeys.ok) throw new Error(JSON.stringify(retryKeys.raw ?? {}));
     return;
   }
   throw new Error(lastErr);
@@ -295,8 +373,7 @@ export class WdaClientAdapter implements IOSAdapter {
         if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
       },
       back: async () => {
-        const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/back`);
-        if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
+        await navigateBackWithFallback(session, wdaFetch, control.swipe);
       },
       home: async () => {
         const res = await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`);
@@ -420,12 +497,12 @@ export class WdaClientAdapter implements IOSAdapter {
     if (command.command === "custom") {
       const rawAction = String(payload.custom?.action ?? payload.custom?.method ?? "");
       const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
-      if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
-        const screen = {
-          width: Number((payload as { screenWidth?: number }).screenWidth ?? 390),
-          height: Number((payload as { screenHeight?: number }).screenHeight ?? 844)
-        };
-        const ctx = buildIosRecipeContext(observe, control, screen, {
+      const recipeScreen = {
+        width: Number((payload as { screenWidth?: number }).screenWidth ?? 390),
+        height: Number((payload as { screenHeight?: number }).screenHeight ?? 844)
+      };
+      const buildRecipeCtx = () =>
+        buildIosRecipeContext(observe, control, recipeScreen, {
           tapAt: (point) => tapAtPoint(session, point, wdaFetch),
           sendKeys: async (text) => {
             const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
@@ -443,7 +520,28 @@ export class WdaClientAdapter implements IOSAdapter {
           typeOnPick: (pick, text) => typeOnPickElement(session, pick, text, wdaFetch, control),
           heuristics: parseUiHeuristicsFromPayload(payload as unknown as Record<string, unknown>)
         });
-        const outcome = await runMobileCustomAction(action, ctx, {
+
+      if (action === "dismiss_popups") {
+        const outcome = await runMobileCustomAction(action, buildRecipeCtx(), {
+          payload: payload as unknown as Record<string, unknown>
+        });
+        if (outcome.handled && outcome.recipe?.data) {
+          invalidateElementCache(session);
+          return {
+            requestId: command.requestId,
+            success: true,
+            data: {
+              driver: "ios",
+              command: "custom",
+              action: "dismissPopups",
+              ...(outcome.recipe.data as Record<string, unknown>)
+            }
+          };
+        }
+      }
+
+      if (["dump_ui", "tap_search", "fill_search", "tap_path", "smart_wait"].includes(action)) {
+        const outcome = await runMobileCustomAction(action, buildRecipeCtx(), {
           text: String(payload.text ?? payload.custom?.text ?? ""),
           maxBack: typeof payload.custom?.maxBack === "number" ? payload.custom.maxBack : 3,
           payload: payload as unknown as Record<string, unknown>
@@ -482,7 +580,7 @@ export class WdaClientAdapter implements IOSAdapter {
       return fail(
         command,
         "IOS_CUSTOM_UNSUPPORTED",
-        "supported custom: dump_ui|tap_search|fill_search|smart_wait|method=page_source"
+        "supported custom: dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups|method=page_source"
       );
     }
     if (command.command === "click") {

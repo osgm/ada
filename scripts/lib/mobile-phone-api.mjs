@@ -5,7 +5,11 @@ import { wait } from "./ada.mjs";
 import { runLaunchSettle } from "./smart-wait-launch.mjs";
 
 export function isAppBundleId(value) {
-  return typeof value === "string" && /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]+)+$/i.test(value);
+  // 各段须以字母或数字开头（兼容 com.360buy.jdmobile 等数字段 bundle）
+  return (
+    typeof value === "string" &&
+    /^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)+$/i.test(value)
+  );
 }
 
 /** @param {(cmd: string, extra?: object) => Promise<unknown>} run */

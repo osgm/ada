@@ -134,8 +134,10 @@ export function resolveLaunchSettleWait(
     );
   }
   const maxMs = typeof settleMs === "number" && settleMs > 0 ? settleMs : defaultMax;
+  // iOS WDA /source 单次可能很慢，launch_settled 反复 dump 易触发 COMMAND_TIMEOUT
+  const until = fromEnv.until ?? (platform === "ios" ? "timeout" : "launch_settled");
   return mergeSmartWait(
-    { until: "launch_settled", timeoutMs: maxMs, pollMs: 300, stablePolls: 3 },
+    { until, timeoutMs: maxMs, pollMs: 300, stablePolls: 3 },
     fromEnv
   );
 }

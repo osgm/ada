@@ -222,7 +222,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           {
             command: "navigate",
             sessionId: "jd-web",
-            payload: { url: "https://www.jd.com" }
+            payload: { url: "https://www.jd.com", waitUntil: "domcontentloaded", navigationTimeoutMs: 45000 }
           },
           {
             command: "click",

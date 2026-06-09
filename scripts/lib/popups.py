@@ -182,7 +182,22 @@ def _wait_for_web_popup_ready(session_id: str, options: dict[str, Any], budget_s
     return {"ready": True, "reason": "timeout", "sawBlocker": saw_blocker}
 
 
-def dismiss_web_popups(
+def _map_dismiss_outcome(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "success": True,
+        "dismissed": bool(data.get("dismissed")),
+        "businessCode": data.get("businessCode"),
+        "reason": data.get("reason"),
+        "dismissActions": data.get("dismissActions") or 0,
+        "rounds": data.get("rounds") or 0,
+        "timedOut": bool(data.get("timedOut")),
+        "elapsedMs": data.get("elapsedMs") or 0,
+        "timeoutMs": data.get("timeoutMs"),
+        "hits": list(data.get("hits") or []),
+    }
+
+
+def _dismiss_web_popups_legacy(
     session_id: str,
     options: dict[str, Any],
     timeout_or_opts: int | dict[str, Any] | None = None,
@@ -256,6 +271,36 @@ def dismiss_web_popups(
     }
 
 
+def dismiss_web_popups(
+    session_id: str,
+    options: dict[str, Any],
+    timeout_or_opts: int | dict[str, Any] | None = None,
+    attempts: int | None = None,
+) -> dict[str, Any]:
+    timeout, max_attempts = normalize_dismiss_opts(timeout_or_opts, attempts)
+    opts = {
+        **options,
+        "waitTimeoutMs": options.get("dismissWaitMs")
+        or options.get("dismissActionWaitMs")
+        or 1200,
+    }
+    r = _safe_ada(
+        "web",
+        session_id,
+        "custom",
+        {
+            **opts,
+            "action": "dismissPopups",
+            "timeoutMs": timeout,
+            "attempts": max_attempts,
+        },
+    )
+    data = r.get("data") if isinstance(r.get("data"), dict) else {}
+    if r.get("success") and data.get("businessCode"):
+        return _map_dismiss_outcome(data)
+    return _dismiss_web_popups_legacy(session_id, options, timeout_or_opts, attempts)
+
+
 def _mobile_dismiss_round(
     platform: str,
     session_id: str,
@@ -288,7 +333,7 @@ def _mobile_dismiss_round(
     return False
 
 
-def dismiss_mobile_popups(
+def _dismiss_mobile_popups_legacy(
     platform: str,
     session_id: str,
     base: dict[str, Any],
@@ -343,3 +388,52 @@ def dismiss_mobile_popups(
         "timeoutMs": timeout,
         "hits": hit_log,
     }
+
+
+def dismiss_mobile_popups(
+    platform: str,
+    session_id: str,
+    base: dict[str, Any],
+    screen_w: int,
+    screen_h: int,
+    timeout_or_opts: int | dict[str, Any] | None = None,
+    attempts: int | None = None,
+    *,
+    on_round: Callable[[int, bool], None] | None = None,
+) -> dict[str, Any]:
+    timeout, max_attempts = normalize_dismiss_opts(timeout_or_opts, attempts)
+    if platform in ("harmony", "android", "ios"):
+        opts = {
+            **base,
+            "waitTimeoutMs": base.get("dismissWaitMs")
+            or base.get("dismissActionWaitMs")
+            or 1200,
+            "optional": True,
+            "bestEffort": True,
+        }
+        r = _safe_ada(
+            platform,
+            session_id,
+            "custom",
+            {
+                **opts,
+                "action": "dismissPopups",
+                "timeoutMs": timeout,
+                "attempts": max_attempts,
+                "screenWidth": screen_w,
+                "screenHeight": screen_h,
+            },
+        )
+        data = r.get("data") if isinstance(r.get("data"), dict) else {}
+        if r.get("success") and data.get("businessCode"):
+            return _map_dismiss_outcome(data)
+    return _dismiss_mobile_popups_legacy(
+        platform,
+        session_id,
+        base,
+        screen_w,
+        screen_h,
+        timeout_or_opts,
+        attempts,
+        on_round=on_round,
+    )

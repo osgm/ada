@@ -51,10 +51,13 @@ export {
   isLocalPortReachable,
   probeIosWdaRuntime,
   resolveIproxyCommand,
+  resolveIdeviceIdCommand,
+  resolveLibimobiledeviceCommand,
   resolveWdaLocalPortForUdid,
   waitForLocalPortReachable,
   stopAllIosIproxyForwards,
-  stopIosIproxyForUdid
+  stopIosIproxyForUdid,
+  type LibimobiledeviceTool
 } from "./ios-iproxy.js";
 export { ideviceBootstrapEnabled, probeIosIdeviceRuntime } from "./ios-idevice-probe.js";
 export type {

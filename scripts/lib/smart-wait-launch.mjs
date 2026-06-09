@@ -27,8 +27,10 @@ export function resolveLaunchWait(platform, settleMs, explicitWait) {
     };
   }
   const maxMs = typeof settleMs === "number" && settleMs > 0 ? settleMs : defaultMax;
+  // iOS WDA /source 单次可能很慢，launch_settled 反复 dump 易触发 COMMAND_TIMEOUT
+  const until = env.until ?? (platform === "ios" ? "timeout" : "launch_settled");
   return {
-    until: "launch_settled",
+    until,
     timeoutMs: env.timeoutMs ?? maxMs,
     pollMs: env.pollMs ?? 300,
     stablePolls: 3,

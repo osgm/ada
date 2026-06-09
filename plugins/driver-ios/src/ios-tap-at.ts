@@ -29,27 +29,35 @@ export async function tapAtPointWithFallback(
   sessionUrl: string,
   sessionId: string,
   point: [number, number]
-): Promise<"wda-tap" | "drag-tap" | "actions-tap"> {
+): Promise<"wda-tap" | "drag-tap" | "actions-tap" | "touch-hold-tap"> {
   const [x, y] = point;
+  // 优先 micro-drag：与 swipe 同端点，部分 WDA 构建不含 wda/tap/0
+  const dragRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/dragfromtoforduration`, {
+    fromX: x,
+    fromY: y,
+    toX: x,
+    toY: y,
+    duration: 0.12
+  });
+  if (dragRes.ok) return "drag-tap";
+
+  const holdRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/touchAndHold`, {
+    x,
+    y,
+    duration: 0.08
+  });
+  if (holdRes.ok) return "touch-hold-tap";
+
   const tapRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap/0`, { x, y });
   if (tapRes.ok) return "wda-tap";
 
   const tapLegacy = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap`, { x, y });
   if (tapLegacy.ok) return "wda-tap";
 
-  const dragRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/dragfromtoforduration`, {
-    fromX: x,
-    fromY: y,
-    toX: x,
-    toY: y,
-    duration: 0.05
-  });
-  if (dragRes.ok) return "drag-tap";
-
   const actionsRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/actions`, {
     actions: buildSinglePointerTapActions(x, y)
   });
   if (actionsRes.ok) return "actions-tap";
 
-  throw new Error(JSON.stringify(tapRes.raw ?? {}));
+  throw new Error(JSON.stringify(tapRes.raw ?? holdRes.raw ?? actionsRes.raw ?? {}));
 }

@@ -159,7 +159,22 @@ async function waitForWebPopupReady(sessionId, payload, budgetMs) {
   return { ready: true, reason: "timeout", sawBlocker };
 }
 
-export async function dismissWebPopups(sessionId, options = {}, dismissArg, attemptsArg) {
+function mapDismissOutcome(data) {
+  return {
+    success: true,
+    dismissed: Boolean(data.dismissed),
+    businessCode: data.businessCode,
+    reason: data.reason,
+    dismissActions: data.dismissActions ?? 0,
+    rounds: data.rounds ?? 0,
+    timedOut: Boolean(data.timedOut),
+    elapsedMs: data.elapsedMs ?? 0,
+    timeoutMs: data.timeoutMs,
+    hits: Array.isArray(data.hits) ? data.hits : []
+  };
+}
+
+async function dismissWebPopupsLegacy(sessionId, options, dismissArg, attemptsArg) {
   const { timeoutMs, attempts } = normalizeDismissOpts(dismissArg, attemptsArg);
   const payload = dismissPayload(options);
   const started = Date.now();
@@ -234,7 +249,23 @@ export async function dismissWebPopups(sessionId, options = {}, dismissArg, atte
   };
 }
 
-export async function dismissMobilePopups(platform, sessionId, base, screen, dismissArg, attemptsArg) {
+/** 单次驱动内关弹窗；旧驱动无 dismissPopups 时回退 {@link dismissWebPopupsLegacy} */
+export async function dismissWebPopups(sessionId, options = {}, dismissArg, attemptsArg) {
+  const { timeoutMs, attempts } = normalizeDismissOpts(dismissArg, attemptsArg);
+  const payload = dismissPayload(options);
+  const r = await safeAda("web", sessionId, "custom", {
+    ...payload,
+    action: "dismissPopups",
+    timeoutMs,
+    attempts
+  });
+  if (r.success && r.data?.businessCode) {
+    return mapDismissOutcome(r.data);
+  }
+  return dismissWebPopupsLegacy(sessionId, options, dismissArg, attemptsArg);
+}
+
+async function dismissMobilePopupsLegacy(platform, sessionId, base, screen, dismissArg, attemptsArg) {
   const { timeoutMs, attempts } = normalizeDismissOpts(dismissArg, attemptsArg);
   const payload = dismissPayload(base);
   const started = Date.now();
@@ -297,4 +328,24 @@ export async function dismissMobilePopups(platform, sessionId, base, screen, dis
     timeoutMs,
     hits: hitLog
   };
+}
+
+/** 移动端关弹窗：优先 custom.dismissPopups（单次 dump 多标签），旧驱动回退多轮 click */
+export async function dismissMobilePopups(platform, sessionId, base, screen, dismissArg, attemptsArg) {
+  const { timeoutMs, attempts } = normalizeDismissOpts(dismissArg, attemptsArg);
+  const payload = dismissPayload(base);
+  if (platform === "harmony" || platform === "android" || platform === "ios") {
+    const r = await safeAda(platform, sessionId, "custom", {
+      ...payload,
+      action: "dismissPopups",
+      timeoutMs,
+      attempts,
+      screenWidth: screen?.width,
+      screenHeight: screen?.height
+    });
+    if (r.success && r.data?.businessCode) {
+      return mapDismissOutcome(r.data);
+    }
+  }
+  return dismissMobilePopupsLegacy(platform, sessionId, base, screen, dismissArg, attemptsArg);
 }

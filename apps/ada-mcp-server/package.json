@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.85",
+  "version": "0.1.87",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "license": "Apache-2.0",
   "author": "Kalami (卡拉米)",

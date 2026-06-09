@@ -12,6 +12,7 @@ export * from "./mcp-payload-slim.js";
 export * from "./mcp-recovery.js";
 export * from "./mcp-response-mode.js";
 export * from "./mcp-result.js";
+export * from "./mcp-mobile-session-liveness.js";
 export * from "./mcp-session-liveness.js";
 export * from "./mcp-tool-definitions.js";
 export * from "./mcp-tool-tiers.js";

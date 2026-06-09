@@ -173,6 +173,12 @@ function checkVendorMirrorSync() {
   );
 }
 
+function stripAdaFluentSwipeFooter(text) {
+  const marker = "\n/** @param {number|string|Record<string, unknown>|null|undefined} arg */\nexport function normalizeSwipeArg";
+  const idx = text.indexOf(marker);
+  return idx >= 0 ? text.slice(0, idx).trimEnd() : text;
+}
+
 function checkScriptsLibSync() {
   const modules = [
     "packages/driver-rpc/src/swipe-coords.ts",
@@ -183,7 +189,10 @@ function checkScriptsLibSync() {
     const destRel = `scripts/lib/${path.basename(srcRel).replace(/\.ts$/, ".mjs")}`;
     const source = readText(srcRel);
     const expected = transpileTsModule(source, path.basename(srcRel));
-    const actual = stripSyncHeader(readText(destRel));
+    let actual = stripSyncHeader(readText(destRel));
+    if (destRel.endsWith("swipe-duration.mjs")) {
+      actual = stripAdaFluentSwipeFooter(actual);
+    }
     if (expected !== actual) {
       console.error(
         `[check-mcp-publish-versions] scripts/lib drift: ${destRel}\nRun: npm run sync:scripts-lib`

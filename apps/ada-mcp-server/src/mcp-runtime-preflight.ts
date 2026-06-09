@@ -1,7 +1,12 @@
-import { awaitBootstrapInstallDeps, type InstallDepsConfig } from "@ada/install-deps";
+import {
+  applyAdaToolsToProcessEnv,
+  awaitBootstrapInstallDeps,
+  getDependencyHealth,
+  probeHarmonyRuntime,
+  type InstallDepsConfig
+} from "@ada/install-deps";
 import { loadDeviceRegistry } from "@ada/agent-core";
-import { applyDeviceRegistryToEnv, commandExists, iosIproxyDisabled, probeAndroidRuntime, probeIosRuntime } from "@ada/runtime-probe";
-import { getDependencyHealth, probeHarmonyRuntime, type InstallDepsConfig } from "@ada/install-deps";
+import { applyDeviceRegistryToEnv, probeAndroidRuntime, probeIosRuntime } from "@ada/runtime-probe";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import { isMobilePlatform } from "./mcp-normalize.js";
 import { loadAgentConfig } from "./config.js";
@@ -129,33 +134,16 @@ export async function ensureMobileRuntimeReady(
       return;
     }
     if (platform === "ios") {
+      const config = loadConfig ? await loadConfig() : ((await loadAgentConfig()) as unknown as InstallDepsConfig);
+      await applyAdaToolsToProcessEnv({
+        relativeDir: config.dependencies?.toolsDir?.trim() || "tools"
+      });
       const ios = await probeIosRuntime();
       if (!ios.hostSupported) {
         throw new Error("iOS runtime not ready: requires macOS or Windows host with libimobiledevice + WDA on device");
       }
       if (process.platform === "darwin" && !ios.xcrunOk) {
         throw new Error("iOS runtime not ready: xcrun not found (install Xcode Command Line Tools)");
-      }
-      if (process.platform === "win32" || process.platform === "darwin") {
-        const hasUdidEnv = Boolean(process.env.ADA_IOS_DEVICE_UDID?.trim());
-        if (process.platform === "win32") {
-          const ideviceIdOk = await commandExists("idevice_id");
-          if (!ideviceIdOk && !hasUdidEnv) {
-            throw new Error(
-              "iOS runtime not ready: idevice_id not found (install libimobiledevice for Windows; connect iPhone via USB)"
-            );
-          }
-        }
-        if (!iosIproxyDisabled()) {
-          const iproxyOk = await commandExists("iproxy");
-          if (!iproxyOk) {
-            const hint =
-              process.platform === "win32"
-                ? "install libimobiledevice for Windows"
-                : "brew install libimobiledevice";
-            throw new Error(`iOS runtime not ready: iproxy not found (${hint})`);
-          }
-        }
       }
       if (!ios.wdaReachable) {
         throw new Error(

@@ -183,7 +183,13 @@ def connect_mcp(*, root: Path | str | None = None, env: dict[str, str] | None = 
         env=proc_env,
     )
     _start_stderr_drain(proc)
-    return McpConnection(proc, owned=True)
+    conn = McpConnection(proc, owned=True)
+    if os.environ.get("ADA_MCP_SKIP_PREWARM") != "1":
+        try:
+            conn.call_tool("ada_health", {})
+        except Exception:
+            pass
+    return conn
 
 
 _SCRIPT_OWNED_MCP: McpConnection | None = None

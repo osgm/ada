@@ -287,16 +287,34 @@ async function pathExists(targetPath) {
     return false;
   }
 }
-async function resolveIproxyCommand() {
-  const fromEnv = process.env.ADA_IPROXY_PATH?.trim();
+function libimobiledeviceToolEnvPath(tool) {
+  if (tool === "iproxy") return process.env.ADA_IPROXY_PATH?.trim() || void 0;
+  return process.env.ADA_IDEVICE_ID_PATH?.trim() || void 0;
+}
+function libimobiledeviceCandidateDirs() {
+  const dirs = [];
+  const libFromEnv = process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim();
+  if (libFromEnv) dirs.push(libFromEnv);
+  const toolsDir = process.env.ADA_TOOLS_DIR?.trim();
+  if (toolsDir) dirs.push(import_node_path.default.join(toolsDir, "libimobiledevice"));
+  const home = process.env.USERPROFILE || process.env.HOME || import_node_os.default.homedir();
+  if (home) dirs.push(import_node_path.default.join(home, ".ada", "tools", "libimobiledevice"));
+  dirs.push(import_node_path.default.join(process.cwd(), "tools", "libimobiledevice"));
+  return [...new Set(dirs.map((d) => import_node_path.default.normalize(d)))];
+}
+async function resolveLibimobiledeviceCommand(tool) {
+  const fromEnv = libimobiledeviceToolEnvPath(tool);
   if (fromEnv) return fromEnv;
-  const libDir = process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim() || (process.env.ADA_TOOLS_DIR ? import_node_path.default.join(process.env.ADA_TOOLS_DIR, "libimobiledevice") : "");
-  if (libDir) {
-    const candidate = import_node_path.default.join(libDir, process.platform === "win32" ? "iproxy.exe" : "iproxy");
+  const fileName = process.platform === "win32" ? `${tool}.exe` : tool;
+  for (const libDir of libimobiledeviceCandidateDirs()) {
+    const candidate = import_node_path.default.join(libDir, fileName);
     if (await pathExists(candidate)) return candidate;
   }
-  if (await commandExists("iproxy")) return "iproxy";
+  if (await commandExists(tool)) return tool;
   return null;
+}
+async function resolveIproxyCommand() {
+  return resolveLibimobiledeviceCommand("iproxy");
 }
 function shouldUseShell(command) {
   return process.platform === "win32" && !command.includes("/") && !command.includes("\\");
@@ -521,12 +539,13 @@ async function probeIosWdaRuntime(options) {
     status: wda.status
   };
 }
-var import_node_child_process2, import_promises, import_node_path, iproxyChildren, IPROXY_READY_TIMEOUT_MS, IPROXY_READY_POLL_MS;
+var import_node_child_process2, import_promises, import_node_os, import_node_path, iproxyChildren, IPROXY_READY_TIMEOUT_MS, IPROXY_READY_POLL_MS;
 var init_ios_iproxy = __esm({
   "../../packages/runtime-probe/src/ios-iproxy.ts"() {
     "use strict";
     import_node_child_process2 = require("node:child_process");
     import_promises = __toESM(require("node:fs/promises"), 1);
+    import_node_os = __toESM(require("node:os"), 1);
     import_node_path = __toESM(require("node:path"), 1);
     init_runtime_probe();
     init_ios_wda_endpoint();
@@ -580,6 +599,7 @@ var init_ios_idevice_probe = __esm({
   "../../packages/runtime-probe/src/ios-idevice-probe.ts"() {
     "use strict";
     init_runtime_probe();
+    init_ios_iproxy();
   }
 });
 
@@ -639,7 +659,7 @@ function isFilesystemRootPath(dir) {
 }
 function resolveUserHomeDirSync() {
   const candidates = [
-    import_node_os.default.homedir(),
+    import_node_os2.default.homedir(),
     process.env.HOME,
     process.env.USERPROFILE,
     process.platform === "win32" && process.env.SystemDrive && process.env.USERNAME ? import_node_path2.default.join(process.env.SystemDrive, "Users", process.env.USERNAME) : void 0
@@ -662,11 +682,11 @@ function resolveGlobalAdaHomeSync() {
   }
   return import_node_path2.default.join(resolveUserHomeDirSync(), ".ada");
 }
-var import_node_os, import_node_path2;
+var import_node_os2, import_node_path2;
 var init_ada_home = __esm({
   "../../packages/core-runtime/src/ada-home.ts"() {
     "use strict";
-    import_node_os = __toESM(require("node:os"), 1);
+    import_node_os2 = __toESM(require("node:os"), 1);
     import_node_path2 = __toESM(require("node:path"), 1);
   }
 });
@@ -1815,9 +1835,12 @@ async function safeDumpUi(ctx, retries = 1) {
 }
 async function focusAndType(ctx, input, point, text, payload) {
   if (input && ctx.typeOnPick) {
-    ctx.invalidateDumpCache?.();
-    await ctx.typeOnPick(input, text);
-    return "typeOnPick";
+    try {
+      ctx.invalidateDumpCache?.();
+      await ctx.typeOnPick(input, text);
+      return "typeOnPick";
+    } catch {
+    }
   }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
@@ -1825,8 +1848,11 @@ async function focusAndType(ctx, input, point, text, payload) {
       await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
-    await ctx.typeFocused(text);
-    return "typeFocused";
+    try {
+      await ctx.typeFocused(text);
+      return "typeFocused";
+    } catch {
+    }
   }
   ctx.invalidateDumpCache?.();
   await ctx.typeAt(point, text);
@@ -2173,10 +2199,118 @@ async function recipeFillSearch(ctx, text, options) {
   });
 }
 
+// ../../packages/driver-rpc/src/mobile-dismiss-popups.ts
+var MOBILE_DISMISS_LABELS = [
+  "\u5173\u95ED",
+  "\u8DF3\u8FC7",
+  "\u6211\u77E5\u9053\u4E86",
+  "\u77E5\u9053\u4E86",
+  "\u6682\u4E0D",
+  "\u4E0D\u518D\u63D0\u793A",
+  "\u53D6\u6D88",
+  "\xD7",
+  "Close",
+  "Got it"
+];
+var DISMISS_HIT_SLEEP_MS = 200;
+var DISMISS_ROUND_SLEEP_MS = 200;
+var DEFAULT_DISMISS_TIMEOUT_MS = 1e4;
+function numberOr2(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function matchDismissLabel(node, label) {
+  if (!node.clickable) return false;
+  const needle = label.trim().toLowerCase();
+  if (!needle) return false;
+  const hay = `${node.text} ${node.desc}`.toLowerCase();
+  return hay.includes(needle) || node.text === label || node.desc === label;
+}
+function findDismissNode(nodes, label) {
+  for (const node of nodes) {
+    if (matchDismissLabel(node, label)) return node;
+  }
+  return null;
+}
+async function dismissRound(ctx, deadline, hitLog) {
+  if (Date.now() >= deadline) return false;
+  ctx.invalidateDumpCache?.();
+  let nodes = [];
+  try {
+    nodes = await ctx.dumpUi();
+  } catch {
+    nodes = [];
+  }
+  for (const label of MOBILE_DISMISS_LABELS) {
+    if (Date.now() >= deadline) break;
+    const node = findDismissNode(nodes, label);
+    if (!node) continue;
+    try {
+      await ctx.clickPoint(node.point);
+      hitLog.push(`text:${label}`);
+      await recipeSettleDelay(ctx, void 0, DISMISS_HIT_SLEEP_MS);
+      return true;
+    } catch {
+    }
+  }
+  if (Date.now() >= deadline) return false;
+  const x = Math.round(ctx.screen.width * 0.92);
+  const y = Math.round(ctx.screen.height * 0.08);
+  try {
+    await ctx.clickPoint([x, y]);
+    hitLog.push(`point:${x},${y}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function executeMobileDismissPopups(ctx, payload) {
+  const timeoutMs = Math.max(0, numberOr2(payload?.timeoutMs, DEFAULT_DISMISS_TIMEOUT_MS));
+  const attempts = Math.max(1, Math.floor(numberOr2(payload?.attempts, Number.POSITIVE_INFINITY)));
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let dismissActions = 0;
+  let rounds = 0;
+  let idleStreak = 0;
+  const hitLog = [];
+  while (Date.now() < deadline && rounds < attempts) {
+    rounds += 1;
+    let roundOk = false;
+    try {
+      roundOk = await dismissRound(ctx, deadline, hitLog);
+    } catch {
+      roundOk = false;
+    }
+    if (roundOk) {
+      dismissActions += 1;
+      idleStreak = 0;
+    } else {
+      idleStreak += 1;
+      if (idleStreak >= 2) break;
+    }
+    if (Date.now() >= deadline) break;
+    await recipeSettleDelay(ctx, void 0, DISMISS_ROUND_SLEEP_MS);
+  }
+  const endedAt = Date.now();
+  const dismissed = dismissActions > 0;
+  const timedOut = endedAt >= deadline;
+  return {
+    businessCode: dismissed ? "POPUP_DISMISSED" : timedOut ? "POPUP_DISMISS_TIMEOUT" : "POPUP_NOT_FOUND",
+    dismissed,
+    reason: dismissed ? "dismissed" : timedOut ? "timed_out" : "no_popup",
+    dismissActions,
+    rounds,
+    timedOut,
+    elapsedMs: endedAt - started,
+    timeoutMs,
+    hits: hitLog
+  };
+}
+
 // ../../packages/driver-rpc/src/mobile-custom.ts
 function normalizeMobileCustomAction(action, method) {
   const a = String(action || method || "").toLowerCase();
   if (a === "dump_hierarchy" || a === "dump_layout") return "dump_ui";
+  if (a === "dismisspopups" || a === "dismiss_popups") return "dismiss_popups";
   return a;
 }
 function recipeOptionsFromPayload(payload) {
@@ -2230,6 +2364,14 @@ async function runMobileCustomAction(rawAction, ctx, options) {
     const recipe = await recipeFillSearch(ctx, text, recipeOpts);
     const errorCode = recipe.ok ? void 0 : recipe.errorCode ?? recipeErrorCodeForAction(action, false);
     return { handled: true, recipe, errorCode, value: recipe.detail };
+  }
+  if (action === "dismiss_popups") {
+    const result = await executeMobileDismissPopups(ctx, options?.payload);
+    return {
+      handled: true,
+      value: result.reason,
+      recipe: { ok: true, phase: "dismiss_popups", detail: result.reason, data: result }
+    };
   }
   return { handled: false };
 }
@@ -5870,7 +6012,9 @@ function iosPickToXpathCandidates(pick) {
     }
     return ['//*[@visible="true" and contains(@type, "Button")]'];
   }
-  const lit = escapeXpathLiteral(pick.label);
+  const label = pick.label.trim();
+  const shortLabel = label.length > 12 ? label.slice(0, 12) : label;
+  const lit = escapeXpathLiteral(shortLabel);
   const textMatch = `contains(@label, ${lit}) or contains(@name, ${lit}) or contains(@value, ${lit})`;
   if (pick.kind === "input") {
     return [
@@ -5905,23 +6049,29 @@ function buildSinglePointerTapActions(x, y) {
 }
 async function tapAtPointWithFallback(wdaFetch, sessionUrl, sessionId, point) {
   const [x, y] = point;
-  const tapRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap/0`, { x, y });
-  if (tapRes.ok) return "wda-tap";
-  const tapLegacy = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap`, { x, y });
-  if (tapLegacy.ok) return "wda-tap";
   const dragRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/dragfromtoforduration`, {
     fromX: x,
     fromY: y,
     toX: x,
     toY: y,
-    duration: 0.05
+    duration: 0.12
   });
   if (dragRes.ok) return "drag-tap";
+  const holdRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/touchAndHold`, {
+    x,
+    y,
+    duration: 0.08
+  });
+  if (holdRes.ok) return "touch-hold-tap";
+  const tapRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap/0`, { x, y });
+  if (tapRes.ok) return "wda-tap";
+  const tapLegacy = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/wda/tap`, { x, y });
+  if (tapLegacy.ok) return "wda-tap";
   const actionsRes = await wdaFetch("POST", `${sessionUrl}/session/${sessionId}/actions`, {
     actions: buildSinglePointerTapActions(x, y)
   });
   if (actionsRes.ok) return "actions-tap";
-  throw new Error(JSON.stringify(tapRes.raw ?? {}));
+  throw new Error(JSON.stringify(tapRes.raw ?? holdRes.raw ?? actionsRes.raw ?? {}));
 }
 
 // ../../plugins/driver-ios/src/wda-http-adapter.ts
@@ -5973,6 +6123,33 @@ async function findElement(session, payload, wdaFetch, opts) {
 async function tapAtPoint(session, point, wdaFetch) {
   await tapAtPointWithFallback(wdaFetch, session.serverUrl, session.sessionId, point);
 }
+var IOS_BACK_BUTTON_XPATHS = [
+  "//XCUIElementTypeButton[@name='Back']",
+  "//XCUIElementTypeButton[contains(@label,'\u8FD4\u56DE')]",
+  "//XCUIElementTypeButton[contains(@name,'back')]",
+  "//XCUIElementTypeNavigationBar//XCUIElementTypeButton[1]"
+];
+async function navigateBackWithFallback(session, wdaFetch, swipe) {
+  const backRes = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/back`);
+  if (backRes.ok) return;
+  const btnRes = await wdaFetch("POST", `${session.serverUrl}/wda/pressButton`, { name: "back" });
+  if (btnRes.ok) return;
+  for (const xpath of IOS_BACK_BUTTON_XPATHS) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) continue;
+    const clickRes = await wdaFetch(
+      "POST",
+      `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/click`
+    );
+    if (clickRes.ok) return;
+  }
+  const screen = await wdaFetch("GET", `${session.serverUrl}/wda/screen`);
+  const rect = screen.value ?? {};
+  const w = Number(rect.width ?? 390);
+  const h = Number(rect.height ?? 844);
+  const y = Math.round(h * 0.5);
+  await swipe([8, y], [Math.round(w * 0.55), y], 0.28);
+}
 async function clickPickElement(session, pick, wdaFetch, control) {
   let lastErr = "element not found";
   for (const xpath of iosPickToXpathCandidates(pick)) {
@@ -5984,7 +6161,28 @@ async function clickPickElement(session, pick, wdaFetch, control) {
     await control.click(el.elementId);
     return;
   }
+  if (pick.point?.length === 2) {
+    await tapAtPoint(session, pick.point, wdaFetch);
+    return;
+  }
   throw new Error(lastErr);
+}
+var IOS_GENERIC_INPUT_XPATHS = [
+  "//XCUIElementTypeSearchField[@visible='true']",
+  "//XCUIElementTypeSearchField",
+  "//XCUIElementTypeTextField[@visible='true']",
+  '//XCUIElementTypeTextField[@enabled="true"]'
+];
+async function typeIntoElement(session, elementId, text, wdaFetch, control) {
+  await control.click(elementId);
+  const clearRes = await wdaFetch(
+    "POST",
+    `${session.serverUrl}/session/${session.sessionId}/element/${elementId}/clear`
+  );
+  if (!clearRes.ok) {
+    await control.type(elementId, "");
+  }
+  await control.type(elementId, text);
 }
 async function typeOnPickElement(session, pick, text, wdaFetch, control) {
   let lastErr = "search input element not found";
@@ -5994,15 +6192,28 @@ async function typeOnPickElement(session, pick, text, wdaFetch, control) {
       lastErr = el.message;
       continue;
     }
-    await control.click(el.elementId);
-    const clearRes = await wdaFetch(
-      "POST",
-      `${session.serverUrl}/session/${session.sessionId}/element/${el.elementId}/clear`
-    );
-    if (!clearRes.ok) {
-      await control.type(el.elementId, "");
+    await typeIntoElement(session, el.elementId, text, wdaFetch, control);
+    return;
+  }
+  for (const xpath of IOS_GENERIC_INPUT_XPATHS) {
+    const el = await findElement(session, { locator: { xpath } }, wdaFetch, { attempts: 1, delayMs: 0 });
+    if (!el.ok) {
+      lastErr = el.message;
+      continue;
     }
-    await control.type(el.elementId, text);
+    await typeIntoElement(session, el.elementId, text, wdaFetch, control);
+    return;
+  }
+  const keysRes = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
+    value: Array.from(text)
+  });
+  if (keysRes.ok) return;
+  if (pick.point?.length === 2) {
+    await tapAtPoint(session, pick.point, wdaFetch);
+    const retryKeys = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
+      value: Array.from(text)
+    });
+    if (!retryKeys.ok) throw new Error(JSON.stringify(retryKeys.raw ?? {}));
     return;
   }
   throw new Error(lastErr);
@@ -6143,8 +6354,7 @@ var WdaClientAdapter = class _WdaClientAdapter {
         if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
       },
       back: async () => {
-        const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/back`);
-        if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
+        await navigateBackWithFallback(session, wdaFetch, control.swipe);
       },
       home: async () => {
         const res = await wdaFetch("POST", `${session.serverUrl}/wda/homescreen`);
@@ -6268,30 +6478,48 @@ var WdaClientAdapter = class _WdaClientAdapter {
     if (command.command === "custom") {
       const rawAction = String(payload.custom?.action ?? payload.custom?.method ?? "");
       const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
-      if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
-        const screen = {
-          width: Number(payload.screenWidth ?? 390),
-          height: Number(payload.screenHeight ?? 844)
-        };
-        const ctx = buildIosRecipeContext(observe, control, screen, {
-          tapAt: (point) => tapAtPoint(session, point, wdaFetch),
-          sendKeys: async (text) => {
-            const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
-              value: Array.from(text)
-            });
-            if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
-          },
-          clickPick: async (pick) => {
-            await clickPickElement(session, pick, wdaFetch, control);
-            invalidateElementCache(session);
-            if (pick.kind === "entry") {
-              await recoverSession();
-            }
-          },
-          typeOnPick: (pick, text) => typeOnPickElement(session, pick, text, wdaFetch, control),
-          heuristics: parseUiHeuristicsFromPayload(payload)
+      const recipeScreen = {
+        width: Number(payload.screenWidth ?? 390),
+        height: Number(payload.screenHeight ?? 844)
+      };
+      const buildRecipeCtx = () => buildIosRecipeContext(observe, control, recipeScreen, {
+        tapAt: (point) => tapAtPoint(session, point, wdaFetch),
+        sendKeys: async (text) => {
+          const res = await wdaFetch("POST", `${session.serverUrl}/session/${session.sessionId}/wda/keys`, {
+            value: Array.from(text)
+          });
+          if (!res.ok) throw new Error(JSON.stringify(res.raw ?? {}));
+        },
+        clickPick: async (pick) => {
+          await clickPickElement(session, pick, wdaFetch, control);
+          invalidateElementCache(session);
+          if (pick.kind === "entry") {
+            await recoverSession();
+          }
+        },
+        typeOnPick: (pick, text) => typeOnPickElement(session, pick, text, wdaFetch, control),
+        heuristics: parseUiHeuristicsFromPayload(payload)
+      });
+      if (action === "dismiss_popups") {
+        const outcome = await runMobileCustomAction(action, buildRecipeCtx(), {
+          payload
         });
-        const outcome = await runMobileCustomAction(action, ctx, {
+        if (outcome.handled && outcome.recipe?.data) {
+          invalidateElementCache(session);
+          return {
+            requestId: command.requestId,
+            success: true,
+            data: {
+              driver: "ios",
+              command: "custom",
+              action: "dismissPopups",
+              ...outcome.recipe.data
+            }
+          };
+        }
+      }
+      if (["dump_ui", "tap_search", "fill_search", "tap_path", "smart_wait"].includes(action)) {
+        const outcome = await runMobileCustomAction(action, buildRecipeCtx(), {
           text: String(payload.text ?? payload.custom?.text ?? ""),
           maxBack: typeof payload.custom?.maxBack === "number" ? payload.custom.maxBack : 3,
           payload
@@ -6325,7 +6553,7 @@ var WdaClientAdapter = class _WdaClientAdapter {
       return fail(
         command,
         "IOS_CUSTOM_UNSUPPORTED",
-        "supported custom: dump_ui|tap_search|fill_search|smart_wait|method=page_source"
+        "supported custom: dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups|method=page_source"
       );
     }
     if (command.command === "click") {

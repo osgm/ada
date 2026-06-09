@@ -593,7 +593,7 @@ export class Uia2AdbAdapter implements AndroidAdapter {
         return customShellSuccess(command, res.stdout.trim());
       }
       const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
-      if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
+      if (["dump_ui", "tap_search", "fill_search", "tap_path", "smart_wait", "dismiss_popups"].includes(action)) {
         const screen = {
           width: Number(payload.screenWidth ?? 1080),
           height: Number(payload.screenHeight ?? 2400)
@@ -619,6 +619,18 @@ export class Uia2AdbAdapter implements AndroidAdapter {
           maxBack: typeof payload.custom?.maxBack === "number" ? payload.custom.maxBack : 3,
           payload: payload as unknown as Record<string, unknown>
         });
+        if (outcome.handled && action === "dismiss_popups" && outcome.recipe?.data) {
+          return {
+            requestId: command.requestId,
+            success: true,
+            data: {
+              driver: "android",
+              command: "custom",
+              action: "dismissPopups",
+              ...(outcome.recipe.data as Record<string, unknown>)
+            }
+          };
+        }
         if (outcome.handled) {
           const ok = outcome.recipe?.ok !== false;
           return {
@@ -647,7 +659,7 @@ export class Uia2AdbAdapter implements AndroidAdapter {
       return fail(
         command,
         "ANDROID_CUSTOM_UNSUPPORTED",
-        "supported custom: shell|dump_ui|tap_search|fill_search|smart_wait"
+        "supported custom: shell|dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups"
       );
     }
     if (command.command === "click") {

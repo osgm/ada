@@ -3,7 +3,13 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 
 import { defaultWdaServerUrl } from "./ios-wda-endpoint.js";
-import { isIosIproxyHostSupported, probeIosWdaRuntime } from "./ios-iproxy.js";
+import {
+  iosIproxyDisabled,
+  isIosIproxyHostSupported,
+  probeIosWdaRuntime,
+  resolveIdeviceIdCommand,
+  resolveIproxyCommand
+} from "./ios-iproxy.js";
 
 
 
@@ -217,13 +223,13 @@ export async function probeIosRuntime(): Promise<IosRuntimeProbe> {
 
   if (process.platform === "win32") {
 
-    const ideviceIdOk = await commandExists("idevice_id");
+    const ideviceIdCmd = await resolveIdeviceIdCommand();
 
-    const iproxyOk = await commandExists("iproxy");
+    const iproxyCmd = iosIproxyDisabled() ? "skip" : await resolveIproxyCommand();
 
     const hasUdidEnv = Boolean(process.env.ADA_IOS_DEVICE_UDID?.trim());
 
-    if (!ideviceIdOk && !hasUdidEnv) {
+    if (!ideviceIdCmd && !hasUdidEnv) {
 
       return {
 
@@ -243,7 +249,7 @@ export async function probeIosRuntime(): Promise<IosRuntimeProbe> {
 
     }
 
-    if (!iproxyOk && !["1", "true", "yes"].includes((process.env.ADA_IOS_IPROXY_DISABLED ?? "").trim().toLowerCase())) {
+    if (!iosIproxyDisabled() && !iproxyCmd) {
 
       return {
 

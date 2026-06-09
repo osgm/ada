@@ -9,7 +9,8 @@ from smart_wait_launch import run_launch_settle
 
 
 def is_app_bundle_id(value: str) -> bool:
-    return bool(re.match(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]+)+$", value, re.I))
+    # 各段须以字母或数字开头（兼容 com.360buy.jdmobile 等数字段 bundle）
+    return bool(re.match(r"^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z0-9][a-zA-Z0-9_-]*)+$", value, re.I))
 
 
 def back_times(

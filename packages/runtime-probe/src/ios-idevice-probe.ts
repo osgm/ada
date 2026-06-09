@@ -1,4 +1,5 @@
 import { commandExists } from "./runtime-probe.js";
+import { resolveIdeviceIdCommand, resolveIproxyCommand } from "./ios-iproxy.js";
 
 export function ideviceBootstrapEnabled(): boolean {
   const raw = process.env.ADA_IOS_IDEVICE_BOOTSTRAP?.trim().toLowerCase();
@@ -18,8 +19,8 @@ export async function probeIosIdeviceRuntime(): Promise<{
   installHint: string;
 }> {
   if (process.platform === "win32") {
-    const ideviceIdOk = await commandExists("idevice_id");
-    const iproxyOk = await commandExists("iproxy");
+    const ideviceIdOk = Boolean(await resolveIdeviceIdCommand());
+    const iproxyOk = Boolean(await resolveIproxyCommand());
     const ideviceinstallerOk = await commandExists("ideviceinstaller");
     const afcclientOk = await commandExists("afcclient");
     if (ideviceIdOk && iproxyOk) {

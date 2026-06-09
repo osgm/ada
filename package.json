@@ -58,6 +58,7 @@
     "test:jd-ios": "node scripts/lib/run-ada-example.mjs scripts/examples/nodejs/ios/jd-e2e.mjs",
     "test:jd-ios:mcp": "node scripts/examples/nodejs/ios/jd-mcp-ios.mjs",
     "test:jd-ios:mcp:py": "python scripts/examples/python/ios/jd_mcp_ios.py",
+    "test:jd-ios:py": "python scripts/examples/python/ios/jd_e2e.py",
     "test": "npm run test:unit && npm run test:mcp:unit && npm run test:conformance && npm run test:entrypoints -- --if-present",
     "test:jd-web": "node scripts/lib/run-ada-example.mjs scripts/examples/nodejs/web/jd-e2e.mjs",
     "test:jd-web:mcp": "node scripts/examples/nodejs/web/jd-mcp-web.mjs",

@@ -189,11 +189,16 @@ export function buildWebDevice(sessionId, base, deps) {
   return {
     options: base,
     sessionId,
-    goto: (url) => run("navigate", { url }),
+    goto: (url, opts) =>
+      run("navigate", { url, ...(opts && typeof opts === "object" ? opts : {}) }),
     back: createBack(run),
     find,
     keyboard: { press: (key) => run("press", { key }) },
-    screenshot: (filePath) => run("screenshot", { screenshotPath: path.resolve(filePath) }),
+    screenshot: (filePath, opts) =>
+      run("screenshot", {
+        screenshotPath: path.resolve(filePath),
+        fullPage: opts?.fullPage ?? false
+      }),
     newTab: (url) => run("newTab", { url }),
     switchTab: (tabIndex = 0) => run("switchTab", { tabIndex }),
     closeTab: () => run("closeTab"),
@@ -236,6 +241,8 @@ function mergeDeviceProbe(cfg, probe) {
 /** open(device) 内自动 adb/hdc 探测；`real: false` 或 `probeDevice: false` 可跳过 */
 async function enrichDeviceConfig(platform, cfg) {
   if (cfg.probeDevice === false || cfg.real === false) return cfg;
+  // iOS 无本地 adb/hdc 探测；MCP 或 WDA 驱动侧解析 udid/屏幕
+  if (platform === "ios") return cfg;
   const probe = await readDevice({ type: platform, deviceId: deviceIdFromCfg(platform, cfg) });
   return mergeDeviceProbe(cfg, probe);
 }
@@ -516,7 +523,11 @@ export function buildAndroidDevice(sessionId, cfg, screen, deps) {
     goto: createGoto("android", find, run),
     dismissPopups,
     fillSearch: (text, hintsOrOpts) => recipe("fill_search", text, fillSearchExtra(hintsOrOpts)),
-    screenshot: (filePath) => run("screenshot", { screenshotPath: path.resolve(filePath) }),
+    screenshot: (filePath, opts) =>
+      run("screenshot", {
+        screenshotPath: path.resolve(filePath),
+        fullPage: opts?.fullPage ?? false
+      }),
     pressHome: () => run("pressHome"),
     exit,
     close,
@@ -605,7 +616,11 @@ export function buildHarmonyDevice(sessionId, cfg, deps) {
     fillSearch: recipe ? (text, hintsOrOpts) => recipe("fill_search", text, fillSearchExtra(hintsOrOpts)) : undefined,
     /** 向当前焦点输入（点击输入框后使用，无需 locator） */
     type: (text) => run("type", { text }),
-    screenshot: (filePath) => run("screenshot", { screenshotPath: path.resolve(filePath) }),
+    screenshot: (filePath, opts) =>
+      run("screenshot", {
+        screenshotPath: path.resolve(filePath),
+        fullPage: opts?.fullPage ?? false
+      }),
     pressHome: () => run("pressHome"),
     exit,
     close,
@@ -663,7 +678,11 @@ export function buildIosDevice(sessionId, cfg, screen, deps) {
     goto: createGoto("ios", find, run),
     dismissPopups,
     fillSearch: (text, hintsOrOpts) => recipe("fill_search", text, fillSearchExtra(hintsOrOpts)),
-    screenshot: (filePath) => run("screenshot", { screenshotPath: path.resolve(filePath) }),
+    screenshot: (filePath, opts) =>
+      run("screenshot", {
+        screenshotPath: path.resolve(filePath),
+        fullPage: opts?.fullPage ?? false
+      }),
     pressHome: () => run("pressHome"),
     exit,
     close,

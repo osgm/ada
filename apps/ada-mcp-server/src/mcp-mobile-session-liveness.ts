@@ -23,6 +23,26 @@ export function shouldProbeMobileSession(command: string): boolean {
   return command !== "launchApp";
 }
 
+/** Platform-specific session probe — must match driver command / custom.action whitelist. */
+export function buildMobileSessionProbeCommand(platform: AdaPlatform): {
+  command: CommandEnvelope["command"];
+  riskApproved: true;
+  payload: Record<string, unknown>;
+} {
+  if (platform === "ios") {
+    return {
+      command: "invoke",
+      riskApproved: true,
+      payload: { mode: "http", http: { method: "GET", path: "/status" } }
+    };
+  }
+  return {
+    command: "custom",
+    riskApproved: true,
+    payload: { custom: { action: "shell", command: "echo ada-probe" } }
+  };
+}
+
 export function clearMobileSessionProbeCache(platform?: AdaPlatform, sessionId?: string): void {
   if (!platform && !sessionId) {
     probeCache.clear();
@@ -34,6 +54,56 @@ export function clearMobileSessionProbeCache(platform?: AdaPlatform, sessionId?:
     if (sessionId && s !== sessionId) continue;
     probeCache.delete(key);
   }
+}
+
+async function runMobileSessionProbe(
+  platform: AdaPlatform,
+  sessionId: string,
+  deps: {
+    runCommand: (command: CommandEnvelope) => Promise<CommandResult>;
+    toCommandEnvelope: (input: Record<string, unknown>, allowMock?: boolean) => CommandEnvelope;
+    allowMock?: boolean;
+  }
+): Promise<CommandResult> {
+  const spec = buildMobileSessionProbeCommand(platform);
+  const primary = await deps.runCommand(
+    deps.toCommandEnvelope(
+      {
+        requestId: `mobile-probe-${Date.now()}`,
+        sessionId,
+        platform,
+        command: spec.command,
+        riskApproved: spec.riskApproved,
+        payload: spec.payload
+      },
+      deps.allowMock ?? false
+    )
+  );
+  if (primary.success) {
+    return primary;
+  }
+
+  if (platform === "android" && primary.errorCode === "ANDROID_INVOKE_HTTP_REQUIRES_UIA2") {
+    return primary;
+  }
+
+  if (platform === "android" && spec.command === "custom") {
+    return deps.runCommand(
+      deps.toCommandEnvelope(
+        {
+          requestId: `mobile-probe-http-${Date.now()}`,
+          sessionId,
+          platform,
+          command: "invoke",
+          riskApproved: true,
+          payload: { mode: "http", http: { method: "GET", path: "/status" } }
+        },
+        deps.allowMock ?? false
+      )
+    );
+  }
+
+  return primary;
 }
 
 export async function ensureMobileSessionReady(
@@ -57,19 +127,7 @@ export async function ensureMobileSessionReady(
     return;
   }
 
-  const probe = await deps.runCommand(
-    deps.toCommandEnvelope(
-      {
-        requestId: `mobile-probe-${Date.now()}`,
-        sessionId,
-        platform,
-        command: "custom",
-        riskApproved: true,
-        payload: { http: { method: "GET", path: "/status" } }
-      },
-      deps.allowMock ?? false
-    )
-  );
+  const probe = await runMobileSessionProbe(platform, sessionId, deps);
 
   if (probe.success) {
     probeCache.set(cacheKey, { at: Date.now(), ok: true });

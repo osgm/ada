@@ -8,6 +8,7 @@ import { assertMcpOk, mcpNeedsRisk, parseMcpToolResult } from "./ada-mcp.mjs";
 import {
   buildAndroidDevice,
   buildHarmonyDevice,
+  buildIosDevice,
   buildWebDevice,
   resolveSession
 } from "./ada-fluent.mjs";

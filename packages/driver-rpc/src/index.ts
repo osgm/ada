@@ -267,6 +267,12 @@ export {
 } from "./mobile-recipes.js";
 export { normalizeMobileCustomAction, runMobileCustomAction, type MobileCustomOutcome } from "./mobile-custom.js";
 export {
+  executeMobileDismissPopups,
+  MOBILE_DISMISS_LABELS,
+  type MobileDismissBusinessCode,
+  type MobileDismissPopupsResult
+} from "./mobile-dismiss-popups.js";
+export {
   DEVICE_ADMIN_ACTIONS,
   deviceAdminFail,
   deviceAdminSuccess,

@@ -657,6 +657,7 @@ var init_ios_idevice_probe = __esm({
   "../../packages/runtime-probe/src/ios-idevice-probe.ts"() {
     "use strict";
     init_runtime_probe();
+    init_ios_iproxy();
   }
 });
 
@@ -1461,9 +1462,12 @@ async function safeDumpUi(ctx, retries = 1) {
 }
 async function focusAndType(ctx, input, point, text, payload) {
   if (input && ctx.typeOnPick) {
-    ctx.invalidateDumpCache?.();
-    await ctx.typeOnPick(input, text);
-    return "typeOnPick";
+    try {
+      ctx.invalidateDumpCache?.();
+      await ctx.typeOnPick(input, text);
+      return "typeOnPick";
+    } catch {
+    }
   }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
@@ -1471,8 +1475,11 @@ async function focusAndType(ctx, input, point, text, payload) {
       await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
-    await ctx.typeFocused(text);
-    return "typeFocused";
+    try {
+      await ctx.typeFocused(text);
+      return "typeFocused";
+    } catch {
+    }
   }
   ctx.invalidateDumpCache?.();
   await ctx.typeAt(point, text);
@@ -1819,10 +1826,118 @@ async function recipeFillSearch(ctx, text, options) {
   });
 }
 
+// ../../packages/driver-rpc/src/mobile-dismiss-popups.ts
+var MOBILE_DISMISS_LABELS = [
+  "\u5173\u95ED",
+  "\u8DF3\u8FC7",
+  "\u6211\u77E5\u9053\u4E86",
+  "\u77E5\u9053\u4E86",
+  "\u6682\u4E0D",
+  "\u4E0D\u518D\u63D0\u793A",
+  "\u53D6\u6D88",
+  "\xD7",
+  "Close",
+  "Got it"
+];
+var DISMISS_HIT_SLEEP_MS = 200;
+var DISMISS_ROUND_SLEEP_MS = 200;
+var DEFAULT_DISMISS_TIMEOUT_MS = 1e4;
+function numberOr2(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function matchDismissLabel(node, label) {
+  if (!node.clickable) return false;
+  const needle = label.trim().toLowerCase();
+  if (!needle) return false;
+  const hay = `${node.text} ${node.desc}`.toLowerCase();
+  return hay.includes(needle) || node.text === label || node.desc === label;
+}
+function findDismissNode(nodes, label) {
+  for (const node of nodes) {
+    if (matchDismissLabel(node, label)) return node;
+  }
+  return null;
+}
+async function dismissRound(ctx, deadline, hitLog) {
+  if (Date.now() >= deadline) return false;
+  ctx.invalidateDumpCache?.();
+  let nodes = [];
+  try {
+    nodes = await ctx.dumpUi();
+  } catch {
+    nodes = [];
+  }
+  for (const label of MOBILE_DISMISS_LABELS) {
+    if (Date.now() >= deadline) break;
+    const node = findDismissNode(nodes, label);
+    if (!node) continue;
+    try {
+      await ctx.clickPoint(node.point);
+      hitLog.push(`text:${label}`);
+      await recipeSettleDelay(ctx, void 0, DISMISS_HIT_SLEEP_MS);
+      return true;
+    } catch {
+    }
+  }
+  if (Date.now() >= deadline) return false;
+  const x = Math.round(ctx.screen.width * 0.92);
+  const y = Math.round(ctx.screen.height * 0.08);
+  try {
+    await ctx.clickPoint([x, y]);
+    hitLog.push(`point:${x},${y}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function executeMobileDismissPopups(ctx, payload) {
+  const timeoutMs = Math.max(0, numberOr2(payload?.timeoutMs, DEFAULT_DISMISS_TIMEOUT_MS));
+  const attempts = Math.max(1, Math.floor(numberOr2(payload?.attempts, Number.POSITIVE_INFINITY)));
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let dismissActions = 0;
+  let rounds = 0;
+  let idleStreak = 0;
+  const hitLog = [];
+  while (Date.now() < deadline && rounds < attempts) {
+    rounds += 1;
+    let roundOk = false;
+    try {
+      roundOk = await dismissRound(ctx, deadline, hitLog);
+    } catch {
+      roundOk = false;
+    }
+    if (roundOk) {
+      dismissActions += 1;
+      idleStreak = 0;
+    } else {
+      idleStreak += 1;
+      if (idleStreak >= 2) break;
+    }
+    if (Date.now() >= deadline) break;
+    await recipeSettleDelay(ctx, void 0, DISMISS_ROUND_SLEEP_MS);
+  }
+  const endedAt = Date.now();
+  const dismissed = dismissActions > 0;
+  const timedOut = endedAt >= deadline;
+  return {
+    businessCode: dismissed ? "POPUP_DISMISSED" : timedOut ? "POPUP_DISMISS_TIMEOUT" : "POPUP_NOT_FOUND",
+    dismissed,
+    reason: dismissed ? "dismissed" : timedOut ? "timed_out" : "no_popup",
+    dismissActions,
+    rounds,
+    timedOut,
+    elapsedMs: endedAt - started,
+    timeoutMs,
+    hits: hitLog
+  };
+}
+
 // ../../packages/driver-rpc/src/mobile-custom.ts
 function normalizeMobileCustomAction(action, method) {
   const a = String(action || method || "").toLowerCase();
   if (a === "dump_hierarchy" || a === "dump_layout") return "dump_ui";
+  if (a === "dismisspopups" || a === "dismiss_popups") return "dismiss_popups";
   return a;
 }
 function recipeOptionsFromPayload(payload) {
@@ -1876,6 +1991,14 @@ async function runMobileCustomAction(rawAction, ctx, options) {
     const recipe = await recipeFillSearch(ctx, text, recipeOpts);
     const errorCode = recipe.ok ? void 0 : recipe.errorCode ?? recipeErrorCodeForAction(action, false);
     return { handled: true, recipe, errorCode, value: recipe.detail };
+  }
+  if (action === "dismiss_popups") {
+    const result = await executeMobileDismissPopups(ctx, options?.payload);
+    return {
+      handled: true,
+      value: result.reason,
+      recipe: { ok: true, phase: "dismiss_popups", detail: result.reason, data: result }
+    };
   }
   return { handled: false };
 }
@@ -5906,7 +6029,7 @@ var Uia2AdbAdapter = class _Uia2AdbAdapter {
         return customShellSuccess(command, res.stdout.trim());
       }
       const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
-      if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
+      if (["dump_ui", "tap_search", "fill_search", "tap_path", "smart_wait", "dismiss_popups"].includes(action)) {
         const screen = {
           width: Number(payload.screenWidth ?? 1080),
           height: Number(payload.screenHeight ?? 2400)
@@ -5932,6 +6055,18 @@ var Uia2AdbAdapter = class _Uia2AdbAdapter {
           maxBack: typeof payload.custom?.maxBack === "number" ? payload.custom.maxBack : 3,
           payload
         });
+        if (outcome.handled && action === "dismiss_popups" && outcome.recipe?.data) {
+          return {
+            requestId: command.requestId,
+            success: true,
+            data: {
+              driver: "android",
+              command: "custom",
+              action: "dismissPopups",
+              ...outcome.recipe.data
+            }
+          };
+        }
         if (outcome.handled) {
           const ok = outcome.recipe?.ok !== false;
           return {
@@ -5955,7 +6090,7 @@ var Uia2AdbAdapter = class _Uia2AdbAdapter {
       return fail(
         command,
         "ANDROID_CUSTOM_UNSUPPORTED",
-        "supported custom: shell|dump_ui|tap_search|fill_search|smart_wait"
+        "supported custom: shell|dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups"
       );
     }
     if (command.command === "click") {

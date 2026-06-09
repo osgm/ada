@@ -15,13 +15,31 @@ const WEB_WINDOW = {
   launchOptions: { args: ["--start-maximized", "--window-position=0,0", "--window-size=1920,1080"] },
   contextOptions: { viewport: null }
 };
-/** 新 Tab + 关弹窗 + 搜索（场景 3/4 共用，避开首屏 login2025 弹窗） */
-async function runWebSearchFlow(page, shotPath) {
+
+try {
+await dir(OUT);
+setKeepAlive(false);
+
+console.log("[1] 打开谷歌浏览器，截图后退出");
+let page = await open(browser({ sessionId: "jd-web-1", type: "chrome", ...WEB_WINDOW }));
+await page.goto(HOME_URL);
+await page.screenshot(`${OUT}/01-chrome.png`);
+await page.close();
+
+console.log("[2] 使用本地浏览器缓存打开 Chrome，截图后退出");
+page = await open(
+  browser({ sessionId: "jd-web-2", type: "chrome", profile: `${OUT}/chrome-profile`, ...WEB_WINDOW })
+);
+await page.goto(HOME_URL);
+await page.screenshot(`${OUT}/02-profile.png`);
+await page.close();
+
+console.log("[3] 新 Tab 打开首页，关弹窗，搜索，截图，关 Tab，退出");
+page = await open(browser({ sessionId: "jd-web-3", type: "chrome", ...WEB_WINDOW }));
+try {
   await page.goto(HOME_URL);
   await page.newTab(HOME_URL);
-  await wait(3000);
   await page.dismissPopups({ timeoutMs: 5000, attempts: 4 });
-  await wait(1500);
   let searchBox = page.find(by.css(JD_SEARCH_CSS));
   if (!(await searchBox.exists())) searchBox = page.find(by.placeholder("搜索"));
   try {
@@ -35,53 +53,42 @@ async function runWebSearchFlow(page, shotPath) {
   }
   await searchBox.fill(SEARCH_TEXT);
   await page.keyboard.press("Enter");
-  await wait(2000);
-  await page.screenshot(shotPath);
+  await wait(1000);
+  await page.screenshot(`${OUT}/03-tab-search.png`);
+  await page.closeTab();
+} finally {
+  await page.close().catch(() => undefined);
 }
 
-async function main() {
-  await dir(OUT);
-  setKeepAlive(false);
-
-  console.log("[1] 打开谷歌浏览器，截图后退出");
-  let page = await open(browser({ sessionId: "jd-web-1", type: "chrome", ...WEB_WINDOW }));
+console.log("[4] CDP 模式打开首页，关弹窗，搜索，截图后退出");
+page = await open(browser({ sessionId: "jd-web-4", type: "chrome", cdp: true, ...WEB_WINDOW }));
+try {
   await page.goto(HOME_URL);
-  await page.screenshot(`${OUT}/01-chrome.png`);
-  await page.close();
-
-  console.log("[2] 使用本地浏览器缓存打开 Chrome，截图后退出");
-  page = await open(
-    browser({ sessionId: "jd-web-2", type: "chrome", profile: `${OUT}/chrome-profile`, ...WEB_WINDOW })
-  );
-  await page.goto(HOME_URL);
-  await page.screenshot(`${OUT}/02-profile.png`);
-  await page.close();
-
-  console.log("[3] 新 Tab 打开首页，关弹窗，搜索，截图，关 Tab，退出");
-  page = await open(browser({ sessionId: "jd-web-3", type: "chrome", ...WEB_WINDOW }));
+  await page.newTab(HOME_URL);
+  await page.dismissPopups({ timeoutMs: 5000, attempts: 4 });
+  let searchBox = page.find(by.css(JD_SEARCH_CSS));
+  if (!(await searchBox.exists())) searchBox = page.find(by.placeholder("搜索"));
   try {
-    await runWebSearchFlow(page, `${OUT}/03-tab-search.png`);
-    await page.closeTab();
-  } finally {
-    await page.close().catch(() => undefined);
+    await searchBox.click();
+  } catch {
+    await page.dismissPopups({ timeoutMs: 5000, attempts: 4 });
+    await wait(600);
+    searchBox = page.find(by.css(JD_SEARCH_CSS));
+    if (!(await searchBox.exists())) searchBox = page.find(by.placeholder("搜索"));
+    await searchBox.click();
   }
-
-  console.log("[4] CDP 模式打开首页，关弹窗，搜索，截图后退出");
-  page = await open(browser({ sessionId: "jd-web-4", type: "chrome", cdp: true, ...WEB_WINDOW }));
-  try {
-    await runWebSearchFlow(page, `${OUT}/04-cdp-search.png`);
-  } finally {
-    await page.close().catch(() => undefined);
-  }
-
-  console.log("完成 →", OUT);
+  await searchBox.fill(SEARCH_TEXT);
+  await page.keyboard.press("Enter");
+  await wait(1000);
+  await page.screenshot(`${OUT}/04-cdp-search.png`);
+} finally {
+  await page.close().catch(() => undefined);
 }
 
-main()
-  .catch((e) => {
-    console.error(e.message ?? e);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await exit();
-  });
+console.log("完成 →", OUT);
+} catch (e) {
+  console.error(e.message ?? e);
+  process.exitCode = 1;
+} finally {
+  await exit();
+}

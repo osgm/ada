@@ -1,3 +1,4 @@
+import { executeMobileDismissPopups } from "./mobile-dismiss-popups.js";
 import {
   recipeDumpUi,
   recipeFillSearch,
@@ -17,11 +18,13 @@ export type MobileCustomAction =
   | "tap_search"
   | "fill_search"
   | "tap_path"
-  | "smart_wait";
+  | "smart_wait"
+  | "dismiss_popups";
 
 export function normalizeMobileCustomAction(action: string, method?: string): string {
   const a = String(action || method || "").toLowerCase();
   if (a === "dump_hierarchy" || a === "dump_layout") return "dump_ui";
+  if (a === "dismisspopups" || a === "dismiss_popups") return "dismiss_popups";
   return a;
 }
 
@@ -103,6 +106,15 @@ export async function runMobileCustomAction(
     const recipe = await recipeFillSearch(ctx, text, recipeOpts);
     const errorCode = recipe.ok ? undefined : recipe.errorCode ?? recipeErrorCodeForAction(action, false);
     return { handled: true, recipe, errorCode, value: recipe.detail };
+  }
+
+  if (action === "dismiss_popups") {
+    const result = await executeMobileDismissPopups(ctx, options?.payload);
+    return {
+      handled: true,
+      value: result.reason,
+      recipe: { ok: true, phase: "dismiss_popups", detail: result.reason, data: result as unknown as Record<string, unknown> }
+    };
   }
 
   return { handled: false };

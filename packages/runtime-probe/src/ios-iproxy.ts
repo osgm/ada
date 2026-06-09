@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { commandExists, isTcpPortOpen } from "./runtime-probe.js";
 import {
@@ -80,18 +81,44 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
-export async function resolveIproxyCommand(): Promise<string | null> {
-  const fromEnv = process.env.ADA_IPROXY_PATH?.trim();
+export type LibimobiledeviceTool = "iproxy" | "idevice_id";
+
+function libimobiledeviceToolEnvPath(tool: LibimobiledeviceTool): string | undefined {
+  if (tool === "iproxy") return process.env.ADA_IPROXY_PATH?.trim() || undefined;
+  return process.env.ADA_IDEVICE_ID_PATH?.trim() || undefined;
+}
+
+function libimobiledeviceCandidateDirs(): string[] {
+  const dirs: string[] = [];
+  const libFromEnv = process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim();
+  if (libFromEnv) dirs.push(libFromEnv);
+  const toolsDir = process.env.ADA_TOOLS_DIR?.trim();
+  if (toolsDir) dirs.push(path.join(toolsDir, "libimobiledevice"));
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir();
+  if (home) dirs.push(path.join(home, ".ada", "tools", "libimobiledevice"));
+  dirs.push(path.join(process.cwd(), "tools", "libimobiledevice"));
+  return [...new Set(dirs.map((d) => path.normalize(d)))];
+}
+
+/** 与 ensureIosIproxyForward / install-deps 对齐：env → tools/libimobiledevice → PATH */
+export async function resolveLibimobiledeviceCommand(tool: LibimobiledeviceTool): Promise<string | null> {
+  const fromEnv = libimobiledeviceToolEnvPath(tool);
   if (fromEnv) return fromEnv;
-  const libDir =
-    process.env.ADA_LIBIMOBILEDEVICE_DIR?.trim() ||
-    (process.env.ADA_TOOLS_DIR ? path.join(process.env.ADA_TOOLS_DIR, "libimobiledevice") : "");
-  if (libDir) {
-    const candidate = path.join(libDir, process.platform === "win32" ? "iproxy.exe" : "iproxy");
+  const fileName = process.platform === "win32" ? `${tool}.exe` : tool;
+  for (const libDir of libimobiledeviceCandidateDirs()) {
+    const candidate = path.join(libDir, fileName);
     if (await pathExists(candidate)) return candidate;
   }
-  if (await commandExists("iproxy")) return "iproxy";
+  if (await commandExists(tool)) return tool;
   return null;
+}
+
+export async function resolveIproxyCommand(): Promise<string | null> {
+  return resolveLibimobiledeviceCommand("iproxy");
+}
+
+export async function resolveIdeviceIdCommand(): Promise<string | null> {
+  return resolveLibimobiledeviceCommand("idevice_id");
 }
 
 function shouldUseShell(command: string): boolean {

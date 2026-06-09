@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""京东 Android 示例 — 与 jd-e2e.mjs 同 10 步
+"""京东 iOS 示例 — 与 jd-e2e.mjs 同 10 步
 
-运行（仓库根目录）：python scripts/examples/python/android/jd_e2e.py
-或：npm run test:jd-android:py
+运行（仓库根目录）：python scripts/examples/python/ios/jd_e2e.py
+或：npm run test:jd-ios:py
+
+需 macOS + WDA + 真机/模拟器。冒烟可设 ADA_IOS_APP_ID=com.apple.Preferences
 """
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts" / "lib"))
 
-from ada_client import by, device, dir, step_log, open, init, exit
+from ada_client import device, dir, step_log, open, init, exit
 
 init(__file__)
 
 SEARCH_TEXT = "ABC"
-OUT = "artifacts/examples/python/android"
+OUT = "artifacts/examples/python/ios"
 SHOT = f"{OUT}/08-search.png"
-APP_ID = "com.jingdong.app.mall"
+APP_ID = os.environ.get("ADA_IOS_APP_ID", "com.360buy.jdmobile")
 SWIPE_X = 0.5
 SWIPE_Y = 0.5
 SWIPE_H_EDGE = 0.06
@@ -41,7 +44,7 @@ def main() -> None:
     step_log("main start (local bridge)")
     dir(OUT)
     step_log("open device start")
-    phone = open(device(type="android", session_id="jd-android"))
+    phone = open(device(type="ios", session_id="jd-ios", real=True, mock=False))
     step_log("open device done")
 
     try:
@@ -100,7 +103,7 @@ def main() -> None:
         phone.press_home()
         step_log("[4] done")
 
-        print("[5] 启动京东 App")
+        print(f"[5] 启动 App → {APP_ID}")
         step_log(f"[5] goto start app={APP_ID}")
         phone.goto(APP_ID, 2500)
         step_log("[5] goto done")

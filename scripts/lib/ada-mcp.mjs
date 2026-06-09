@@ -91,6 +91,14 @@ export async function connectMcp(options = {}) {
   );
   await client.connect(transport);
 
+  if (process.env.ADA_MCP_SKIP_PREWARM !== "1") {
+    try {
+      await client.callTool({ name: "ada_health", arguments: {} });
+    } catch {
+      // ignore — first real action may retry bootstrap
+    }
+  }
+
   return {
     client,
     root,

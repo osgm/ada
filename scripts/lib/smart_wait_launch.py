@@ -38,16 +38,16 @@ def resolve_launch_wait(
         wait.update(env)
         return wait
     max_ms = float(settle_ms) if isinstance(settle_ms, (int, float)) and settle_ms > 0 else float(default_max)
+    # iOS WDA /source 单次可能很慢，launch_settled 反复 dump 易触发 COMMAND_TIMEOUT
+    until = env.get("until") or ("timeout" if platform == "ios" else "launch_settled")
     wait = {
-        "until": "launch_settled",
+        "until": until,
         "timeoutMs": env.get("timeoutMs", max_ms),
         "pollMs": env.get("pollMs", 300),
         "stablePolls": 3,
     }
     if env.get("stableMs") is not None:
         wait["stableMs"] = env["stableMs"]
-    if env.get("until"):
-        wait["until"] = env["until"]
     return wait
 
 

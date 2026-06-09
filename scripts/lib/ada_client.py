@@ -579,9 +579,9 @@ class WebPage:
     def _run(self, command: str, extra: dict | None = None) -> None:
         must_ok(ada("web", self.session_id, command, {**self.options, **(extra or {})}), command)
 
-    def goto(self, url: str) -> None:
-        """在当前标签页打开网址。"""
-        self._run("navigate", {"url": url})
+    def goto(self, url: str, **nav_opts: Any) -> None:
+        """在当前标签页打开网址；可选 waitUntil / navigationTimeoutMs。"""
+        self._run("navigate", {"url": url, **nav_opts})
 
     def back(self, times: int = 1, gap_ms: float = 400) -> None:
         """浏览器历史后退（语义命令 back，与移动 phone.back 同名）。"""
@@ -594,8 +594,11 @@ class WebPage:
     def keyboard_press(self, key: str) -> None:
         self._run("press", {"key": key})
 
-    def screenshot(self, path: str | Path) -> None:
-        self._run("screenshot", {"screenshotPath": str(Path(path).resolve())})
+    def screenshot(self, path: str | Path, *, full_page: bool = False) -> None:
+        self._run(
+            "screenshot",
+            {"screenshotPath": str(Path(path).resolve()), "fullPage": full_page},
+        )
 
     def new_tab(self, url: str) -> None:
         self._run("newTab", {"url": url})
@@ -726,6 +729,9 @@ def _merge_device_probe(cfg: dict[str, Any], probe: dict[str, Any]) -> dict[str,
 
 def _enrich_device_config(platform: str, cfg: dict[str, Any]) -> dict[str, Any]:
     if cfg.get("probeDevice") is False or cfg.get("real") is False:
+        return cfg
+    # iOS 无本地 adb/hdc 探测；MCP 或 WDA 驱动侧解析 udid/屏幕
+    if platform == "ios":
         return cfg
     probe = read_device(type=platform, device_id=_device_id_from_cfg(platform, cfg))
     return _merge_device_probe(cfg, probe)
@@ -1041,8 +1047,11 @@ class AndroidDevice:
         payload = {**self.base, **_fill_search_payload(hints_or_opts)}
         must_ok(ada_recipe("android", self.session_id, "fill_search", payload, text), "fill_search")
 
-    def screenshot(self, path: str | Path) -> None:
-        self._run("screenshot", {"screenshotPath": str(Path(path).resolve())})
+    def screenshot(self, path: str | Path, *, full_page: bool = False) -> None:
+        self._run(
+            "screenshot",
+            {"screenshotPath": str(Path(path).resolve()), "fullPage": full_page},
+        )
 
     def _session_close(self) -> None:
         ada_close("android", self.session_id, self.base)
@@ -1260,8 +1269,11 @@ class HarmonyDevice:
     def screen(self) -> dict[str, int]:
         return {"width": self.w, "height": self.h}
 
-    def screenshot(self, path: str | Path) -> None:
-        self._run("screenshot", {"screenshotPath": str(Path(path).resolve())})
+    def screenshot(self, path: str | Path, *, full_page: bool = False) -> None:
+        self._run(
+            "screenshot",
+            {"screenshotPath": str(Path(path).resolve()), "fullPage": full_page},
+        )
 
     def _session_close(self) -> None:
         ada_close("harmony", self.session_id, self.base)
@@ -1320,9 +1332,9 @@ class IosDevice(AndroidDevice):
             "deviceAdmin",
             {**self.base, "action": "killAllApps", "excludePackages": exclude or []},
         )
-        d = r.data if r.success else {}
+        d = (r.get("data") or {}) if r.get("success") else {}
         return {
-            "success": r.success,
+            "success": bool(r.get("success")),
             "cleared": bool(d.get("cleared")),
             "businessCode": d.get("businessCode") or "APPS_NONE",
             "killedCount": int(d.get("killedCount") or 0),

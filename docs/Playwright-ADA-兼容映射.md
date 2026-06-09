@@ -16,7 +16,13 @@
   "page.goto(url)": {
     "tool": "ada_web_action",
     "command": "navigate",
-    "payload": { "url": "<url>", "headless": false }
+    "payload": {
+      "url": "<url>",
+      "headless": false,
+      "waitUntil": "domcontentloaded",
+      "navigationTimeoutMs": 45000
+    },
+    "note": "默认 waitUntil=domcontentloaded，避免重站 load 事件超时；需完整 load 时改为 load"
   },
   "page.click(selector)": {
     "tool": "ada_web_action",
@@ -86,7 +92,8 @@
   "page.screenshot()": {
     "tool": "ada_web_action",
     "command": "screenshot",
-    "payload": {}
+    "payload": { "fullPage": false, "screenshotPath": "<optional-path>" },
+    "note": "默认视口截图；全页传 fullPage: true"
   },
   "page.mouse.wheel(x, y)": {
     "tool": "ada_web_action",

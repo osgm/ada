@@ -698,9 +698,12 @@ async function safeDumpUi(ctx, retries = 1) {
 }
 async function focusAndType(ctx, input, point, text, payload) {
   if (input && ctx.typeOnPick) {
-    ctx.invalidateDumpCache?.();
-    await ctx.typeOnPick(input, text);
-    return "typeOnPick";
+    try {
+      ctx.invalidateDumpCache?.();
+      await ctx.typeOnPick(input, text);
+      return "typeOnPick";
+    } catch {
+    }
   }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
@@ -708,8 +711,11 @@ async function focusAndType(ctx, input, point, text, payload) {
       await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
-    await ctx.typeFocused(text);
-    return "typeFocused";
+    try {
+      await ctx.typeFocused(text);
+      return "typeFocused";
+    } catch {
+    }
   }
   ctx.invalidateDumpCache?.();
   await ctx.typeAt(point, text);
@@ -1056,10 +1062,118 @@ async function recipeFillSearch(ctx, text, options) {
   });
 }
 
+// ../../packages/driver-rpc/src/mobile-dismiss-popups.ts
+var MOBILE_DISMISS_LABELS = [
+  "\u5173\u95ED",
+  "\u8DF3\u8FC7",
+  "\u6211\u77E5\u9053\u4E86",
+  "\u77E5\u9053\u4E86",
+  "\u6682\u4E0D",
+  "\u4E0D\u518D\u63D0\u793A",
+  "\u53D6\u6D88",
+  "\xD7",
+  "Close",
+  "Got it"
+];
+var DISMISS_HIT_SLEEP_MS = 200;
+var DISMISS_ROUND_SLEEP_MS = 200;
+var DEFAULT_DISMISS_TIMEOUT_MS = 1e4;
+function numberOr2(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function matchDismissLabel(node, label) {
+  if (!node.clickable) return false;
+  const needle = label.trim().toLowerCase();
+  if (!needle) return false;
+  const hay = `${node.text} ${node.desc}`.toLowerCase();
+  return hay.includes(needle) || node.text === label || node.desc === label;
+}
+function findDismissNode(nodes, label) {
+  for (const node of nodes) {
+    if (matchDismissLabel(node, label)) return node;
+  }
+  return null;
+}
+async function dismissRound(ctx, deadline, hitLog) {
+  if (Date.now() >= deadline) return false;
+  ctx.invalidateDumpCache?.();
+  let nodes = [];
+  try {
+    nodes = await ctx.dumpUi();
+  } catch {
+    nodes = [];
+  }
+  for (const label of MOBILE_DISMISS_LABELS) {
+    if (Date.now() >= deadline) break;
+    const node = findDismissNode(nodes, label);
+    if (!node) continue;
+    try {
+      await ctx.clickPoint(node.point);
+      hitLog.push(`text:${label}`);
+      await recipeSettleDelay(ctx, void 0, DISMISS_HIT_SLEEP_MS);
+      return true;
+    } catch {
+    }
+  }
+  if (Date.now() >= deadline) return false;
+  const x = Math.round(ctx.screen.width * 0.92);
+  const y = Math.round(ctx.screen.height * 0.08);
+  try {
+    await ctx.clickPoint([x, y]);
+    hitLog.push(`point:${x},${y}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function executeMobileDismissPopups(ctx, payload) {
+  const timeoutMs = Math.max(0, numberOr2(payload?.timeoutMs, DEFAULT_DISMISS_TIMEOUT_MS));
+  const attempts = Math.max(1, Math.floor(numberOr2(payload?.attempts, Number.POSITIVE_INFINITY)));
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let dismissActions = 0;
+  let rounds = 0;
+  let idleStreak = 0;
+  const hitLog = [];
+  while (Date.now() < deadline && rounds < attempts) {
+    rounds += 1;
+    let roundOk = false;
+    try {
+      roundOk = await dismissRound(ctx, deadline, hitLog);
+    } catch {
+      roundOk = false;
+    }
+    if (roundOk) {
+      dismissActions += 1;
+      idleStreak = 0;
+    } else {
+      idleStreak += 1;
+      if (idleStreak >= 2) break;
+    }
+    if (Date.now() >= deadline) break;
+    await recipeSettleDelay(ctx, void 0, DISMISS_ROUND_SLEEP_MS);
+  }
+  const endedAt = Date.now();
+  const dismissed = dismissActions > 0;
+  const timedOut = endedAt >= deadline;
+  return {
+    businessCode: dismissed ? "POPUP_DISMISSED" : timedOut ? "POPUP_DISMISS_TIMEOUT" : "POPUP_NOT_FOUND",
+    dismissed,
+    reason: dismissed ? "dismissed" : timedOut ? "timed_out" : "no_popup",
+    dismissActions,
+    rounds,
+    timedOut,
+    elapsedMs: endedAt - started,
+    timeoutMs,
+    hits: hitLog
+  };
+}
+
 // ../../packages/driver-rpc/src/mobile-custom.ts
 function normalizeMobileCustomAction(action, method) {
   const a = String(action || method || "").toLowerCase();
   if (a === "dump_hierarchy" || a === "dump_layout") return "dump_ui";
+  if (a === "dismisspopups" || a === "dismiss_popups") return "dismiss_popups";
   return a;
 }
 function recipeOptionsFromPayload(payload) {
@@ -1113,6 +1227,14 @@ async function runMobileCustomAction(rawAction, ctx, options) {
     const recipe = await recipeFillSearch(ctx, text, recipeOpts);
     const errorCode = recipe.ok ? void 0 : recipe.errorCode ?? recipeErrorCodeForAction(action, false);
     return { handled: true, recipe, errorCode, value: recipe.detail };
+  }
+  if (action === "dismiss_popups") {
+    const result = await executeMobileDismissPopups(ctx, options?.payload);
+    return {
+      handled: true,
+      value: result.reason,
+      recipe: { ok: true, phase: "dismiss_popups", detail: result.reason, data: result }
+    };
   }
   return { handled: false };
 }
@@ -1485,16 +1607,16 @@ async function pasteTextViaHostClipboard(shell, text) {
 }
 
 // ../../plugins/driver-harmony/src/recipe-context.ts
-function numberOr2(value, fallback) {
+function numberOr3(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 function opTimeoutMs(payload, fallbackMs) {
-  const cmd = numberOr2(payload.commandTimeoutMs, 12e4);
+  const cmd = numberOr3(payload.commandTimeoutMs, 12e4);
   return resolveSubOperationTimeoutMs(cmd, fallbackMs, 0.85);
 }
 async function dumpHarmonyRaw(driver, payload) {
   const dumpOut = await raceCommandTimeout(
-    driver.shell("uitest dumpLayout", numberOr2(payload.custom?.timeoutMs, 2e4)),
+    driver.shell("uitest dumpLayout", numberOr3(payload.custom?.timeoutMs, 2e4)),
     opTimeoutMs(payload, 25e3),
     "harmony.dumpLayout"
   );
@@ -1504,7 +1626,7 @@ async function dumpHarmonyRaw(driver, payload) {
   }
   return String(
     await raceCommandTimeout(
-      driver.shell(`cat ${remotePath}`, numberOr2(payload.custom?.timeoutMs, 12e3)),
+      driver.shell(`cat ${remotePath}`, numberOr3(payload.custom?.timeoutMs, 12e3)),
       opTimeoutMs(payload, 15e3),
       "harmony.dumpLayout.cat"
     )
@@ -1800,7 +1922,7 @@ function ensureReal(payload) {
   }
   return true;
 }
-function numberOr3(value, fallback) {
+function numberOr4(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 function asPoint2(value) {
@@ -1853,12 +1975,28 @@ function opTimeoutMs2(payload, fallbackMs) {
   const cmd = resolveCommandTimeoutMs(payload);
   return resolveSubOperationTimeoutMs(cmd, fallbackMs, 0.85);
 }
+function seedDisplayFromPayload(sessionId, payload) {
+  const width = Number(payload.screenWidth);
+  const height = Number(payload.screenHeight);
+  if (!(width > 0 && height > 0)) return;
+  const state = sessions.get(sessionId);
+  if (state) state.display = { width, height };
+}
+async function warmupHarmonyUitest(driver, payload) {
+  if (process.env.ADA_HARMONY_SKIP_UITEST_WARMUP === "1") return;
+  await raceCommandTimeout(
+    driver.shell("uitest dumpLayout", numberOr4(payload.custom?.timeoutMs, 15e3)),
+    opTimeoutMs2(payload, 2e4),
+    "harmony.warmup.uitest"
+  ).catch(() => void 0);
+}
 async function getOrCreateDriver(session, payload) {
   const signature = buildSignature(payload);
   const existed = sessions.get(session.id);
   if (existed && existed.signature === signature) {
     return existed.driver;
   }
+  const isNew = !existed || existed.signature !== signature;
   if (existed) {
     await existed.driver.disconnect().catch(() => void 0);
   }
@@ -1866,15 +2004,30 @@ async function getOrCreateDriver(session, payload) {
   const connectMs = resolveConnectTimeoutMs(payload);
   const driver = await raceCommandTimeout(mod.UiDriver.connect(resolveConnectOpts(payload)), connectMs, "harmony.connect");
   sessions.set(session.id, { driver, signature, connectedAt: Date.now() });
+  seedDisplayFromPayload(session.id, payload);
+  if (isNew) {
+    await warmupHarmonyUitest(driver, payload);
+  }
   return driver;
 }
-async function resolveDisplay(driver) {
+async function resolveDisplay(driver, sessionId, payload) {
+  const state = sessionId ? sessions.get(sessionId) : void 0;
+  if (state?.display) {
+    return state.display;
+  }
+  const fromPayload = payload && Number(payload.screenWidth) > 0 && Number(payload.screenHeight) > 0 ? { width: Number(payload.screenWidth), height: Number(payload.screenHeight) } : null;
+  if (fromPayload) {
+    if (state) state.display = fromPayload;
+    return fromPayload;
+  }
   try {
     const size = await driver.getDisplaySize();
-    const width = numberOr3(size.width ?? size.x, 0);
-    const height = numberOr3(size.height ?? size.y, 0);
+    const width = numberOr4(size.width ?? size.x, 0);
+    const height = numberOr4(size.height ?? size.y, 0);
     if (width > 0 && height > 0) {
-      return { width, height };
+      const resolved = { width, height };
+      if (state) state.display = resolved;
+      return resolved;
     }
   } catch {
   }
@@ -2303,11 +2456,31 @@ async function invokeWithPayload(driver, payload) {
   const value = await fn(...args);
   return serializeRpcResult(value);
 }
-async function executeCustom(command, driver, payload) {
+async function executeCustom(command, driver, payload, sessionId) {
   const rawAction = String(payload.action ?? payload.custom?.action ?? payload.custom?.method ?? "");
   const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
-  if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
-    const screen = await resolveDisplay(driver);
+  if (action === "dismiss_popups") {
+    const screen = await resolveDisplay(driver, sessionId, payload);
+    const ctx = buildHarmonyRecipeContext(driver, payload, screen, parseUiHeuristicsFromPayload(payload));
+    const outcome = await runMobileCustomAction(action, ctx, {
+      payload
+    });
+    if (outcome.handled && outcome.recipe?.data) {
+      return {
+        requestId: command.requestId,
+        success: true,
+        data: {
+          driver: "harmony",
+          mode: "real",
+          command: "custom",
+          action: "dismissPopups",
+          ...outcome.recipe.data
+        }
+      };
+    }
+  }
+  if (["dump_ui", "tap_search", "fill_search", "tap_path", "smart_wait"].includes(action)) {
+    const screen = await resolveDisplay(driver, sessionId, payload);
     const ctx = buildHarmonyRecipeContext(driver, payload, screen, parseUiHeuristicsFromPayload(payload));
     const outcome = await runMobileCustomAction(action, ctx, {
       text: String(payload.text ?? payload.custom?.text ?? ""),
@@ -2350,7 +2523,7 @@ async function executeCustom(command, driver, payload) {
     const cmd = String(payload.custom?.command ?? "");
     if (!cmd) return failResult(command, "HARMONY_CUSTOM_SHELL_MISSING_COMMAND", "custom shell requires payload.custom.command");
     const value = await raceCommandTimeout(
-      driver.shell(cmd, numberOr3(payload.custom?.timeoutMs, 12e3)),
+      driver.shell(cmd, numberOr4(payload.custom?.timeoutMs, 12e3)),
       opTimeoutMs2(payload, 12e3),
       "harmony.shell"
     );
@@ -2360,13 +2533,17 @@ async function executeCustom(command, driver, payload) {
     const cmd = String(payload.custom?.command ?? "");
     if (!cmd) return failResult(command, "HARMONY_CUSTOM_HDC_MISSING_COMMAND", "custom hdc requires payload.custom.command");
     const value = await raceCommandTimeout(
-      driver.hdc(cmd, numberOr3(payload.custom?.timeoutMs, 12e3)),
+      driver.hdc(cmd, numberOr4(payload.custom?.timeoutMs, 12e3)),
       opTimeoutMs2(payload, 12e3),
       "harmony.hdc"
     );
     return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", action, value } };
   }
-  return failResult(command, "HARMONY_CUSTOM_UNSUPPORTED", `Unsupported custom action: ${action || "empty"}`);
+  return failResult(
+    command,
+    "HARMONY_CUSTOM_UNSUPPORTED",
+    `Unsupported custom action: ${action || "empty"} (supported: dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups|shell|hdc|listApps)`
+  );
 }
 var harmonyPlugin = {
   manifest: {
@@ -2431,7 +2608,7 @@ var harmonyPlugin = {
     if (payload.probe === true) {
       try {
         const driver = await getOrCreateDriver(session, payload);
-        const size = await resolveDisplay(driver);
+        const size = await resolveDisplay(driver, session.id, payload);
         return {
           requestId: command.requestId,
           success: true,
@@ -2555,7 +2732,7 @@ var harmonyPlugin = {
         return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "screenshot", screenshot } };
       }
       if (command.command === "wait") {
-        const timeoutMs = numberOr3(payload.timeoutMs, 300);
+        const timeoutMs = numberOr4(payload.timeoutMs, 300);
         await new Promise((resolve) => setTimeout(resolve, timeoutMs));
         return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "wait", timeoutMs } };
       }
@@ -2631,7 +2808,7 @@ var harmonyPlugin = {
         return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "assertVisible" } };
       }
       if (command.command === "custom") {
-        return await executeCustom(command, driver, payload);
+        return await executeCustom(command, driver, payload, session.id);
       }
       if (command.command === "invoke") {
         const value = await invokeWithPayload(driver, payload);

@@ -1452,6 +1452,385 @@ async function executeClickPath(command, page, payload) {
   };
 }
 
+// ../../plugins/driver-playwright/src/web-navigation.ts
+var VALID_WAIT_UNTIL = /* @__PURE__ */ new Set(["load", "domcontentloaded", "networkidle", "commit"]);
+function getNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function resolveGotoOptions(payload) {
+  const raw = payload?.waitUntil;
+  const waitUntil = typeof raw === "string" && VALID_WAIT_UNTIL.has(raw) ? raw : "domcontentloaded";
+  const timeout = getNumber(payload?.navigationTimeoutMs) ?? getNumber(payload?.timeoutMs) ?? 3e4;
+  return { waitUntil, timeout: Math.max(1e3, timeout) };
+}
+async function gotoPage(page, url, payload) {
+  const opts = resolveGotoOptions(payload);
+  await page.goto(url, { waitUntil: opts.waitUntil, timeout: opts.timeout });
+}
+
+// ../../scripts/lib/popups-dismiss-dom.mjs
+var WEB_DISMISS_DOM_CLICK_SCRIPT = `(() => {
+  const EXACT = /^(\u5173\u95ED|\u8DF3\u8FC7|\xD7|\u2715|close|got it|no thanks|\u6211\u77E5\u9053\u4E86|\u4E0D\u518D\u63D0\u793A|\u77E5\u9053\u4E86|\u6682\u4E0D|\u4EE5\u540E\u518D\u8BF4|\u53D6\u6D88|\u62D2\u7EDD|ok|accept)$/i;
+  const PARTIAL = /(?:^|[^a-z0-9])(close|dismiss|closebtn|close-btn|close_btn|modal-close|popup-close|btn-close|guide-close|icon-close)(?:[^a-z0-9]|$)/i;
+  const POPUP_ROOT =
+    '[role="dialog"],dialog,[class*="modal" i],[class*="popup" i],[class*="dialog" i],[aria-modal="true"],' +
+    '[class*="login-layer" i],[class*="login-modal" i],[class*="login-popup" i],[class*="login-bottom-bar" i],' +
+    '[id*="dialog-wrap" i],[id*="dialog" i],[id*="popup" i],[id*="modal" i]';
+  const CLOSE_BTN_SEL =
+    '[class*="closeBtn" i],[class*="close-btn" i],[class*="close_btn" i],.login-bottom-bar-right-closeBtn';
+  const GENERIC_CLOSE_SEL =
+    '[id*="close" i],[class*="close" i],[class*="cancel" i],[class*="dismiss" i],' +
+    '[aria-label*="\u5173\u95ED"],[aria-label*="close" i],[title*="\u5173\u95ED"],[title*="close" i],' +
+    'img[id*="close" i],img[class*="close" i],button[id*="close" i],button[class*="close" i]';
+
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 3 || r.height < 3) return false;
+    const st = getComputedStyle(el);
+    if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) return false;
+    if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
+    return true;
+  }
+
+  function inPopup(el) {
+    return !!el.closest(POPUP_ROOT);
+  }
+
+  function labelOf(el) {
+    return (
+      (el.getAttribute("aria-label") || "") +
+      " " +
+      (el.getAttribute("title") || "") +
+      " " +
+      ((el.textContent || "").trim())
+    ).trim();
+  }
+
+  function score(el) {
+    if (!inPopup(el)) return 0;
+    const text = (el.textContent || "").trim();
+    const label = labelOf(el);
+    const cls = (typeof el.className === "string" ? el.className : "") || "";
+    let s = 40;
+    if (/closeBtn|close-btn|close_btn/i.test(cls)) s += 45;
+    if (EXACT.test(text) || EXACT.test(label)) s += 50;
+    else if (PARTIAL.test(label) || PARTIAL.test(cls)) s += 30;
+    const tag = el.tagName;
+    if (tag === "BUTTON" || tag === "A" || el.getAttribute("role") === "button") s += 10;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 72 && r.height <= 72 && (PARTIAL.test(label) || PARTIAL.test(cls))) s += 12;
+    return s;
+  }
+
+  function clickEl(el) {
+    try {
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    } catch (_) {}
+    try {
+      el.click();
+    } catch (_) {}
+  }
+
+  function topBlockingRoot() {
+    const cx = Math.max(1, Math.floor(innerWidth / 2));
+    const cy = Math.max(1, Math.floor(innerHeight / 2));
+    const stack = document.elementsFromPoint(cx, cy) || [];
+    for (const el of stack) {
+      if (!isVisible(el)) continue;
+      const id = (el.id || "").toLowerCase();
+      const cls = (typeof el.className === "string" ? el.className : "").toLowerCase();
+      const tag = (el.tagName || "").toLowerCase();
+      if (tag === "body" || tag === "html") continue;
+      if (/(dialog|modal|popup|mask|overlay|login)/.test(id) || /(dialog|modal|popup|mask|overlay|login)/.test(cls)) {
+        return el;
+      }
+      if (el.closest && el.closest(POPUP_ROOT)) return el.closest(POPUP_ROOT);
+    }
+    return null;
+  }
+
+  function clickFromRoot(root, via) {
+    if (!root) return null;
+    const nodes = root.querySelectorAll(GENERIC_CLOSE_SEL);
+    let best = null;
+    let bestScore = 0;
+    for (const el of nodes) {
+      if (!isVisible(el)) continue;
+      const sc = score(el) + 18;
+      if (sc > bestScore) {
+        best = el;
+        bestScore = sc;
+      }
+    }
+    if (!best) return null;
+    const r = best.getBoundingClientRect();
+    clickEl(best);
+    return {
+      clicked: true,
+      via,
+      score: bestScore,
+      tag: best.tagName,
+      text: labelOf(best).slice(0, 80),
+      x: Math.round(r.x + r.width / 2),
+      y: Math.round(r.y + r.height / 2)
+    };
+  }
+
+  function forceHideLogin2025IfBlocking() {
+    const loginWrap = document.querySelector("#login2025-dialog-wrap");
+    if (!loginWrap || !isVisible(loginWrap)) return null;
+    const cx = Math.max(1, Math.floor(innerWidth / 2));
+    const cy = Math.max(1, Math.floor(innerHeight / 2));
+    const stack = document.elementsFromPoint(cx, cy) || [];
+    const blocksCenter = stack.some((el) => el === loginWrap || loginWrap.contains(el));
+    if (!blocksCenter) return null;
+    loginWrap.style.setProperty("display", "none", "important");
+    loginWrap.style.setProperty("pointer-events", "none", "important");
+    loginWrap.setAttribute("aria-hidden", "true");
+    return {
+      clicked: true,
+      via: "login2025-force-hide",
+      tag: "DIV",
+      text: "login2025-dialog-wrap"
+    };
+  }
+
+  const loginHideFirst = forceHideLogin2025IfBlocking();
+  if (loginHideFirst) return loginHideFirst;
+
+  for (const el of document.querySelectorAll(CLOSE_BTN_SEL)) {
+    if (!isVisible(el)) continue;
+    const cls = (typeof el.className === "string" ? el.className : "") || "";
+    const isLoginClose = /login-bottom-bar-right-closeBtn|closeBtn|close-btn|close_btn/i.test(cls);
+    if (!inPopup(el) && !isLoginClose) continue;
+    const r = el.getBoundingClientRect();
+    clickEl(el);
+    const stillBlocking = forceHideLogin2025IfBlocking();
+    if (stillBlocking) return stillBlocking;
+    return {
+      clicked: true,
+      via: "closeBtn-class",
+      tag: el.tagName,
+      text: (typeof el.className === "string" ? el.className : "").slice(0, 80),
+      x: Math.round(r.x + r.width / 2),
+      y: Math.round(r.y + r.height / 2)
+    };
+  }
+
+  let best = null;
+  let bestScore = 0;
+  const nodes = document.querySelectorAll(
+    "button,a,[role=button],[aria-label],[title],i,span,svg,div"
+  );
+  for (const el of nodes) {
+    if (!isVisible(el)) continue;
+    const sc = score(el);
+    if (sc < 55) continue;
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = el;
+    }
+  }
+
+  if (best) {
+    const r = best.getBoundingClientRect();
+    clickEl(best);
+    const stillBlocking = forceHideLogin2025IfBlocking();
+    if (stillBlocking) return stillBlocking;
+    return {
+      clicked: true,
+      via: "popup-candidate",
+      score: bestScore,
+      tag: best.tagName,
+      text: labelOf(best).slice(0, 80),
+      x: Math.round(r.x + r.width / 2),
+      y: Math.round(r.y + r.height / 2)
+    };
+  }
+
+  const blocker = topBlockingRoot();
+  const fromBlocker = clickFromRoot(blocker, "blocking-root");
+  if (fromBlocker) {
+    const stillBlocking = forceHideLogin2025IfBlocking();
+    if (stillBlocking) return stillBlocking;
+    return fromBlocker;
+  }
+
+  const loginHideLast = forceHideLogin2025IfBlocking();
+  if (loginHideLast) return loginHideLast;
+
+  return { clicked: false, reason: "no-popup-candidate" };
+})()`;
+
+// ../../scripts/lib/popups-wait-dom.mjs
+var WEB_POPUP_BLOCKER_PROBE_SCRIPT = `(() => {
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 3 || r.height < 3) return false;
+    const st = getComputedStyle(el);
+    if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) return false;
+    return true;
+  }
+  const loginWrap = document.querySelector("#login2025-dialog-wrap");
+  if (loginWrap && isVisible(loginWrap)) {
+    return { blocking: true, id: "login2025-dialog-wrap" };
+  }
+  const cx = Math.max(1, Math.floor(innerWidth / 2));
+  const cy = Math.max(1, Math.floor(innerHeight / 2));
+  const stack = document.elementsFromPoint(cx, cy) || [];
+  for (const el of stack) {
+    if (!isVisible(el)) continue;
+    const id = (el.id || "").toLowerCase();
+    const cls = (typeof el.className === "string" ? el.className : "").toLowerCase();
+    if (/(dialog|modal|popup|login)/.test(id) || /(dialog|modal|popup|login)/.test(cls)) {
+      return { blocking: true, id: el.id || cls.slice(0, 40) || el.tagName };
+    }
+    if (el.closest && el.closest('[role="dialog"],[aria-modal="true"],#login2025-dialog-wrap')) {
+      return { blocking: true, id: el.id || "dialog" };
+    }
+  }
+  return { blocking: false };
+})()`;
+var WEB_POPUP_PRE_WAIT_POLL_MS = 200;
+var WEB_POPUP_IDLE_POLLS = 2;
+
+// ../../plugins/driver-playwright/src/web-dismiss-popups.ts
+var DOM_SCAN_BURST = 4;
+var DISMISS_HIT_SLEEP_MS = 200;
+var DISMISS_ROUND_SLEEP_MS = 200;
+var DISMISS_LOCATOR_TIMEOUT_MS = 300;
+var POPUP_ROOT = '[role="dialog"],dialog,[class*="modal" i],[class*="popup" i],[aria-modal="true"],[class*="login-layer" i],[class*="login-modal" i],[class*="login-popup" i],[class*="login-bottom-bar" i],[id*="dialog-wrap" i],[id*="dialog" i]';
+var WEB_DISMISS_LOCATORS = [
+  {
+    css: `${POPUP_ROOT} [id*="close" i], ${POPUP_ROOT} [class*="close" i], ${POPUP_ROOT} [class*="cancel" i], ${POPUP_ROOT} [class*="dismiss" i]`
+  },
+  {
+    css: `#login2025-dialog-wrap [id*="close" i], #login2025-dialog-wrap [class*="close" i], #login2025-dialog-wrap [aria-label*="\u5173\u95ED"], #login2025-dialog-wrap [aria-label*="close" i]`
+  },
+  {
+    css: `${POPUP_ROOT} [aria-label*="\u5173\u95ED"], ${POPUP_ROOT} [aria-label*="close" i], ${POPUP_ROOT} [title*="\u5173\u95ED"], ${POPUP_ROOT} [title*="close" i]`
+  },
+  {
+    css: `${POPUP_ROOT} img[id*="close" i], ${POPUP_ROOT} img[class*="close" i], ${POPUP_ROOT} button[id*="close" i], ${POPUP_ROOT} button[class*="close" i]`
+  },
+  {
+    css: `${POPUP_ROOT} [id^="close" i], ${POPUP_ROOT} [id$="close" i], ${POPUP_ROOT} [class^="close" i], ${POPUP_ROOT} [class$="close" i]`
+  },
+  { css: `${POPUP_ROOT} [data-dismiss="modal"]` }
+];
+function asRecord5(value) {
+  return typeof value === "object" && value !== null ? value : {};
+}
+function getNumber2(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function sleep2(page, ms) {
+  return page.waitForTimeout(Math.max(0, ms));
+}
+async function waitForWebPopupReady(page, budgetMs) {
+  const deadline = Date.now() + Math.max(0, budgetMs);
+  let idleStreak = 0;
+  let sawBlocker = false;
+  while (Date.now() < deadline) {
+    const value = asRecord5(await page.evaluate(WEB_POPUP_BLOCKER_PROBE_SCRIPT));
+    if (value.blocking) {
+      sawBlocker = true;
+      idleStreak = 0;
+      return { ready: true, reason: "blocking", id: String(value.id ?? "blocker") };
+    }
+    idleStreak += 1;
+    if (idleStreak >= WEB_POPUP_IDLE_POLLS) {
+      return { ready: true, reason: sawBlocker ? "cleared" : "idle" };
+    }
+    await sleep2(page, WEB_POPUP_PRE_WAIT_POLL_MS);
+  }
+  return { ready: true, reason: "timeout", sawBlocker };
+}
+async function tryDomDismiss(page) {
+  const value = asRecord5(await page.evaluate(WEB_DISMISS_DOM_CLICK_SCRIPT));
+  return value.clicked === true ? value : null;
+}
+async function tryLocatorDismiss(page, payload, waitMs) {
+  for (const locatorSpec of WEB_DISMISS_LOCATORS) {
+    const locator = locatorFromPayload(page, { ...payload, locator: locatorSpec });
+    if (!locator) continue;
+    try {
+      await locator.click({ timeout: Math.min(waitMs, DISMISS_LOCATOR_TIMEOUT_MS) });
+      return locatorSpec;
+    } catch {
+    }
+  }
+  return null;
+}
+async function executeDismissPopups(command, page, payload) {
+  const timeoutMs = Math.max(600, getNumber2(payload.timeoutMs) ?? 1e4);
+  const attempts = Math.max(1, Math.floor(getNumber2(payload.attempts) ?? 4));
+  const waitMs = resolveAutoWaitMs(payload);
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let dismissActions = 0;
+  let rounds = 0;
+  let idleStreak = 0;
+  const hitLog = [];
+  const preBudget = Math.min(4e3, Math.max(600, Math.floor(timeoutMs * 0.45)));
+  const pre = await waitForWebPopupReady(page, preBudget);
+  if (pre.reason === "blocking") hitLog.push(`pre:${pre.id ?? "blocker"}`);
+  else if (pre.reason === "idle") hitLog.push("pre:idle");
+  while (Date.now() < deadline && rounds < attempts) {
+    rounds += 1;
+    let roundOk = false;
+    for (let i = 0; i < DOM_SCAN_BURST; i++) {
+      if (Date.now() >= deadline) break;
+      const dom = await tryDomDismiss(page);
+      if (!dom) break;
+      roundOk = true;
+      hitLog.push(`dom:${dom.via ?? "scan"}:${String(dom.text ?? dom.tag ?? "?").slice(0, 40)}`);
+      await sleep2(page, DISMISS_HIT_SLEEP_MS);
+      break;
+    }
+    if (!roundOk) {
+      const loc = await tryLocatorDismiss(page, payload, waitMs);
+      if (loc) {
+        roundOk = true;
+        hitLog.push(`locator:${JSON.stringify(loc).slice(0, 72)}`);
+        await sleep2(page, DISMISS_HIT_SLEEP_MS);
+      }
+    }
+    if (roundOk) {
+      dismissActions += 1;
+      idleStreak = 0;
+    } else {
+      idleStreak += 1;
+      if (idleStreak >= 2) break;
+    }
+    if (Date.now() >= deadline) break;
+    await sleep2(page, DISMISS_ROUND_SLEEP_MS);
+  }
+  const endedAt = Date.now();
+  const dismissed = dismissActions > 0;
+  const timedOut = endedAt >= deadline;
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "playwright",
+      command: command.command,
+      action: "dismissPopups",
+      businessCode: dismissed ? "POPUP_DISMISSED" : timedOut ? "POPUP_DISMISS_TIMEOUT" : "POPUP_NOT_FOUND",
+      dismissed,
+      reason: dismissed ? "dismissed" : timedOut ? "timed_out" : "no_popup",
+      dismissActions,
+      rounds,
+      timedOut,
+      elapsedMs: endedAt - started,
+      timeoutMs,
+      hits: hitLog
+    }
+  };
+}
+
 // ../../plugins/driver-playwright/src/index.ts
 var sessions = /* @__PURE__ */ new Map();
 var localRequire = (0, import_node_module.createRequire)(typeof __filename === "string" ? __filename : process.cwd());
@@ -1499,15 +1878,15 @@ async function loadPlaywrightModule() {
   }
   return await new Function('return import("playwright")')();
 }
-function asRecord5(value) {
+function asRecord6(value) {
   return typeof value === "object" && value !== null ? value : {};
 }
 function parseHeadless(payload) {
   return resolvePlaywrightHeadless(payload);
 }
 function shouldForceMaximize(payload) {
-  const p = asRecord5(payload);
-  const options = asRecord5(p.options);
+  const p = asRecord6(payload);
+  const options = asRecord6(p.options);
   const direct = p.maximize;
   const fromOptions = options.maximize;
   if (typeof direct === "boolean") return direct;
@@ -1668,8 +2047,8 @@ async function createPlaywrightSession(playwrightModule, payload) {
   const local = resolveLocalBrowserFields(merged);
   const browserKind = parseBrowserKind(merged);
   const headless = parseHeadless(merged);
-  const launchOptions = asRecord5(merged.launchOptions);
-  const contextOptions = { ...asRecord5(merged.contextOptions) };
+  const launchOptions = asRecord6(merged.launchOptions);
+  const contextOptions = { ...asRecord6(merged.contextOptions) };
   const storageState = await resolveStorageState(merged);
   if (storageState !== void 0) {
     contextOptions.storageState = storageState;
@@ -1701,7 +2080,7 @@ async function createPlaywrightSession(playwrightModule, payload) {
       if (!chromium?.connectOverCDP) {
         throw new Error("connectOverCDP requires playwright chromium module (Chrome/Edge/Firefox CDP)");
       }
-      const connectOptions = asRecord5(merged.connectOptions);
+      const connectOptions = asRecord6(merged.connectOptions);
       const browser2 = await chromium.connectOverCDP(cdpUrl, connectOptions);
       const contexts = browser2.contexts();
       const createNewContext = shouldCreateCdpContext(contextOptions);
@@ -1927,7 +2306,7 @@ async function failWithPage(command, page, code, message, data) {
   const enriched = await enrichFailureData(page, data);
   return failResult2(command, code, message, enriched);
 }
-function getNumber(value) {
+function getNumber3(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
 function isTypeClearOp(payload) {
@@ -1990,7 +2369,7 @@ var playwrightPlugin = {
         if (!url) {
           return failResult2(command, "INVALID_PAYLOAD", "navigate requires url");
         }
-        await page.goto(url);
+        await gotoPage(page, url, effective);
         await focusVisibleBrowser(pw, effective);
       } else if (command.command === "click") {
         if (!locator) {
@@ -2042,7 +2421,7 @@ var playwrightPlugin = {
         }
         const value = getString2(payload?.value);
         const label = getString2(payload?.label);
-        const index = getNumber(payload?.index);
+        const index = getNumber3(payload?.index);
         if (value) {
           await locator.selectOption({ value });
         } else if (label) {
@@ -2053,8 +2432,8 @@ var playwrightPlugin = {
           return failResult2(command, "INVALID_PAYLOAD", "select requires value, label, or index");
         }
       } else if (command.command === "scroll") {
-        const deltaX = getNumber(payload?.deltaX) ?? 0;
-        const deltaY = getNumber(payload?.deltaY) ?? 500;
+        const deltaX = getNumber3(payload?.deltaX) ?? 0;
+        const deltaY = getNumber3(payload?.deltaY) ?? 500;
         if (locator) {
           await locator.scrollIntoViewIfNeeded();
         }
@@ -2065,12 +2444,12 @@ var playwrightPlugin = {
         const newPage = await pw.context.newPage();
         pw.page = newPage;
         if (url) {
-          await newPage.goto(url);
+          await gotoPage(newPage, url, effective);
         }
         await focusVisibleBrowser(pw, effective);
       } else if (command.command === "switchTab") {
         const pages = pw.context.pages();
-        const tabIndex = getNumber(payload?.tabIndex) ?? 0;
+        const tabIndex = getNumber3(payload?.tabIndex) ?? 0;
         const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
         const selected = pages[safeIndex];
         if (!selected) {
@@ -2090,8 +2469,8 @@ var playwrightPlugin = {
         }
         await locator.setInputFiles(targetPaths);
       } else if (command.command === "dragDrop") {
-        const sourceLocatorObj = asRecord5(payload?.sourceLocator ?? payload?.fromLocator);
-        const targetLocatorObj = asRecord5(payload?.targetLocator ?? payload?.toLocator);
+        const sourceLocatorObj = asRecord6(payload?.sourceLocator ?? payload?.fromLocator);
+        const targetLocatorObj = asRecord6(payload?.targetLocator ?? payload?.toLocator);
         const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
         const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
         if (!source || !target) {
@@ -2099,7 +2478,7 @@ var playwrightPlugin = {
         }
         await source.dragTo(target);
       } else if (command.command === "wait") {
-        const timeoutMs = getNumber(payload?.timeoutMs) ?? 300;
+        const timeoutMs = getNumber3(payload?.timeoutMs) ?? 300;
         await page.waitForTimeout(timeoutMs);
       } else if (command.command === "back") {
         await page.goBack().catch(() => null);
@@ -2170,10 +2549,14 @@ var playwrightPlugin = {
           data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
         };
       } else if (command.command === "screenshot") {
+        const customPath = getString2(payload?.screenshotPath);
         const dir = import_node_path2.default.join(process.cwd(), "artifacts");
         await import_promises.default.mkdir(dir, { recursive: true });
-        const target = import_node_path2.default.join(dir, `${command.requestId}.png`);
-        const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : true;
+        const target = customPath ? import_node_path2.default.resolve(customPath) : import_node_path2.default.join(dir, `${command.requestId}.png`);
+        if (customPath) {
+          await import_promises.default.mkdir(import_node_path2.default.dirname(target), { recursive: true });
+        }
+        const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : false;
         await page.screenshot({ path: target, fullPage });
         return {
           requestId: command.requestId,
@@ -2224,6 +2607,9 @@ var playwrightPlugin = {
               browser: pw.browserKind
             }
           };
+        }
+        if (action === "dismisspopups" || action === "dismiss_popups") {
+          return executeDismissPopups(command, page, effective);
         }
         return failResult2(
           command,

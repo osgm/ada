@@ -35,13 +35,41 @@ WEB_MCP_SESSION = {
     "commandTimeoutMs": 90_000,
 }
 
+dir(OUT)
 
-def run_web_search_flow(page, shot_path: str) -> None:
+print("[1] 打开谷歌浏览器，截图后退出")
+page = open(
+    browser(session_id="jd-web-mcp-1", type="chrome", **WEB_WINDOW, **WEB_MCP_SESSION),
+    MCP,
+)
+page.goto(HOME_URL)
+page.screenshot(f"{OUT}/01-chrome-mcp.png")
+page.close()
+
+print("[2] 使用本地浏览器缓存打开 Chrome，截图后退出")
+page = open(
+    browser(
+        session_id="jd-web-mcp-2",
+        type="chrome",
+        profile=f"{OUT}/chrome-profile",
+        **WEB_WINDOW,
+        **WEB_MCP_SESSION,
+    ),
+    MCP,
+)
+page.goto(HOME_URL)
+page.screenshot(f"{OUT}/02-profile-mcp.png")
+page.close()
+
+print("[3] 新 Tab 打开首页，关弹窗，搜索，截图，关 Tab，退出")
+page = open(
+    browser(session_id="jd-web-mcp-3", type="chrome", **WEB_WINDOW, **WEB_MCP_SESSION),
+    MCP,
+)
+try:
     page.goto(HOME_URL)
     page.new_tab(HOME_URL)
-    wait(3000)
     page.dismiss_popups({"timeoutMs": 5000, "attempts": 4})
-    wait(1500)
     search_box = page.find(by.css(JD_SEARCH_CSS))
     if not search_box.exists():
         search_box = page.find(by.placeholder("搜索"))
@@ -56,65 +84,39 @@ def run_web_search_flow(page, shot_path: str) -> None:
         search_box.click()
     search_box.fill(SEARCH_TEXT)
     page.keyboard_press("Enter")
-    wait(2000)
-    page.screenshot(shot_path)
-
-
-def main() -> None:
-    dir(OUT)
-
-    print("[1] 打开谷歌浏览器，截图后退出")
-    page = open(
-        browser(session_id="jd-web-mcp-1", type="chrome", **WEB_WINDOW, **WEB_MCP_SESSION),
-        MCP,
-    )
-    page.goto(HOME_URL)
-    page.screenshot(f"{OUT}/01-chrome-mcp.png")
+    wait(1000)
+    page.screenshot(f"{OUT}/03-tab-search-mcp.png")
+    page.close_tab()
+finally:
     page.close()
 
-    print("[2] 使用本地浏览器缓存打开 Chrome，截图后退出")
-    page = open(
-        browser(
-            session_id="jd-web-mcp-2",
-            type="chrome",
-            profile=f"{OUT}/chrome-profile",
-            **WEB_WINDOW,
-            **WEB_MCP_SESSION,
-        ),
-        MCP,
-    )
+print("[4] CDP 模式打开首页，关弹窗，搜索，截图后退出")
+page = open(
+    browser(session_id="jd-web-mcp-4", type="chrome", cdp=True, **WEB_WINDOW, **WEB_MCP_SESSION),
+    MCP,
+)
+try:
     page.goto(HOME_URL)
-    page.screenshot(f"{OUT}/02-profile-mcp.png")
+    page.new_tab(HOME_URL)
+    page.dismiss_popups({"timeoutMs": 5000, "attempts": 4})
+    search_box = page.find(by.css(JD_SEARCH_CSS))
+    if not search_box.exists():
+        search_box = page.find(by.placeholder("搜索"))
+    try:
+        search_box.click()
+    except Exception:
+        page.dismiss_popups({"timeoutMs": 5000, "attempts": 4})
+        wait(600)
+        search_box = page.find(by.css(JD_SEARCH_CSS))
+        if not search_box.exists():
+            search_box = page.find(by.placeholder("搜索"))
+        search_box.click()
+    search_box.fill(SEARCH_TEXT)
+    page.keyboard_press("Enter")
+    wait(1000)
+    page.screenshot(f"{OUT}/04-cdp-search-mcp.png")
+finally:
     page.close()
 
-    print("[3] 新 Tab 打开首页，关弹窗，搜索，截图，关 Tab，退出")
-    page = open(
-        browser(session_id="jd-web-mcp-3", type="chrome", **WEB_WINDOW, **WEB_MCP_SESSION),
-        MCP,
-    )
-    try:
-        run_web_search_flow(page, f"{OUT}/03-tab-search-mcp.png")
-        page.close_tab()
-    finally:
-        page.close()
-
-    print("[4] CDP 模式打开首页，关弹窗，搜索，截图后退出")
-    page = open(
-        browser(session_id="jd-web-mcp-4", type="chrome", cdp=True, **WEB_WINDOW, **WEB_MCP_SESSION),
-        MCP,
-    )
-    try:
-        run_web_search_flow(page, f"{OUT}/04-cdp-search-mcp.png")
-    finally:
-        page.close()
-
-    print("\n完成 →", OUT)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(e, file=sys.stderr)
-        exit(1)
-    exit()
+print("\n完成 →", OUT)
+exit()

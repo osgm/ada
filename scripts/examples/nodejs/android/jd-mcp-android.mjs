@@ -5,7 +5,7 @@
  * 步骤：唤醒 → 杀进程 → 右滑×3/左滑×2 → 上滑×2/下滑×2 → 打开京东 → 关弹窗 → 搜索 ABC → 截图 → 返回 → 退出
  */
 import path from "node:path";
-import { device, dir, open, exit, wait } from "../../../lib/ada-client.mjs";
+import { device, dir, open, exit } from "../../../lib/ada-client.mjs";
 
 const MCP = { connect: "mcp", mcpOptions: { name: "jd-mcp-android" } };
 
@@ -17,12 +17,11 @@ const SWIPE_X = 0.5;
 const SWIPE_Y = 0.5;
 const SWIPE_H_EDGE = 0.06;
 const SWIPE_V_EDGE = 0.08;
-const SWIPE_SLOW_MS = 1200;
-const SWIPE_OPTS = { durationMs: SWIPE_SLOW_MS, relative: true };
+const SWIPE_OPTS = { swipePreset: "fast", relative: true, gapMs: 120 };
 const PINCH_FINGER1 = [0.22, 0.38];
 const PINCH_FINGER2 = [0.78, 0.62];
 const PINCH_DISTANCE = 0.07;
-const PINCH_OPTS = { relative: true, durationMs: 500 };
+const PINCH_OPTS = { relative: true, durationMs: 300 };
 const SWIPE_RIGHT = { from: [SWIPE_H_EDGE, SWIPE_Y], to: [1 - SWIPE_H_EDGE, SWIPE_Y] };
 const SWIPE_LEFT = { from: [1 - SWIPE_H_EDGE, SWIPE_Y], to: [SWIPE_H_EDGE, SWIPE_Y] };
 const SWIPE_UP = { from: [SWIPE_X, 1 - SWIPE_V_EDGE], to: [SWIPE_X, SWIPE_V_EDGE] };
@@ -44,7 +43,6 @@ async function main() {
   try {
       console.log("[1] 唤醒屏幕");
       await phone.wake();
-      await wait(500);
 
       console.log("[2] 结束所有应用");
       const killed = await phone.killAllApps();
@@ -58,29 +56,23 @@ async function main() {
       console.log("[3] 右滑 3 次，左滑 2 次");
       await phone.swipe(SWIPE_RIGHT.from, SWIPE_RIGHT.to, { ...SWIPE_OPTS, times: 3 });
       await phone.swipe(SWIPE_LEFT.from, SWIPE_LEFT.to, { ...SWIPE_OPTS, times: 2 });
-      await wait(500);
 
       console.log("[4] 上滑 2 次，下滑 2 次");
       await phone.swipe(SWIPE_UP.from, SWIPE_UP.to, { ...SWIPE_OPTS, times: 2 });
       await phone.swipe(SWIPE_DOWN.from, SWIPE_DOWN.to, { ...SWIPE_OPTS, times: 2 });
-      await wait(500);
 
       console.log("[4b] 双指缩小");
       await phone.pinch(PINCH_FINGER1, PINCH_FINGER2, PINCH_DISTANCE, { pinchIn: true, ...PINCH_OPTS });
-      await wait(400);
       console.log("[4c] 双指放大");
       await phone.pinch(PINCH_FINGER1, PINCH_FINGER2, PINCH_DISTANCE, { pinchIn: false, ...PINCH_OPTS });
-      await wait(500);
 
       await phone.pressHome();
-      await wait(500);
 
       console.log("[5] 启动京东 App");
       await phone.goto(APP_ID, 2500);
-      await wait(500);
 
       console.log("[6] 如有弹窗则关闭");
-      const dismiss = await phone.dismissPopups(3000, 2);
+      const dismiss = await phone.dismissPopups(1000, 1);
       const hits = dismiss.hits?.length ? ` hits=${dismiss.hits.length}` : "";
       console.log(
         "  dismissPopups →",
@@ -95,7 +87,6 @@ async function main() {
         inputHints: ["请输入", "输入", "搜索"],
         settleMs: 1500
       });
-      await wait(1000);
 
       console.log("[8] 截图 →", SHOT);
       await phone.screenshot(SHOT);

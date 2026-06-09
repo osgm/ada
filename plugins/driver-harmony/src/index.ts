@@ -67,6 +67,7 @@ interface HarmonySessionState {
   driver: HarmonyDriverLike;
   signature: string;
   connectedAt: number;
+  display?: { width: number; height: number };
 }
 
 const sessions = new Map<string, HarmonySessionState>();
@@ -207,12 +208,30 @@ function opTimeoutMs(payload: HarmonyPayload, fallbackMs: number): number {
   return resolveSubOperationTimeoutMs(cmd, fallbackMs, 0.85);
 }
 
+function seedDisplayFromPayload(sessionId: string, payload: HarmonyPayload): void {
+  const width = Number(payload.screenWidth);
+  const height = Number(payload.screenHeight);
+  if (!(width > 0 && height > 0)) return;
+  const state = sessions.get(sessionId);
+  if (state) state.display = { width, height };
+}
+
+async function warmupHarmonyUitest(driver: HarmonyDriverLike, payload: HarmonyPayload): Promise<void> {
+  if (process.env.ADA_HARMONY_SKIP_UITEST_WARMUP === "1") return;
+  await raceCommandTimeout(
+    driver.shell("uitest dumpLayout", numberOr(payload.custom?.timeoutMs, 15_000)),
+    opTimeoutMs(payload, 20_000),
+    "harmony.warmup.uitest"
+  ).catch(() => undefined);
+}
+
 async function getOrCreateDriver(session: DriverSession, payload: HarmonyPayload): Promise<HarmonyDriverLike> {
   const signature = buildSignature(payload);
   const existed = sessions.get(session.id);
   if (existed && existed.signature === signature) {
     return existed.driver;
   }
+  const isNew = !existed || existed.signature !== signature;
   if (existed) {
     await existed.driver.disconnect().catch(() => undefined);
   }
@@ -220,16 +239,38 @@ async function getOrCreateDriver(session: DriverSession, payload: HarmonyPayload
   const connectMs = resolveConnectTimeoutMs(payload);
   const driver = await raceCommandTimeout(mod.UiDriver.connect(resolveConnectOpts(payload)), connectMs, "harmony.connect");
   sessions.set(session.id, { driver, signature, connectedAt: Date.now() });
+  seedDisplayFromPayload(session.id, payload);
+  if (isNew) {
+    await warmupHarmonyUitest(driver, payload);
+  }
   return driver;
 }
 
-async function resolveDisplay(driver: HarmonyDriverLike): Promise<{ width: number; height: number }> {
+async function resolveDisplay(
+  driver: HarmonyDriverLike,
+  sessionId?: string,
+  payload?: HarmonyPayload
+): Promise<{ width: number; height: number }> {
+  const state = sessionId ? sessions.get(sessionId) : undefined;
+  if (state?.display) {
+    return state.display;
+  }
+  const fromPayload =
+    payload && Number(payload.screenWidth) > 0 && Number(payload.screenHeight) > 0
+      ? { width: Number(payload.screenWidth), height: Number(payload.screenHeight) }
+      : null;
+  if (fromPayload) {
+    if (state) state.display = fromPayload;
+    return fromPayload;
+  }
   try {
     const size = await driver.getDisplaySize();
     const width = numberOr((size as { width?: number }).width ?? (size as { x?: number }).x, 0);
     const height = numberOr((size as { height?: number }).height ?? (size as { y?: number }).y, 0);
     if (width > 0 && height > 0) {
-      return { width, height };
+      const resolved = { width, height };
+      if (state) state.display = resolved;
+      return resolved;
     }
   } catch {
     // ignore
@@ -762,12 +803,38 @@ async function invokeWithPayload(driver: HarmonyDriverLike, payload: HarmonyPayl
   return serializeRpcResult(value);
 }
 
-async function executeCustom(command: CommandEnvelope, driver: HarmonyDriverLike, payload: HarmonyPayload): Promise<CommandResult> {
+async function executeCustom(
+  command: CommandEnvelope,
+  driver: HarmonyDriverLike,
+  payload: HarmonyPayload,
+  sessionId: string
+): Promise<CommandResult> {
   const rawAction = String(payload.action ?? payload.custom?.action ?? payload.custom?.method ?? "");
   const action = normalizeMobileCustomAction(rawAction, payload.custom?.method);
 
-  if (["dump_ui", "tap_search", "fill_search", "smart_wait"].includes(action)) {
-    const screen = await resolveDisplay(driver);
+  if (action === "dismiss_popups") {
+    const screen = await resolveDisplay(driver, sessionId, payload);
+    const ctx = buildHarmonyRecipeContext(driver, payload, screen, parseUiHeuristicsFromPayload(payload));
+    const outcome = await runMobileCustomAction(action, ctx, {
+      payload: payload as unknown as Record<string, unknown>
+    });
+    if (outcome.handled && outcome.recipe?.data) {
+      return {
+        requestId: command.requestId,
+        success: true,
+        data: {
+          driver: "harmony",
+          mode: "real",
+          command: "custom",
+          action: "dismissPopups",
+          ...(outcome.recipe.data as Record<string, unknown>)
+        }
+      };
+    }
+  }
+
+  if (["dump_ui", "tap_search", "fill_search", "tap_path", "smart_wait"].includes(action)) {
+    const screen = await resolveDisplay(driver, sessionId, payload);
     const ctx = buildHarmonyRecipeContext(driver, payload, screen, parseUiHeuristicsFromPayload(payload));
     const outcome = await runMobileCustomAction(action, ctx, {
       text: String(payload.text ?? payload.custom?.text ?? ""),
@@ -832,7 +899,11 @@ async function executeCustom(command: CommandEnvelope, driver: HarmonyDriverLike
     );
     return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", action, value } };
   }
-  return failResult(command, "HARMONY_CUSTOM_UNSUPPORTED", `Unsupported custom action: ${action || "empty"}`);
+  return failResult(
+    command,
+    "HARMONY_CUSTOM_UNSUPPORTED",
+    `Unsupported custom action: ${action || "empty"} (supported: dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups|shell|hdc|listApps)`
+  );
 }
 
 const harmonyPlugin: DriverPlugin = {
@@ -902,7 +973,7 @@ const harmonyPlugin: DriverPlugin = {
     if (payload.probe === true) {
       try {
         const driver = await getOrCreateDriver(session, payload);
-        const size = await resolveDisplay(driver);
+        const size = await resolveDisplay(driver, session.id, payload);
         return {
           requestId: command.requestId,
           success: true,
@@ -1107,7 +1178,7 @@ const harmonyPlugin: DriverPlugin = {
         return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "assertVisible" } };
       }
       if (command.command === "custom") {
-        return await executeCustom(command, driver, payload);
+        return await executeCustom(command, driver, payload, session.id);
       }
       if (command.command === "invoke") {
         const value = await invokeWithPayload(driver, payload);

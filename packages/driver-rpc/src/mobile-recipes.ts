@@ -89,9 +89,13 @@ async function focusAndType(
   payload?: Record<string, unknown>
 ): Promise<string> {
   if (input && ctx.typeOnPick) {
-    ctx.invalidateDumpCache?.();
-    await ctx.typeOnPick(input, text);
-    return "typeOnPick";
+    try {
+      ctx.invalidateDumpCache?.();
+      await ctx.typeOnPick(input, text);
+      return "typeOnPick";
+    } catch {
+      /* xpath/type failed — try sendKeys or coordinate tap below */
+    }
   }
   if (ctx.typeFocused) {
     if (input?.kind === "input") {
@@ -99,8 +103,12 @@ async function focusAndType(
       await clickUiPick(ctx, input);
       await recipeSettleDelay(ctx, payload, 350);
     }
-    await ctx.typeFocused(text);
-    return "typeFocused";
+    try {
+      await ctx.typeFocused(text);
+      return "typeFocused";
+    } catch {
+      /* fall through to coordinate tap */
+    }
   }
   ctx.invalidateDumpCache?.();
   await ctx.typeAt(point, text);

@@ -116,6 +116,8 @@ import {
   summarizeLocator
 } from "./playwright-locator.js";
 import { executeClickPath, executeFillSearch, waitAfterNavigation } from "./web-interaction-recipe.js";
+import { gotoPage } from "./web-navigation.js";
+import { executeDismissPopups } from "./web-dismiss-popups.js";
 
 function parseHeadless(payload?: Record<string, unknown>): boolean {
   return resolvePlaywrightHeadless(payload);
@@ -704,7 +706,7 @@ const playwrightPlugin: DriverPlugin = {
         if (!url) {
           return failResult(command, "INVALID_PAYLOAD", "navigate requires url");
         }
-        await page.goto(url);
+        await gotoPage(page, url, effective);
         await focusVisibleBrowser(pw, effective);
       } else if (command.command === "click") {
         if (!locator) {
@@ -779,7 +781,7 @@ const playwrightPlugin: DriverPlugin = {
         const newPage = await pw.context.newPage();
         pw.page = newPage;
         if (url) {
-          await newPage.goto(url);
+          await gotoPage(newPage, url, effective);
         }
         await focusVisibleBrowser(pw, effective);
       } else if (command.command === "switchTab") {
@@ -885,10 +887,14 @@ const playwrightPlugin: DriverPlugin = {
           data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
         };
       } else if (command.command === "screenshot") {
+        const customPath = getString(payload?.screenshotPath);
         const dir = path.join(process.cwd(), "artifacts");
         await fs.mkdir(dir, { recursive: true });
-        const target = path.join(dir, `${command.requestId}.png`);
-        const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : true;
+        const target = customPath ? path.resolve(customPath) : path.join(dir, `${command.requestId}.png`);
+        if (customPath) {
+          await fs.mkdir(path.dirname(target), { recursive: true });
+        }
+        const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : false;
         await page.screenshot({ path: target, fullPage });
         return {
           requestId: command.requestId,
@@ -939,6 +945,9 @@ const playwrightPlugin: DriverPlugin = {
               browser: pw.browserKind
             }
           };
+        }
+        if (action === "dismisspopups" || action === "dismiss_popups") {
+          return executeDismissPopups(command, page, effective);
         }
         return failResult(
           command,
