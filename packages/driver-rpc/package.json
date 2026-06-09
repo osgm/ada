@@ -14,6 +14,31 @@
       "types": "./src/normalize-command.ts",
       "import": "./src/normalize-command.ts",
       "default": "./src/normalize-command.ts"
+    },
+    "./web-interaction-recipe": {
+      "types": "./src/web-interaction-recipe.ts",
+      "import": "./src/web-interaction-recipe.ts",
+      "default": "./src/web-interaction-recipe.ts"
+    },
+    "./fill-search-options": {
+      "types": "./src/fill-search-options.ts",
+      "import": "./src/fill-search-options.ts",
+      "default": "./src/fill-search-options.ts"
+    },
+    "./fill-search-transition": {
+      "types": "./src/fill-search-transition.ts",
+      "import": "./src/fill-search-transition.ts",
+      "default": "./src/fill-search-transition.ts"
+    },
+    "./mobile-recipes": {
+      "types": "./src/mobile-recipes.ts",
+      "import": "./src/mobile-recipes.ts",
+      "default": "./src/mobile-recipes.ts"
+    },
+    "./recipe-errors": {
+      "types": "./src/recipe-errors.ts",
+      "import": "./src/recipe-errors.ts",
+      "default": "./src/recipe-errors.ts"
     }
   },
   "files": ["src", "dist", "README.md"],

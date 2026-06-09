@@ -75,6 +75,12 @@ describe("web-interaction-recipe helpers", () => {
     assert.deepEqual([...WEB_RECIPE_ACTIONS], ["clickPath", "fill_search"]);
   });
 
+  it("subpath export @ada/driver-rpc/web-interaction-recipe resolves", async () => {
+    const mod = await import("@ada/driver-rpc/web-interaction-recipe");
+    assert.equal(typeof mod.normalizeControlPath, "function");
+    assert.ok(Array.isArray(mod.WEB_RECIPE_ACTIONS));
+  });
+
   it("findSearchEntryInFlat and findSearchInputInFlat match hints", () => {
     const flat = [
       { role: "button", name: "搜索", path: ["搜索"] },

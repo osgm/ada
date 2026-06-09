@@ -22,3 +22,16 @@
 `driver-playwright` 等 bundled `.cjs` 会内联部分 recipe 副本——属零依赖发布策略，与 monorepo 源码保持同步即可。
 
 新能力优先加在 **语义清晰的子模块**，避免继续膨胀 `index.ts` 的 barrel export；MCP/脚本侧只 import 所需子路径。
+
+## Subpath exports（monorepo）
+
+| Import | 用途 |
+|--------|------|
+| `@ada/driver-rpc/normalize-command` | recipe 展开、命令别名 |
+| `@ada/driver-rpc/web-interaction-recipe` | viewTree / clickPath 纯函数 |
+| `@ada/driver-rpc/fill-search-options` | fillSearch hints 解析 |
+| `@ada/driver-rpc/fill-search-transition` | 搜索页跳转 settle |
+| `@ada/driver-rpc/mobile-recipes` | mobile recipe 实现 |
+| `@ada/driver-rpc/recipe-errors` | recipe 错误码 |
+
+发布 bundle 同步：`npm run test:verify:driver-rpc-sync`（已纳入 `mcp:preflight`）。
