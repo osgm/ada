@@ -1,5 +1,6 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { clearWebViewTreeCache } from "./mcp-view-tree-cache.js";
+import { asRecord } from "./mcp-utils.js";
 
 const lastUrlBySession = new Map<string, string>();
 
@@ -52,10 +53,6 @@ export function clearAllWebSessionTracks(): void {
   lastUrlBySession.clear();
   clearWebPageProbeCache();
   clearWebViewTreeCache();
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 function readProbeValue(result: CommandResult): Record<string, unknown> {

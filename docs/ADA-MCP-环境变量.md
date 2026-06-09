@@ -49,7 +49,7 @@
 |--------|------|
 | `payload.custom.method` / `payload.custom.path` | `payload.http.method` / `payload.http.path`，或顶层 `method` + `target` |
 
-详见 [`DEPRECATED-APIS.md`](DEPRECATED-APIS.md)。
+载荷规范见 [`ADA-MCP-接入手册.md`](ADA-MCP-接入手册.md) §3.3。
 
 ## 完整列表
 

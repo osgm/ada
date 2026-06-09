@@ -1,10 +1,7 @@
 import type { AdaPlatform } from "./mcp-normalize.js";
 import type { McpResultOptions } from "./mcp-result.js";
 import { loadPopupsModule } from "./mcp-popups-runtime.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 /**
  * 关弹窗：始终返回 ok（无弹窗 / 探测失败 = 业务未命中，非系统异常）。

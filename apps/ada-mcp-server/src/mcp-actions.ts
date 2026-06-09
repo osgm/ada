@@ -12,10 +12,7 @@ import {
 } from "./mcp-action-ledger.js";
 import { invalidateMobileDumpAfterCommand } from "./mcp-mobile-dump-cache.js";
 import { trackWebLastUrl } from "./mcp-session-liveness.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 export async function handleWebAction(
   args: Record<string, unknown>,

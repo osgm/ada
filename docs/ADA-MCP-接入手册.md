@@ -8,7 +8,6 @@
 | 架构 | [`ADA-架构设计方案.md`](ADA-架构设计方案.md) |
 | 开发 / 测试 | [`ADA-开发手册.md`](ADA-开发手册.md) |
 | 环境变量 | [`ADA-MCP-环境变量.md`](ADA-MCP-环境变量.md) |
-| 已弃用 API | [`DEPRECATED-APIS.md`](DEPRECATED-APIS.md) |
 | npm 发布 | [`scripts/README.md`](../scripts/README.md) |
 
 **推荐版本（2026-06）**：`@ada-mcp/launcher` 与 `@ada-mcp/mcp-server` **同号发布**（当前 monorepo：`0.1.84`；示例：`pnpm dlx @ada-mcp/launcher@0.1.84`）。**勿用 0.1.73 / 0.1.74**（已知启动缺陷，已 deprecate）。

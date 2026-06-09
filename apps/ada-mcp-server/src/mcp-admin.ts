@@ -4,10 +4,7 @@ import { clearActionLedger, clearAllActionLedgers } from "./mcp-action-ledger.js
 import { invalidateMobilePageSourceCache } from "./mcp-mobile-dump-cache.js";
 import { clearMobileSessionProbeCache } from "./mcp-mobile-session-liveness.js";
 import { clearAllWebSessionTracks, clearWebSessionTrack } from "./mcp-session-liveness.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 function resolveIosUdidFromPayload(payload: Record<string, unknown>): string {
   const caps = asRecord(payload.capabilities);

@@ -448,6 +448,35 @@ function truncateViewTreeValue(value, maxItems) {
   }
   return { value: out, truncated };
 }
+var DEFAULT_WEB_EXPAND_SETTLE_MS = 100;
+function resolveWebExpandSettleMs(payload) {
+  const p = payload ?? {};
+  if (typeof p.expandSettleMs === "number" && p.expandSettleMs >= 0) {
+    return Math.floor(p.expandSettleMs);
+  }
+  const env = process.env.ADA_WEB_EXPAND_SETTLE_MS?.trim();
+  if (env) {
+    const n = Number(env);
+    if (Number.isFinite(n) && n >= 0) {
+      return Math.floor(n);
+    }
+  }
+  return DEFAULT_WEB_EXPAND_SETTLE_MS;
+}
+function resolveClickPathWaitNavigation(payload, leafMeta) {
+  const p = payload ?? {};
+  if (p.waitNavigation === true || p.waitNavigation === "true") {
+    return true;
+  }
+  if (p.waitNavigation === false || p.waitNavigation === "false") {
+    return false;
+  }
+  if (p.requireNavigation === true) {
+    return true;
+  }
+  const href = leafMeta?.href?.trim();
+  return Boolean(href && href !== "#" && !href.startsWith("#"));
+}
 
 // ../../packages/driver-rpc/src/cdp-auto-launch.ts
 var import_node_child_process = require("node:child_process");
@@ -1113,18 +1142,19 @@ async function resolveLabelLocator(page, label, nthFallback) {
   }
   return null;
 }
-async function expandPathSegment(page, label, strategy, waitMs, nthFallback) {
+async function expandPathSegment(page, label, strategy, waitMs, expandSettleMs, nthFallback) {
   const locator = await resolveLabelLocator(page, label, nthFallback);
   if (!locator) {
     return { ok: false, error: `control label not found: ${label}` };
   }
-  await autoWaitEnabled(locator, waitMs);
   if (strategy === "hover") {
     await locator.hover({ timeout: waitMs });
   } else {
     await locator.click({ timeout: waitMs });
   }
-  await page.waitForTimeout(250);
+  if (expandSettleMs > 0) {
+    await page.waitForTimeout(expandSettleMs);
+  }
   return { ok: true };
 }
 async function firstVisibleLocator(locator, waitMs) {
@@ -1138,30 +1168,87 @@ async function firstVisibleLocator(locator, waitMs) {
     return null;
   }
 }
-async function resolveSearchInputLocator(page, inputHints, waitMs, flat) {
-  const searchbox = await firstVisibleLocator(page.getByRole("searchbox"), waitMs);
-  if (searchbox) return { locator: searchbox, mode: "searchbox" };
-  const typeSearch = await firstVisibleLocator(page.locator('input[type="search"]'), waitMs);
-  if (typeSearch) return { locator: typeSearch, mode: "input-type-search" };
+async function probeSearchInputLocator(page, inputHints) {
+  try {
+    const searchbox = page.getByRole("searchbox");
+    if (await searchbox.count() > 0) {
+      return { locator: searchbox.first(), mode: "searchbox" };
+    }
+  } catch {
+  }
+  try {
+    const typeSearch = page.locator('input[type="search"]');
+    if (await typeSearch.count() > 0) {
+      return { locator: typeSearch.first(), mode: "input-type-search" };
+    }
+  } catch {
+  }
   for (const hint of inputHints) {
     for (const role of ["textbox", "searchbox"]) {
-      const byRole = await firstVisibleLocator(page.getByRole(role, { name: hint }), waitMs);
-      if (byRole) return { locator: byRole, mode: `role-${role}` };
+      try {
+        const byRole = page.getByRole(role, { name: hint });
+        if (await byRole.count() > 0) {
+          return { locator: byRole.first(), mode: `role-${role}` };
+        }
+      } catch {
+      }
     }
-    const byPlaceholder = await firstVisibleLocator(page.getByPlaceholder(hint), waitMs);
-    if (byPlaceholder) return { locator: byPlaceholder, mode: "placeholder" };
+    try {
+      const byPlaceholder = page.getByPlaceholder(hint);
+      if (await byPlaceholder.count() > 0) {
+        return { locator: byPlaceholder.first(), mode: "placeholder" };
+      }
+    } catch {
+    }
   }
-  const headerInput = await firstVisibleLocator(
-    page.locator('header input, nav input, [role="search"] input, form input[type="search"]'),
-    waitMs
-  );
-  if (headerInput) return { locator: headerInput, mode: "header-input" };
+  try {
+    const headerInput = page.locator('header input, nav input, [role="search"] input, form input[type="search"]');
+    if (await headerInput.count() > 0) {
+      return { locator: headerInput.first(), mode: "header-input" };
+    }
+  } catch {
+  }
+  return null;
+}
+async function waitForSearchInputAfterEntry(page, inputHints, maxMs, pollMs = 80) {
+  if (maxMs <= 0) {
+    return probeSearchInputLocator(page, inputHints);
+  }
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const hit = await probeSearchInputLocator(page, inputHints);
+    if (hit) {
+      return hit;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      break;
+    }
+    await page.waitForTimeout(Math.min(pollMs, remaining));
+  }
+  return probeSearchInputLocator(page, inputHints);
+}
+async function resolveSearchInputLocator(page, inputHints, waitMs, flat) {
+  const probed = await probeSearchInputLocator(page, inputHints);
+  if (probed) {
+    try {
+      await autoWaitEnabled(probed.locator, waitMs);
+      return probed;
+    } catch {
+    }
+  }
   const observed = flat ?? (await observeViewOnPage(page)).flat;
   const meta = findSearchInputInFlat(observed, inputHints);
   const label = meta?.name ?? meta?.ariaLabel;
   if (label) {
     const fromFlat = await resolveLabelLocator(page, label);
-    if (fromFlat) return { locator: fromFlat, mode: "flat-input" };
+    if (fromFlat) {
+      try {
+        await autoWaitEnabled(fromFlat, waitMs);
+        return { locator: fromFlat, mode: "flat-input" };
+      } catch {
+      }
+    }
   }
   return null;
 }
@@ -1177,7 +1264,13 @@ async function resolveSearchEntryLocator(page, entryHints, waitMs, flat) {
   const label = meta?.name ?? meta?.ariaLabel;
   if (label) {
     const fromFlat = await resolveLabelLocator(page, label);
-    if (fromFlat) return { locator: fromFlat, mode: "flat-entry", meta };
+    if (fromFlat) {
+      try {
+        await autoWaitEnabled(fromFlat, waitMs);
+        return { locator: fromFlat, mode: "flat-entry", meta };
+      } catch {
+      }
+    }
   }
   return null;
 }
@@ -1223,8 +1316,14 @@ async function executeFillSearch(command, page, payload) {
       entry.mode.includes("flat") ? "direct input" : void 0,
       parsed.recipeOptions.settleMs
     );
-    await page.waitForTimeout(settleMs);
-    input = await resolveSearchInputLocator(page, parsed.inputHints, waitMs);
+    input = await waitForSearchInputAfterEntry(page, parsed.inputHints, settleMs);
+    if (input) {
+      try {
+        await autoWaitEnabled(input.locator, waitMs);
+      } catch {
+        input = null;
+      }
+    }
   }
   if (!input) {
     if (parsed.strict) {
@@ -1284,6 +1383,7 @@ async function executeClickPath(command, page, payload) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_INVALID, "clickPath requires non-empty path array");
   }
   const waitMs = resolveAutoWaitMs(payload);
+  const expandSettleMs = resolveWebExpandSettleMs(payload);
   let observed = await observeViewOnPage(page);
   let targetMeta = findControlByPath(observed.flat, path3);
   const beforeUrl = page.url();
@@ -1292,7 +1392,7 @@ async function executeClickPath(command, page, payload) {
     const segMeta = findControlByPath(observed.flat, path3.slice(0, i + 1));
     const segStrategy = resolveExpandStrategy(payload?.strategy, segMeta);
     const nthFallback = segment ? void 0 : Number(payload?.triggerNth ?? i);
-    const expanded = await expandPathSegment(page, segment || "", segStrategy, waitMs, nthFallback);
+    const expanded = await expandPathSegment(page, segment || "", segStrategy, waitMs, expandSettleMs, nthFallback);
     if (!expanded.ok) {
       return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED, expanded.error ?? `failed to expand ${segment}`, {
         path: path3,
@@ -1313,18 +1413,18 @@ async function executeClickPath(command, page, payload) {
       businessCode: WEB_INTERACTION_ERROR_CODES.CONTROL_NOT_FOUND
     });
   }
-  await autoWaitEnabled(locator, waitMs);
   if (isLeafPopup && leafStrategy === "hover") {
     await locator.hover({ timeout: waitMs });
   } else {
     await locator.click({ timeout: waitMs });
   }
+  const shouldWaitNavigation = resolveClickPathWaitNavigation(payload, targetMeta);
   const waitPayload = {
     ...payload,
-    waitNavigation: payload?.waitNavigation !== false
+    waitNavigation: shouldWaitNavigation
   };
   const nav = await waitAfterNavigation(page, waitPayload, beforeUrl);
-  if (waitPayload.waitNavigation === true && !nav.navigated && (targetMeta?.href || payload?.requireNavigation === true)) {
+  if (shouldWaitNavigation && !nav.navigated && (targetMeta?.href || payload?.requireNavigation === true)) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.NAV_TIMEOUT, `navigation did not complete after clickPath: ${leaf}`, {
       path: path3,
       beforeUrl,
@@ -1343,6 +1443,7 @@ async function executeClickPath(command, page, payload) {
       strategy: leafStrategy,
       navigated: nav.navigated,
       url: nav.url,
+      waitNavigation: shouldWaitNavigation,
       controls: serializeRpcResult(truncateViewTreeValue(observed.flat, CLICK_PATH_CONTROLS_PREVIEW).value),
       controlsTruncated: observed.flat.length > CLICK_PATH_CONTROLS_PREVIEW ? true : void 0,
       reObservedAfterExpand: path3.length > 1 ? true : void 0,

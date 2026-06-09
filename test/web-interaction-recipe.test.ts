@@ -9,7 +9,9 @@ import {
   labelMatchesHints,
   normalizeControlPath,
   parseWebViewSnapshot,
+  resolveClickPathWaitNavigation,
   resolveExpandStrategy,
+  resolveWebExpandSettleMs,
   shapeViewTreeExtract,
   truncateViewTreeValue,
   WEB_RECIPE_ACTIONS
@@ -89,6 +91,21 @@ describe("web-interaction-recipe helpers", () => {
     assert.ok(labelMatchesHints("Site Search", ["search"]));
     assert.equal(findSearchEntryInFlat(flat, ["搜索"])?.name, "搜索");
     assert.equal(findSearchInputInFlat(flat, ["请输入"])?.role, "textbox");
+  });
+
+  it("resolveClickPathWaitNavigation defaults false; enables for real href", () => {
+    assert.equal(resolveClickPathWaitNavigation({}, { href: undefined }), false);
+    assert.equal(resolveClickPathWaitNavigation({}, { href: "#section" }), false);
+    assert.equal(resolveClickPathWaitNavigation({ waitNavigation: true }, null), true);
+    assert.equal(resolveClickPathWaitNavigation({ waitNavigation: false }, { href: "/docs" }), false);
+    assert.equal(resolveClickPathWaitNavigation({}, { href: "/docs" }), true);
+    assert.equal(resolveClickPathWaitNavigation({ requireNavigation: true }, null), true);
+  });
+
+  it("resolveWebExpandSettleMs defaults to 100ms", () => {
+    assert.equal(resolveWebExpandSettleMs(), 100);
+    assert.equal(resolveWebExpandSettleMs({ expandSettleMs: 0 }), 0);
+    assert.equal(resolveWebExpandSettleMs({ expandSettleMs: 50 }), 50);
   });
 
   it("applyControlFilters adds matches for href/name lookup", () => {

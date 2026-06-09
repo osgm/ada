@@ -1,9 +1,6 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { AdaPlatform, SupportedCommand } from "./mcp-normalize.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 function summarizeLocatorFromPayload(payload: Record<string, unknown>): string | undefined {
   const locator = payload.locator;

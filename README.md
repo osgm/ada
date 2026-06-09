@@ -297,6 +297,18 @@ ada/
 
 ---
 
+## 开源协议与版权
+
+本项目采用 **[Apache License 2.0](LICENSE)** 开源。
+
+- **版权所有**：**Kalami（卡拉米）** — Copyright 2026 Kalami (卡拉米)  
+- **归属说明**：详见仓库根目录 [NOTICE](NOTICE)  
+- **npm 发布包**：`@ada-mcp/mcp-server`、`@ada-mcp/launcher` 随包附带 `LICENSE` 与 `NOTICE`
+
+使用、修改与再分发请遵守 Apache 2.0 条款；保留版权声明与 NOTICE 中的归属信息。
+
+---
+
 ## 版本说明
 
 - 本仓库 monorepo 版本：`0.1.0`（开发态）  

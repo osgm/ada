@@ -9,7 +9,6 @@
 | [`ADA-MCP-接入手册.md`](ADA-MCP-接入手册.md) | MCP 集成方 | 工具列表、Host 配置、镜像与环境变量 |
 | [`ADA-开发手册.md`](ADA-开发手册.md) | 研发 / 测试 | 本地开发、测试门禁、驱动规范 |
 | [`ADA-语义命令对照.md`](ADA-语义命令对照.md) | 脚本 / MCP 集成 | L0 流利 API ↔ MCP 工具 ↔ 语义命令 |
-| [`DEPRECATED-APIS.md`](DEPRECATED-APIS.md) | 脚本 / MCP 集成 | 已移除 API 与替代方式 |
 | [`ADA-GUI-操作手册.md`](ADA-GUI-操作手册.md) | 终端用户（Windows 发布包） | 四个 `.exe` 的用途与配置 |
 | [`Playwright-ADA-兼容映射.md`](Playwright-ADA-兼容映射.md) | MCP / 自动化迁移 | Playwright 步骤到 ADA MCP 的映射 |
 

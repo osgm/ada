@@ -105,7 +105,17 @@ async function bundleCli() {
   console.log("[build-mcp-npm] dist/cli.cjs");
 }
 
+async function syncLicenseNoticeFiles() {
+  for (const name of ["LICENSE", "NOTICE"]) {
+    const src = path.join(root, name);
+    await fs.copyFile(path.join(root, name), path.join(mcpDir, name));
+    await fs.copyFile(src, path.join(root, "apps", "ada-mcp-launcher", name));
+  }
+  console.log("[build-mcp-npm] synced LICENSE + NOTICE to publish packages");
+}
+
 await fs.rm(pluginsDir, { recursive: true, force: true }).catch(() => undefined);
 await bundlePlugins();
 await bundleCli();
+await syncLicenseNoticeFiles();
 console.log("[build-mcp-npm] done");

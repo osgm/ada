@@ -14,6 +14,7 @@ import {
   MCP_VERBOSE_RESULT_HINT,
   resolveResultForMcp
 } from "./mcp-response-mode.js";
+import { asRecord } from "./mcp-utils.js";
 
 export type McpErrorKind =
   | "validation"
@@ -145,10 +146,6 @@ function buildFailureOptions(input: {
     ...recovery,
     uiCandidates: buildUiCandidatesHint({ platform: envelope.platform, tool, result })
   };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 /** payload.bestEffort 或顶层 bestEffort：定位未命中视为业务跳过，不标 MCP isError */

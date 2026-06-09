@@ -3,10 +3,7 @@ import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-
 import { slimTaskFileResults } from "./mcp-payload-slim.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import type { MonitorOptions } from "./monitoring.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 export async function handleRunTaskFile(
   args: Record<string, unknown>,

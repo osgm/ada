@@ -1,5 +1,7 @@
 ﻿# @ada-mcp/launcher
 
+**License:** Apache-2.0 — Copyright 2026 **Kalami (卡拉米)**. See [LICENSE](../../LICENSE) and [NOTICE](../../NOTICE).
+
 启动器：**零 npm 依赖**；探测最快 npm 镜像后，经 **pnpm dlx** 或 **npx -y** 拉起 `@ada-mcp/mcp-server`。
 
 ## 标准 MCP 配置

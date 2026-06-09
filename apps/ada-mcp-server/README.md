@@ -1,5 +1,7 @@
 ﻿# @ada-mcp/mcp-server
 
+**License:** Apache-2.0 — Copyright 2026 **Kalami (卡拉米)**. See [LICENSE](../../LICENSE) and [NOTICE](../../NOTICE).
+
 ADA MCP server package that supports:
 
 - Local stdio mode (default) for MCP hosts

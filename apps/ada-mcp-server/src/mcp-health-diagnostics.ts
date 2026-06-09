@@ -1,8 +1,5 @@
 import { buildMcpReadinessHints } from "./mcp-health-enrich.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 function normalizeHealthScope(v: unknown): "web" | "mobile" | "all" {
   if (v === "web" || v === "mobile" || v === "all") {

@@ -408,3 +408,40 @@ export function truncateViewTreeValue(
 
   return { value: out, truncated };
 }
+
+/** Fixed pause after expanding a menu/popup segment (ms); override via payload.expandSettleMs or ADA_WEB_EXPAND_SETTLE_MS */
+export const DEFAULT_WEB_EXPAND_SETTLE_MS = 100;
+
+export function resolveWebExpandSettleMs(payload?: Record<string, unknown>): number {
+  const p = payload ?? {};
+  if (typeof p.expandSettleMs === "number" && p.expandSettleMs >= 0) {
+    return Math.floor(p.expandSettleMs);
+  }
+  const env = process.env.ADA_WEB_EXPAND_SETTLE_MS?.trim();
+  if (env) {
+    const n = Number(env);
+    if (Number.isFinite(n) && n >= 0) {
+      return Math.floor(n);
+    }
+  }
+  return DEFAULT_WEB_EXPAND_SETTLE_MS;
+}
+
+/** clickPath: default skip URL wait; enable when waitNavigation/requireNavigation or leaf has real href */
+export function resolveClickPathWaitNavigation(
+  payload?: Record<string, unknown>,
+  leafMeta?: Pick<ControlObserveItem, "href"> | null
+): boolean {
+  const p = payload ?? {};
+  if (p.waitNavigation === true || p.waitNavigation === "true") {
+    return true;
+  }
+  if (p.waitNavigation === false || p.waitNavigation === "false") {
+    return false;
+  }
+  if (p.requireNavigation === true) {
+    return true;
+  }
+  const href = leafMeta?.href?.trim();
+  return Boolean(href && href !== "#" && !href.startsWith("#"));
+}

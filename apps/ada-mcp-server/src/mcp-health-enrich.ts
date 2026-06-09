@@ -1,4 +1,5 @@
 import { getCachedMobileProbes } from "./mcp-runtime-preflight.js";
+import { asRecord } from "./mcp-utils.js";
 
 export interface HealthBlocker {
   id: string;
@@ -14,10 +15,6 @@ export interface SessionPolicy {
   escalation: "suggest";
   allowInvoke: boolean;
   recommendMonitorOnFailure: boolean;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 export type McpReadinessHints = {

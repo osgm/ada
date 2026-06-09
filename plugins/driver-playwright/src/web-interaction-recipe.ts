@@ -6,8 +6,10 @@ import {
   normalizeControlPath,
   parseFillSearchPayload,
   parseWebViewSnapshot,
+  resolveClickPathWaitNavigation,
   resolveExpandStrategy,
   resolveFillSearchSettleMs,
+  resolveWebExpandSettleMs,
   WEB_INTERACTION_ERROR_CODES,
   WEB_VIEW_SCRIPT,
   type ControlObserveItem,
@@ -134,19 +136,21 @@ async function expandPathSegment(
   label: string,
   strategy: ExpandStrategy,
   waitMs: number,
+  expandSettleMs: number,
   nthFallback?: number
 ): Promise<{ ok: boolean; error?: string }> {
   const locator = await resolveLabelLocator(page, label, nthFallback);
   if (!locator) {
     return { ok: false, error: `control label not found: ${label}` };
   }
-  await autoWaitEnabled(locator, waitMs);
   if (strategy === "hover") {
     await locator.hover({ timeout: waitMs });
   } else {
     await locator.click({ timeout: waitMs });
   }
-  await page.waitForTimeout(250);
+  if (expandSettleMs > 0) {
+    await page.waitForTimeout(expandSettleMs);
+  }
   return { ok: true };
 }
 
@@ -165,39 +169,111 @@ async function firstVisibleLocator(
   }
 }
 
+/** Fast DOM probe without auto-wait (for fill_search polling after entry tap) */
+async function probeSearchInputLocator(
+  page: PlaywrightPageLike,
+  inputHints: string[]
+): Promise<{ locator: PlaywrightLocatorLike; mode: string } | null> {
+  try {
+    const searchbox = page.getByRole("searchbox");
+    if ((await searchbox.count()) > 0) {
+      return { locator: searchbox.first(), mode: "searchbox" };
+    }
+  } catch {
+    // continue
+  }
+  try {
+    const typeSearch = page.locator('input[type="search"]');
+    if ((await typeSearch.count()) > 0) {
+      return { locator: typeSearch.first(), mode: "input-type-search" };
+    }
+  } catch {
+    // continue
+  }
+  for (const hint of inputHints) {
+    for (const role of ["textbox", "searchbox"] as const) {
+      try {
+        const byRole = page.getByRole(role, { name: hint });
+        if ((await byRole.count()) > 0) {
+          return { locator: byRole.first(), mode: `role-${role}` };
+        }
+      } catch {
+        // continue
+      }
+    }
+    try {
+      const byPlaceholder = page.getByPlaceholder(hint);
+      if ((await byPlaceholder.count()) > 0) {
+        return { locator: byPlaceholder.first(), mode: "placeholder" };
+      }
+    } catch {
+      // continue
+    }
+  }
+  try {
+    const headerInput = page.locator('header input, nav input, [role="search"] input, form input[type="search"]');
+    if ((await headerInput.count()) > 0) {
+      return { locator: headerInput.first(), mode: "header-input" };
+    }
+  } catch {
+    // continue
+  }
+  return null;
+}
+
+async function waitForSearchInputAfterEntry(
+  page: PlaywrightPageLike,
+  inputHints: string[],
+  maxMs: number,
+  pollMs = 80
+): Promise<{ locator: PlaywrightLocatorLike; mode: string } | null> {
+  if (maxMs <= 0) {
+    return probeSearchInputLocator(page, inputHints);
+  }
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const hit = await probeSearchInputLocator(page, inputHints);
+    if (hit) {
+      return hit;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      break;
+    }
+    await page.waitForTimeout(Math.min(pollMs, remaining));
+  }
+  return probeSearchInputLocator(page, inputHints);
+}
+
 async function resolveSearchInputLocator(
   page: PlaywrightPageLike,
   inputHints: string[],
   waitMs: number,
   flat?: ControlObserveItem[]
 ): Promise<{ locator: PlaywrightLocatorLike; mode: string } | null> {
-  const searchbox = await firstVisibleLocator(page.getByRole("searchbox"), waitMs);
-  if (searchbox) return { locator: searchbox, mode: "searchbox" };
-
-  const typeSearch = await firstVisibleLocator(page.locator('input[type="search"]'), waitMs);
-  if (typeSearch) return { locator: typeSearch, mode: "input-type-search" };
-
-  for (const hint of inputHints) {
-    for (const role of ["textbox", "searchbox"] as const) {
-      const byRole = await firstVisibleLocator(page.getByRole(role, { name: hint }), waitMs);
-      if (byRole) return { locator: byRole, mode: `role-${role}` };
+  const probed = await probeSearchInputLocator(page, inputHints);
+  if (probed) {
+    try {
+      await autoWaitEnabled(probed.locator, waitMs);
+      return probed;
+    } catch {
+      // fall through to slower paths
     }
-    const byPlaceholder = await firstVisibleLocator(page.getByPlaceholder(hint), waitMs);
-    if (byPlaceholder) return { locator: byPlaceholder, mode: "placeholder" };
   }
-
-  const headerInput = await firstVisibleLocator(
-    page.locator('header input, nav input, [role="search"] input, form input[type="search"]'),
-    waitMs
-  );
-  if (headerInput) return { locator: headerInput, mode: "header-input" };
 
   const observed = flat ?? (await observeViewOnPage(page)).flat;
   const meta = findSearchInputInFlat(observed, inputHints);
   const label = meta?.name ?? meta?.ariaLabel;
   if (label) {
     const fromFlat = await resolveLabelLocator(page, label);
-    if (fromFlat) return { locator: fromFlat, mode: "flat-input" };
+    if (fromFlat) {
+      try {
+        await autoWaitEnabled(fromFlat, waitMs);
+        return { locator: fromFlat, mode: "flat-input" };
+      } catch {
+        // continue
+      }
+    }
   }
 
   return null;
@@ -221,7 +297,14 @@ async function resolveSearchEntryLocator(
   const label = meta?.name ?? meta?.ariaLabel;
   if (label) {
     const fromFlat = await resolveLabelLocator(page, label);
-    if (fromFlat) return { locator: fromFlat, mode: "flat-entry", meta };
+    if (fromFlat) {
+      try {
+        await autoWaitEnabled(fromFlat, waitMs);
+        return { locator: fromFlat, mode: "flat-entry", meta };
+      } catch {
+        // continue
+      }
+    }
   }
 
   return null;
@@ -276,8 +359,14 @@ export async function executeFillSearch(
       entry.mode.includes("flat") ? "direct input" : undefined,
       parsed.recipeOptions.settleMs
     );
-    await page.waitForTimeout(settleMs);
-    input = await resolveSearchInputLocator(page, parsed.inputHints, waitMs);
+    input = await waitForSearchInputAfterEntry(page, parsed.inputHints, settleMs);
+    if (input) {
+      try {
+        await autoWaitEnabled(input.locator, waitMs);
+      } catch {
+        input = null;
+      }
+    }
   }
 
   if (!input) {
@@ -346,6 +435,7 @@ export async function executeClickPath(
     return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_INVALID, "clickPath requires non-empty path array");
   }
   const waitMs = resolveAutoWaitMs(payload);
+  const expandSettleMs = resolveWebExpandSettleMs(payload);
   let observed = await observeViewOnPage(page);
   let targetMeta = findControlByPath(observed.flat, path);
   const beforeUrl = page.url();
@@ -355,7 +445,7 @@ export async function executeClickPath(
     const segMeta = findControlByPath(observed.flat, path.slice(0, i + 1));
     const segStrategy = resolveExpandStrategy(payload?.strategy, segMeta);
     const nthFallback = segment ? undefined : Number(payload?.triggerNth ?? i);
-    const expanded = await expandPathSegment(page, segment || "", segStrategy, waitMs, nthFallback);
+    const expanded = await expandPathSegment(page, segment || "", segStrategy, waitMs, expandSettleMs, nthFallback);
     if (!expanded.ok) {
       return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED, expanded.error ?? `failed to expand ${segment}`, {
         path,
@@ -377,19 +467,19 @@ export async function executeClickPath(
       businessCode: WEB_INTERACTION_ERROR_CODES.CONTROL_NOT_FOUND
     });
   }
-  await autoWaitEnabled(locator, waitMs);
   if (isLeafPopup && leafStrategy === "hover") {
     await locator.hover({ timeout: waitMs });
   } else {
     await locator.click({ timeout: waitMs });
   }
 
+  const shouldWaitNavigation = resolveClickPathWaitNavigation(payload, targetMeta);
   const waitPayload = {
     ...payload,
-    waitNavigation: payload?.waitNavigation !== false
+    waitNavigation: shouldWaitNavigation
   };
   const nav = await waitAfterNavigation(page, waitPayload, beforeUrl);
-  if (waitPayload.waitNavigation === true && !nav.navigated && (targetMeta?.href || payload?.requireNavigation === true)) {
+  if (shouldWaitNavigation && !nav.navigated && (targetMeta?.href || payload?.requireNavigation === true)) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.NAV_TIMEOUT, `navigation did not complete after clickPath: ${leaf}`, {
       path,
       beforeUrl,
@@ -409,6 +499,7 @@ export async function executeClickPath(
       strategy: leafStrategy,
       navigated: nav.navigated,
       url: nav.url,
+      waitNavigation: shouldWaitNavigation,
       controls: serializeRpcResult(truncateViewTreeValue(observed.flat, CLICK_PATH_CONTROLS_PREVIEW).value),
       controlsTruncated: observed.flat.length > CLICK_PATH_CONTROLS_PREVIEW ? true : undefined,
       reObservedAfterExpand: path.length > 1 ? true : undefined,

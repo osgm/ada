@@ -1,0 +1,11 @@
+ADA (AllDriverAgent)
+Copyright 2026 Kalami (卡拉米)
+
+This product was developed and is maintained by Kalami (卡拉米).
+
+Project home: https://github.com/osgm/ada
+
+Third-party dependencies (for example Playwright, hypium-driver, and
+@modelcontextprotocol/sdk) are distributed under their respective
+licenses. See each package's license terms in node_modules when
+building from source.

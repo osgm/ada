@@ -1,10 +1,7 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { normalizeRecipeAction } from "@ada/driver-rpc";
 import { guardWebCommandIfNeeded, recordWebCommandIfNeeded } from "./mcp-action-ledger.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 export async function handleWebRecipe(
   args: Record<string, unknown>,
@@ -43,6 +40,7 @@ export async function handleWebRecipe(
     ...(args.path !== undefined ? { path: args.path } : {}),
     ...(args.strategy !== undefined ? { strategy: args.strategy } : {}),
     ...(args.waitNavigation !== undefined ? { waitNavigation: args.waitNavigation } : {}),
+    ...(args.expandSettleMs !== undefined ? { expandSettleMs: args.expandSettleMs } : {}),
     ...(text ? { text } : {})
   };
 

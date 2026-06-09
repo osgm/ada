@@ -12,6 +12,51 @@ import { stripSyncHeader, transpileTsModule } from "../build/lib/transpile-ts-mo
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+const PUBLISH_PACKAGES = ["apps/ada-mcp-server/package.json", "apps/ada-mcp-launcher/package.json"];
+
+function syncLicenseNoticeFiles() {
+  for (const rel of ["apps/ada-mcp-server", "apps/ada-mcp-launcher"]) {
+    for (const name of ["LICENSE", "NOTICE"]) {
+      fs.copyFileSync(path.join(root, name), path.join(root, rel, name));
+    }
+  }
+}
+
+function checkOpenSourceLicenseMetadata() {
+  for (const name of ["LICENSE", "NOTICE"]) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) {
+      console.error(`[check-mcp-publish-versions] missing root ${name}`);
+      process.exit(1);
+    }
+    const text = readText(name);
+    if (!text.includes("Kalami") && !text.includes("卡拉米")) {
+      console.error(`[check-mcp-publish-versions] ${name} must attribute Kalami (卡拉米)`);
+      process.exit(1);
+    }
+  }
+
+  for (const pkgRel of PUBLISH_PACKAGES) {
+    const pkg = readPackageJson(pkgRel);
+    if (pkg.license !== "Apache-2.0") {
+      console.error(`[check-mcp-publish-versions] ${pkgRel} license must be Apache-2.0 (got: ${pkg.license ?? "(missing)"})`);
+      process.exit(1);
+    }
+    const files = new Set(pkg.files ?? []);
+    if (!files.has("LICENSE") || !files.has("NOTICE")) {
+      console.error(`[check-mcp-publish-versions] ${pkgRel} files must include LICENSE and NOTICE`);
+      process.exit(1);
+    }
+    const dir = path.dirname(pkgRel);
+    for (const name of ["LICENSE", "NOTICE"]) {
+      if (!fs.existsSync(path.join(root, dir, name))) {
+        console.error(`[check-mcp-publish-versions] missing ${dir}/${name} (run build:npm or sync)`);
+        process.exit(1);
+      }
+    }
+  }
+}
+
 function readPackageJson(relativePath) {
   let raw = fs.readFileSync(path.join(root, relativePath), "utf8");
   if (raw.charCodeAt(0) === 0xfeff) {
@@ -148,6 +193,9 @@ function checkScriptsLibSync() {
   }
 }
 
+syncLicenseNoticeFiles();
+checkOpenSourceLicenseMetadata();
+
 const serverPkg = readPackageJson("apps/ada-mcp-server/package.json");
 const launcherPkg = readPackageJson("apps/ada-mcp-launcher/package.json");
 
@@ -172,5 +220,5 @@ checkVendorMirrorSync();
 checkScriptsLibSync();
 
 console.log(
-  `[check-mcp-publish-versions] ok: both @${serverVer}, playwright pin aligned, vendor + scripts/lib synced`
+  `[check-mcp-publish-versions] ok: both @${serverVer}, Apache-2.0 (Kalami), playwright pin aligned, vendor + scripts/lib synced`
 );

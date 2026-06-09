@@ -236,7 +236,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_web_recipe",
       description:
-        "L2 web recipe: clickPath (path expand+click+waitNavigation), fill_search (search entry→input→Enter). " +
+        "L2 web recipe: clickPath (path expand+click; waitNavigation only for href links), fill_search (search entry→input→Enter). " +
         "Observation → ada_extract mode=viewTree. ARGS: sessionId, action, path (clickPath), text (fill_search), entryHints/inputHints in payload.",
       inputSchema: {
         type: "object",
@@ -262,7 +262,12 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           },
           waitNavigation: {
             type: "boolean",
-            description: "clickPath: wait for URL change after leaf activation (default true)"
+            description:
+              "clickPath: wait for URL change after leaf click (default false; auto true when leaf has href). In-page menus: false."
+          },
+          expandSettleMs: {
+            type: "number",
+            description: "clickPath: pause after expanding menu segment in ms (default 100)"
           },
           payload: payloadProperty(),
           allowMock: allowMockField(),

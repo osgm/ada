@@ -21,10 +21,9 @@ import { ensureMobileSessionReady as probeMobileSession } from "./mcp-mobile-ses
 import { ensureWebPageReady as probeAndRecoverWebPage } from "./mcp-session-liveness.js";
 import { invalidateRuntimePreflightCache, ensureMobileRuntimeReady } from "./mcp-runtime-preflight.js";
 import { captureMcpMonitor, type MonitorOptions } from "./monitoring.js";
+import { asRecord } from "./mcp-utils.js";
 
-export function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+export { asRecord } from "./mcp-utils.js";
 
 export function mergeWebEngineIntoPayload(args: Record<string, unknown>): Record<string, unknown> {
   const payload = { ...asRecord(args.payload) };

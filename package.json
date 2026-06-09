@@ -2,6 +2,12 @@
   "name": "ada",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Kalami (卡拉米)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/osgm/ada.git"
+  },
   "engines": {
     "node": ">=22",
     "npm": ">=10"

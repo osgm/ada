@@ -1,4 +1,5 @@
 import { normalizeControlPath, WEB_INTERACTION_ERROR_CODES } from "@ada/driver-rpc";
+import { asRecord } from "./mcp-utils.js";
 
 interface LedgerEntry {
   key: string;
@@ -31,10 +32,6 @@ export function readActionLedgerConfig(): {
 
 export const GUARDED_WEB_COMMANDS = new Set(["click", "hover", "clickPath"]);
 export const GUARDED_MOBILE_COMMANDS = new Set(["click", "swipe"]);
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
 
 export function buildPathActionKey(path: string[], command = "click"): string {
   return `${command}:path:${path.join(">")}`;

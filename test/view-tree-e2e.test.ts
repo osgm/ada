@@ -31,11 +31,11 @@ async function withBrowserPage<T>(fn: (page: Awaited<ReturnType<Browser["newPage
 }
 
 describe("viewTree playwright e2e", { skip: skipE2e }, () => {
-  it("executeClickPath activates link from viewTree path", async () => {
+  it("executeClickPath activates button without navigation wait by default", async () => {
     await withBrowserPage(async (page) => {
       const before = await observeViewOnPage(page);
-      const about = findControlByPath(before.flat, ["About"]);
-      assert.ok(about?.path?.length);
+      const go = findControlByPath(before.flat, ["Go"]);
+      assert.ok(go?.path?.length);
 
       const result = await executeClickPath(
         {
@@ -43,14 +43,15 @@ describe("viewTree playwright e2e", { skip: skipE2e }, () => {
           sessionId: "e2e-web",
           platform: "web",
           command: "recipe",
-          payload: { action: "clickPath", path: about!.path, waitNavigation: false }
+          payload: { action: "clickPath", path: go!.path }
         },
         page,
-        { action: "clickPath", path: about!.path, waitNavigation: false }
+        { action: "clickPath", path: go!.path }
       );
 
       assert.equal(result.success, true);
       assert.equal((result.data as Record<string, unknown>)?.businessCode, "PATH_CLICK_OK");
+      assert.equal((result.data as Record<string, unknown>)?.waitNavigation, false);
       const controls = (result.data as Record<string, unknown>)?.controls;
       assert.ok(Array.isArray(controls));
       assert.ok((controls as unknown[]).length > 0);

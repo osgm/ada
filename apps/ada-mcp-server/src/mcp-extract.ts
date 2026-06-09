@@ -14,10 +14,7 @@ import { getCachedMobilePageSource } from "./mcp-mobile-dump-cache.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import { getCachedWebViewTreeRaw, setCachedWebViewTreeRaw } from "./mcp-view-tree-cache.js";
 import { resolveRecoveryFields } from "./mcp-payload-slim.js";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./mcp-utils.js";
 
 const DEFAULT_VIEW_TREE_MAX_ITEMS = 80;
 
