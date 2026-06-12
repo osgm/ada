@@ -11,7 +11,7 @@ const mcpDir = path.join(root, "apps", "ada-mcp-server");
 const distDir = path.join(mcpDir, "dist");
 const pluginsDir = path.join(mcpDir, "plugins");
 
-/** CJS 打包时 polyfill import.meta.url，消除 empty-import-meta 警告 */
+/** CJS ??? polyfill import.meta.url,?? empty-import-meta ?? */
 const CJS_IMPORT_META_BANNER = {
   js: 'var __ada_import_meta_url=require("url").pathToFileURL(__filename).href;'
 };
@@ -19,10 +19,10 @@ const CJS_IMPORT_META_DEFINE = {
   "import.meta.url": "__ada_import_meta_url"
 };
 
-/** SDK + zod 打入 cli，避免 pnpm dlx 解析到无 zod/v3 的旧版 zod */
+/** SDK + zod ?? cli,?? pnpm dlx ???? zod/v3 ??? zod */
 const EXTERNALS = ["playwright", "hypium-driver", "express", "jimp"];
 
-/** 从 monorepo 源码解析 @ada/*，避免发布包依赖陈旧 dist */
+/** ? monorepo ???? @ada/*,????????? dist */
 const WORKSPACE_PACKAGES = {
   "@ada/install-deps": { root: path.join(root, "packages", "install-deps", "src"), entry: "index" },
   "@ada/runtime-probe": { root: path.join(root, "packages", "runtime-probe", "src"), entry: "index" },
@@ -105,6 +105,24 @@ async function bundleCli() {
   console.log("[build-mcp-npm] dist/cli.cjs");
 }
 
+async function bundlePublishedSubpath(name, sourceFile, outputFile) {
+  await fs.mkdir(distDir, { recursive: true });
+  await build({
+    entryPoints: [path.join(mcpDir, "src", sourceFile)],
+    outfile: path.join(distDir, outputFile),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node18",
+    external: EXTERNALS,
+    plugins: [adaWorkspaceSrcPlugin()],
+    sourcemap: false,
+    banner: CJS_IMPORT_META_BANNER,
+    define: CJS_IMPORT_META_DEFINE
+  });
+  console.log(`[build-mcp-npm] dist/${outputFile} (${name})`);
+}
+
 async function syncLicenseNoticeFiles() {
   for (const name of ["LICENSE", "NOTICE"]) {
     const src = path.join(root, name);
@@ -117,5 +135,7 @@ async function syncLicenseNoticeFiles() {
 await fs.rm(pluginsDir, { recursive: true, force: true }).catch(() => undefined);
 await bundlePlugins();
 await bundleCli();
+await bundlePublishedSubpath("stdio", "main.ts", "stdio.cjs");
+await bundlePublishedSubpath("testing", "testing-exports.ts", "testing-exports.cjs");
 await syncLicenseNoticeFiles();
 console.log("[build-mcp-npm] done");
