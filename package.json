@@ -1,6 +1,9 @@
 {
   "name": "ada",
   "version": "0.1.0",
+  "bugs": {
+    "url": "https://github.com/osgm/ada/issues"
+  },
   "private": true,
   "license": "Apache-2.0",
   "author": "Kalami (卡拉米)",
