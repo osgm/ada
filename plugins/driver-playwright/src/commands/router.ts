@@ -45,7 +45,7 @@ export async function executePlaywrightCommand(session: DriverSession, command: 
       await focusVisibleBrowser(pw, payload);
       return await executePlaywrightInvoke(command, pw, payload);
       } catch (error) {
-        if (!isRecoverableInteractionError(error)) {
+        if (!isRecoverableInteractionError(error, "invoke")) {
           await releasePlaywrightDriverSession(session.id);
         }
         return failResult(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
@@ -331,15 +331,28 @@ export async function executePlaywrightCommand(session: DriverSession, command: 
         }
       };
     } catch (error) {
-      if (!isRecoverableInteractionError(error)) {
+      const message = error instanceof Error ? error.message : String(error);
+      const release = !isRecoverableInteractionError(error, cmd);
+      if (release) {
         await releasePlaywrightDriverSession(session.id);
+      }
+      const navLike = cmd === "navigate" || cmd === "reload" || cmd === "newTab";
+      const timedOut = /timeout|timed out|前置条件|无正确响应/i.test(message);
+      if (release && timedOut) {
+        const code = navLike ? "NAVIGATION_TIMEOUT" : "PRECONDITION_TIMEOUT";
+        return failResult(command, code, message, {
+          sessionReleased: true,
+          recoveryHint: navLike
+            ? "Navigation timed out (login wall / slow redirect). Browser session was released; retry with a new sessionId or longer payload.navigationTimeoutMs."
+            : "Precondition wait timed out (no correct response). Browser session was released; fix page state and retry with a new sessionId."
+        });
       }
       const pw = getPlaywrightSession(session.id);
       return await failWithPage(
         command,
         pw?.page,
         "COMMAND_FAILED",
-        error instanceof Error ? error.message : String(error),
+        message,
         { locatorUsed: summarizeLocator(payload?.locator ?? payload?.selector) }
       );
     }

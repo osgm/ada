@@ -40,6 +40,7 @@ __export(index_exports, {
   summarizeLocator: () => summarizeLocator
 });
 module.exports = __toCommonJS(index_exports);
+var import_node_crypto = require("node:crypto");
 
 // ../../packages/driver-rpc/src/playwright-defaults.ts
 function asRecord(value) {
@@ -82,6 +83,83 @@ function resolvePlaywrightBringToFront(payload) {
     return false;
   }
   return true;
+}
+
+// ../../packages/driver-rpc/src/command-timeout.ts
+var DEFAULT_NAVIGATION_TIMEOUT_MS = 75e3;
+function resolveNavigationTimeoutMs(payload) {
+  const p = payload ?? {};
+  const fromPayload = typeof p.navigationTimeoutMs === "number" ? p.navigationTimeoutMs : typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : void 0;
+  if (typeof fromPayload === "number" && fromPayload > 0) {
+    return Math.max(1e3, Math.floor(fromPayload));
+  }
+  const env = process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS?.trim();
+  if (env) {
+    const n = Number(env);
+    if (Number.isFinite(n) && n > 0) {
+      return Math.max(1e3, Math.floor(n));
+    }
+  }
+  return DEFAULT_NAVIGATION_TIMEOUT_MS;
+}
+
+// ../../packages/driver-rpc/src/session-release-policy.ts
+var DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS = 6e4;
+function releaseOnWaitTimeoutMs() {
+  const raw = process.env.ADA_RELEASE_ON_WAIT_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS;
+}
+function extractWaitedMsFromMessage(message) {
+  const patterns = [
+    /timeout\s+(\d+)\s*ms/i,
+    /(\d+)\s*ms\s+exceeded/i,
+    /timed out after\s+(\d+)\s*ms/i,
+    /after\s+(\d+)\s*ms/i
+  ];
+  for (const re of patterns) {
+    const m = message.match(re);
+    if (m?.[1]) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0) return Math.floor(n);
+    }
+  }
+  return void 0;
+}
+function isTimeoutFailure(input) {
+  const code = String(input.errorCode ?? "").toUpperCase();
+  const message = String(input.errorMessage ?? "").toLowerCase();
+  return code.includes("TIMEOUT") || code === "NAVIGATION_TIMEOUT" || code === "PRECONDITION_TIMEOUT" || code === "COMMAND_TIMEOUT" || message.includes("timeout") || message.includes("timed out") || message.includes("\u524D\u7F6E\u6761\u4EF6") || message.includes("\u65E0\u6B63\u786E\u54CD\u5E94");
+}
+function shouldReleaseSessionOnTimeout(input) {
+  if (!isTimeoutFailure(input)) {
+    return false;
+  }
+  const command = input.command ?? "";
+  if (command === "navigate" || command === "reload" || command === "newTab" || command === "wait") {
+    return true;
+  }
+  const code = String(input.errorCode ?? "").toUpperCase();
+  if (code === "COMMAND_TIMEOUT" || code === "NAVIGATION_TIMEOUT" || code === "PRECONDITION_TIMEOUT") {
+    return true;
+  }
+  const message = String(input.errorMessage ?? "");
+  if (/前置条件|无正确响应|page probe failed|session.*probe failed|page is blank/i.test(message)) {
+    return true;
+  }
+  const waited = extractWaitedMsFromMessage(message);
+  const threshold = releaseOnWaitTimeoutMs();
+  if (threshold <= 0) {
+    return true;
+  }
+  if (waited !== void 0 && waited >= threshold) {
+    return true;
+  }
+  if (/waitfor|page\.goto|navigation|waiting for (load|url|function|selector|locator)/i.test(message)) {
+    return true;
+  }
+  return false;
 }
 
 // ../../packages/driver-rpc/src/fill-search-options.ts
@@ -482,6 +560,7 @@ function resolveClickPathWaitNavigation(payload, leafMeta) {
 // ../../packages/driver-rpc/src/cdp-auto-launch.ts
 var import_node_child_process = require("node:child_process");
 var import_node_fs = __toESM(require("node:fs"), 1);
+var import_node_net = __toESM(require("node:net"), 1);
 var import_node_os = __toESM(require("node:os"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
 function asRecord2(value) {
@@ -538,6 +617,56 @@ function defaultCdpPort(browser) {
   const n = Number(process.env.ADA_PLAYWRIGHT_CDP_PORT ?? 9222);
   return Number.isFinite(n) && n > 0 ? n : 9222;
 }
+function resolveShareCdpBrowser(payload) {
+  const p = asRecord2(payload);
+  const options = asRecord2(p.options);
+  const explicit = pickBool2(p, options, "shareCdpBrowser", "ADA_PLAYWRIGHT_CDP_SHARE_EXISTING") ?? pickBool2(p, options, "shareExisting");
+  if (explicit !== void 0) {
+    return explicit;
+  }
+  const autoLaunch = pickBool2(p, options, "cdpAutoLaunch", "ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH") ?? false;
+  const endpointRaw = pickString(p, options, "cdpEndpoint", "ADA_PLAYWRIGHT_CDP_ENDPOINT");
+  if (!autoLaunch && Boolean(endpointRaw)) {
+    return true;
+  }
+  return false;
+}
+async function allocateFreeTcpPort(host = "127.0.0.1") {
+  return new Promise((resolve, reject) => {
+    const server = import_node_net.default.createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!port) {
+          reject(new Error("allocateFreeTcpPort: failed to bind ephemeral port"));
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+function withCdpPlanPort(plan, port) {
+  const host = (() => {
+    try {
+      return new URL(plan.url).hostname || "127.0.0.1";
+    } catch {
+      return "127.0.0.1";
+    }
+  })();
+  return {
+    ...plan,
+    port,
+    url: `http://${host}:${port}`
+  };
+}
 function resolveCdpAutoLaunchPlan(payload) {
   const p = asRecord2(payload);
   const options = asRecord2(p.options);
@@ -555,6 +684,7 @@ function resolveCdpAutoLaunchPlan(payload) {
   const launchOptions = asRecord2(p.launchOptions);
   const launchOptionsArgs = Array.isArray(launchOptions.args) ? launchOptions.args.map(String) : [];
   const extraArgs = [...launchOptionsArgs, ...cdpLaunchArgs];
+  const shareExisting = resolveShareCdpBrowser(p);
   return {
     url: parts.url,
     port: parts.port,
@@ -564,7 +694,8 @@ function resolveCdpAutoLaunchPlan(payload) {
     channel: pickString(p, options, "channel", "ADA_PLAYWRIGHT_CHANNEL"),
     userDataDir: pickString(p, options, "userDataDir", "ADA_PLAYWRIGHT_USER_DATA_DIR"),
     headless,
-    extraArgs
+    extraArgs,
+    shareExisting
   };
 }
 async function probeCdpEndpoint(url, timeoutMs = 3e3) {
@@ -719,28 +850,39 @@ function cleanupAllCdpSpawnsDetached() {
   }
   return handles.length;
 }
-async function ensureCdpEndpointReady(plan, opts) {
-  const timeoutMs = opts?.waitTimeoutMs ?? 45e3;
-  if (await probeCdpEndpoint(plan.url)) {
-    return { url: plan.url, spawned: null };
-  }
-  if (!plan.autoLaunch) {
-    throw new Error(
-      `CDP endpoint not reachable at ${plan.url}. Start browser with remote debugging or set cdpAutoLaunch=true`
-    );
-  }
-  const spawned = spawnCdpBrowser(plan);
+async function waitForCdpUrl(url, spawned, browser, timeoutMs) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (await probeCdpEndpoint(plan.url)) {
-      return { url: plan.url, spawned };
+    if (await probeCdpEndpoint(url)) {
+      return { url, spawned };
     }
     await sleep(500);
   }
   await stopCdpSpawn(spawned).catch(() => void 0);
-  throw new Error(
-    `cdpAutoLaunch: ${plan.browser} did not expose CDP at ${plan.url} within ${timeoutMs}ms`
-  );
+  throw new Error(`cdpAutoLaunch: ${browser} did not expose CDP at ${url} within ${timeoutMs}ms`);
+}
+async function ensureCdpEndpointReady(plan, opts) {
+  const timeoutMs = opts?.waitTimeoutMs ?? 45e3;
+  const reachable = await probeCdpEndpoint(plan.url);
+  if (!plan.autoLaunch) {
+    if (reachable) {
+      return { url: plan.url, spawned: null };
+    }
+    throw new Error(
+      `CDP endpoint not reachable at ${plan.url}. Start browser with remote debugging or set cdpAutoLaunch=true`
+    );
+  }
+  if (plan.shareExisting) {
+    if (reachable) {
+      return { url: plan.url, spawned: null };
+    }
+    const spawned2 = spawnCdpBrowser(plan);
+    return waitForCdpUrl(plan.url, spawned2, plan.browser, timeoutMs);
+  }
+  const freePort = await allocateFreeTcpPort();
+  const dedicated = withCdpPlanPort(plan, freePort);
+  const spawned = spawnCdpBrowser(dedicated);
+  return waitForCdpUrl(dedicated.url, spawned, dedicated.browser, timeoutMs);
 }
 
 // ../../packages/driver-rpc/src/index.ts
@@ -1454,14 +1596,10 @@ async function executeClickPath(command, page, payload) {
 
 // ../../plugins/driver-playwright/src/web-navigation.ts
 var VALID_WAIT_UNTIL = /* @__PURE__ */ new Set(["load", "domcontentloaded", "networkidle", "commit"]);
-function getNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
-}
 function resolveGotoOptions(payload) {
   const raw = payload?.waitUntil;
   const waitUntil = typeof raw === "string" && VALID_WAIT_UNTIL.has(raw) ? raw : "domcontentloaded";
-  const timeout = getNumber(payload?.navigationTimeoutMs) ?? getNumber(payload?.timeoutMs) ?? 3e4;
-  return { waitUntil, timeout: Math.max(1e3, timeout) };
+  return { waitUntil, timeout: resolveNavigationTimeoutMs(payload) };
 }
 async function gotoPage(page, url, payload) {
   const opts = resolveGotoOptions(payload);
@@ -1723,7 +1861,7 @@ var WEB_DISMISS_LOCATORS = [
 function asRecord5(value) {
   return typeof value === "object" && value !== null ? value : {};
 }
-function getNumber2(value) {
+function getNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
 function sleep2(page, ms) {
@@ -1765,8 +1903,8 @@ async function tryLocatorDismiss(page, payload, waitMs) {
   return null;
 }
 async function executeDismissPopups(command, page, payload) {
-  const timeoutMs = Math.max(600, getNumber2(payload.timeoutMs) ?? 1e4);
-  const attempts = Math.max(1, Math.floor(getNumber2(payload.attempts) ?? 4));
+  const timeoutMs = Math.max(600, getNumber(payload.timeoutMs) ?? 1e4);
+  const attempts = Math.max(1, Math.floor(getNumber(payload.attempts) ?? 4));
   const waitMs = resolveAutoWaitMs(payload);
   const started = Date.now();
   const deadline = started + timeoutMs;
@@ -1897,7 +2035,15 @@ function shouldForceMaximize(payload) {
   const state = String(p.windowState ?? options.windowState ?? "").toLowerCase();
   return state === "maximized";
 }
-function shouldCreateCdpContext(contextOptions) {
+function shouldCreateCdpContext(contextOptions, payload) {
+  const p = asRecord6(payload);
+  const options = asRecord6(p.options);
+  const reuseExplicit = typeof p.reuseCdpContext === "boolean" ? p.reuseCdpContext : typeof options.reuseCdpContext === "boolean" ? options.reuseCdpContext : void 0;
+  const reuseEnv = process.env.ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT?.trim().toLowerCase();
+  const reuse = reuseExplicit === true || reuseExplicit !== false && (reuseEnv === "1" || reuseEnv === "true");
+  if (!reuse) {
+    return true;
+  }
   const keys = Object.keys(contextOptions);
   if (keys.length === 0) return false;
   if (keys.length === 1 && "viewport" in contextOptions && contextOptions.viewport === null) {
@@ -2031,8 +2177,15 @@ async function releasePlaywrightDriverSession(driverSessionId) {
   sessions.delete(driverSessionId);
   await closePlaywrightSession(pw);
 }
-function isRecoverableInteractionError(error) {
+function isRecoverableInteractionError(error, command) {
   const message = error instanceof Error ? error.message : String(error);
+  if (shouldReleaseSessionOnTimeout({
+    command,
+    errorMessage: message,
+    errorCode: /timeout|timed out/i.test(message) ? "TIMEOUT" : void 0
+  })) {
+    return false;
+  }
   return /timeout|locator|not found|not visible|not enabled|strict mode violation|intercepts pointer events/i.test(
     message
   );
@@ -2086,7 +2239,7 @@ async function createPlaywrightSession(playwrightModule, payload) {
       const connectOptions = asRecord6(merged.connectOptions);
       const browser2 = await chromium.connectOverCDP(cdpUrl, connectOptions);
       const contexts = browser2.contexts();
-      const createNewContext = shouldCreateCdpContext(contextOptions);
+      const createNewContext = shouldCreateCdpContext(contextOptions, merged);
       const context2 = createNewContext ? await browser2.newContext(contextOptions) : contexts[0] ?? await browser2.newContext(contextOptions);
       const pages = context2.pages();
       const page2 = pages[0] ?? await context2.newPage();
@@ -2309,7 +2462,7 @@ async function failWithPage(command, page, code, message, data) {
   const enriched = await enrichFailureData(page, data);
   return failResult2(command, code, message, enriched);
 }
-function getNumber3(value) {
+function getNumber2(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
 function isTypeClearOp(payload) {
@@ -2360,7 +2513,7 @@ async function executePlaywrightCommand(session, command) {
       await focusVisibleBrowser(pw, payload);
       return await executePlaywrightInvoke(command, pw, payload);
     } catch (error) {
-      if (!isRecoverableInteractionError(error)) {
+      if (!isRecoverableInteractionError(error, "invoke")) {
         await releasePlaywrightDriverSession(session.id);
       }
       return failResult2(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
@@ -2430,7 +2583,7 @@ async function executePlaywrightCommand(session, command) {
       }
       const value = getString2(payload?.value);
       const label = getString2(payload?.label);
-      const index = getNumber3(payload?.index);
+      const index = getNumber2(payload?.index);
       if (value) {
         await locator.selectOption({ value });
       } else if (label) {
@@ -2441,8 +2594,8 @@ async function executePlaywrightCommand(session, command) {
         return failResult2(command, "INVALID_PAYLOAD", "select requires value, label, or index");
       }
     } else if (command.command === "scroll") {
-      const deltaX = getNumber3(payload?.deltaX) ?? 0;
-      const deltaY = getNumber3(payload?.deltaY) ?? 500;
+      const deltaX = getNumber2(payload?.deltaX) ?? 0;
+      const deltaY = getNumber2(payload?.deltaY) ?? 500;
       if (locator) {
         await locator.scrollIntoViewIfNeeded();
       }
@@ -2458,7 +2611,7 @@ async function executePlaywrightCommand(session, command) {
       await focusVisibleBrowser(pw, effective);
     } else if (command.command === "switchTab") {
       const pages = pw.context.pages();
-      const tabIndex = getNumber3(payload?.tabIndex) ?? 0;
+      const tabIndex = getNumber2(payload?.tabIndex) ?? 0;
       const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
       const selected = pages[safeIndex];
       if (!selected) {
@@ -2487,7 +2640,7 @@ async function executePlaywrightCommand(session, command) {
       }
       await source.dragTo(target);
     } else if (command.command === "wait") {
-      const timeoutMs = getNumber3(payload?.timeoutMs) ?? 300;
+      const timeoutMs = getNumber2(payload?.timeoutMs) ?? 300;
       await page.waitForTimeout(timeoutMs);
     } else if (command.command === "back") {
       await page.goBack().catch(() => null);
@@ -2642,15 +2795,26 @@ async function executePlaywrightCommand(session, command) {
       }
     };
   } catch (error) {
-    if (!isRecoverableInteractionError(error)) {
+    const message = error instanceof Error ? error.message : String(error);
+    const release = !isRecoverableInteractionError(error, cmd);
+    if (release) {
       await releasePlaywrightDriverSession(session.id);
+    }
+    const navLike = cmd === "navigate" || cmd === "reload" || cmd === "newTab";
+    const timedOut = /timeout|timed out|前置条件|无正确响应/i.test(message);
+    if (release && timedOut) {
+      const code = navLike ? "NAVIGATION_TIMEOUT" : "PRECONDITION_TIMEOUT";
+      return failResult2(command, code, message, {
+        sessionReleased: true,
+        recoveryHint: navLike ? "Navigation timed out (login wall / slow redirect). Browser session was released; retry with a new sessionId or longer payload.navigationTimeoutMs." : "Precondition wait timed out (no correct response). Browser session was released; fix page state and retry with a new sessionId."
+      });
     }
     const pw = getPlaywrightSession(session.id);
     return await failWithPage(
       command,
       pw?.page,
       "COMMAND_FAILED",
-      error instanceof Error ? error.message : String(error),
+      message,
       { locatorUsed: summarizeLocator(payload?.locator ?? payload?.selector) }
     );
   }
@@ -2674,7 +2838,7 @@ var playwrightPlugin = {
   async init() {
   },
   async createSession(platform) {
-    return { id: `pw-${Date.now()}`, platform };
+    return { id: `pw-${(0, import_node_crypto.randomUUID)()}`, platform };
   },
   async execute(session, command) {
     return executePlaywrightCommand(session, command);

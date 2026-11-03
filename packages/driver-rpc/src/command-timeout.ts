@@ -3,6 +3,15 @@
 /** 未配置 env 时的默认墙钟超时，避免插件调用无限挂起 */
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
+/**
+ * 打开页默认导航超时（毫秒）。登录墙/重定向常见需 ≥60s；
+ * 可用 `ADA_WEB_NAVIGATION_TIMEOUT_MS` 或 payload.navigationTimeoutMs / timeoutMs 覆盖。
+ */
+export const DEFAULT_NAVIGATION_TIMEOUT_MS = 75_000;
+
+/** 内核墙钟相对导航超时额外缓冲，避免 Playwright goto 未结束就被 COMMAND_TIMEOUT 杀掉 */
+export const NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS = 5_000;
+
 export class CommandTimeoutError extends Error {
   override readonly name = "CommandTimeoutError";
 
@@ -11,7 +20,33 @@ export class CommandTimeoutError extends Error {
   }
 }
 
-export function resolveCommandTimeoutMs(payload?: Record<string, unknown>): number {
+export function isNavigationLikeCommand(command?: string): boolean {
+  return command === "navigate" || command === "reload" || command === "newTab";
+}
+
+/** page.goto / 打开页等待上限 */
+export function resolveNavigationTimeoutMs(payload?: Record<string, unknown>): number {
+  const p = payload ?? {};
+  const fromPayload =
+    typeof p.navigationTimeoutMs === "number"
+      ? p.navigationTimeoutMs
+      : typeof p.timeoutMs === "number" && p.timeoutMs > 0
+        ? p.timeoutMs
+        : undefined;
+  if (typeof fromPayload === "number" && fromPayload > 0) {
+    return Math.max(1_000, Math.floor(fromPayload));
+  }
+  const env = process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS?.trim();
+  if (env) {
+    const n = Number(env);
+    if (Number.isFinite(n) && n > 0) {
+      return Math.max(1_000, Math.floor(n));
+    }
+  }
+  return DEFAULT_NAVIGATION_TIMEOUT_MS;
+}
+
+export function resolveCommandTimeoutMs(payload?: Record<string, unknown>, command?: string): number {
   const p = payload ?? {};
   const options =
     typeof p.options === "object" && p.options !== null ? (p.options as Record<string, unknown>) : {};
@@ -21,17 +56,28 @@ export function resolveCommandTimeoutMs(payload?: Record<string, unknown>): numb
       : typeof options.commandTimeoutMs === "number"
         ? options.commandTimeoutMs
         : undefined;
+  let resolved: number;
   if (typeof fromPayload === "number" && fromPayload > 0) {
-    return fromPayload;
-  }
-  const env = process.env.ADA_COMMAND_TIMEOUT_MS;
-  if (env?.trim()) {
-    const n = Number(env);
-    if (Number.isFinite(n) && n > 0) {
-      return n;
+    resolved = Math.floor(fromPayload);
+  } else {
+    const env = process.env.ADA_COMMAND_TIMEOUT_MS;
+    if (env?.trim()) {
+      const n = Number(env);
+      if (Number.isFinite(n) && n > 0) {
+        resolved = Math.floor(n);
+      } else {
+        resolved = DEFAULT_COMMAND_TIMEOUT_MS;
+      }
+    } else {
+      resolved = DEFAULT_COMMAND_TIMEOUT_MS;
     }
   }
-  return DEFAULT_COMMAND_TIMEOUT_MS;
+  // 打开页/登录等待：内核墙钟至少覆盖导航超时，超时后由内核 teardown 释放连接
+  if (isNavigationLikeCommand(command)) {
+    const navMs = resolveNavigationTimeoutMs(payload);
+    resolved = Math.max(resolved, navMs + NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS);
+  }
+  return resolved;
 }
 
 /** 控件查找超时（与 commandTimeoutMs 分离；兼容 payload.timeoutMs 作 locator 等待） */

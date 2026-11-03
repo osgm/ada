@@ -135,15 +135,25 @@ function buildFailureOptions(input: {
   const recoveryInput = { tool, envelope, result, errorKind };
   const locatorMiss = isLocatorFailure(result);
   const recovery = resolveRecoveryFields(recoveryInput);
+  const data = result.data && typeof result.data === "object" ? (result.data as Record<string, unknown>) : {};
+  const sessionReleased =
+    data.sessionReleased === true ||
+    data.requireNewSessionId === true ||
+    String(result.errorCode ?? "").toUpperCase() === "SESSION_RELEASED";
   return {
     isError: true as const,
-    errorKind,
+    errorKind: sessionReleased ? ("timeout" as const) : errorKind,
     recoverable:
+      sessionReleased ||
       errorKind === "timeout" ||
       errorKind === "environment" ||
       errorKind === "assertion_failed" ||
       locatorMiss,
-    suggestedNextTool: suggestRecoveryTool(result, envelope.platform),
+    suggestedNextTool: sessionReleased
+      ? envelope.platform === "web"
+        ? "ada_web_action"
+        : "ada_mobile_action"
+      : suggestRecoveryTool(result, envelope.platform),
     ...recovery,
     uiCandidates: buildUiCandidatesHint({ platform: envelope.platform, tool, result })
   };
@@ -211,6 +221,23 @@ export function wrapCommandToolResult(input: {
   };
 
   if (!result.success) {
+    const data =
+      result.data && typeof result.data === "object" ? (result.data as Record<string, unknown>) : {};
+    if (
+      data.sessionReleased === true ||
+      data.requireNewSessionId === true ||
+      String(result.errorCode ?? "").toUpperCase() === "SESSION_RELEASED"
+    ) {
+      payload.sessionReleased = true;
+      payload.requireNewSessionId = true;
+      payload.errorCode = "SESSION_RELEASED";
+      if (typeof data.suggestedSessionId === "string") {
+        payload.suggestedSessionId = data.suggestedSessionId;
+      }
+      if (typeof data.previousSessionId === "string") {
+        payload.previousSessionId = data.previousSessionId;
+      }
+    }
     return mcpTextResult(payload, buildFailureOptions({ tool, envelope, result }));
   }
 

@@ -221,14 +221,25 @@ export {
   DEFAULT_BATCH_MIN_BUDGET_MS,
   DEFAULT_BATCH_PER_STEP_MS,
   DEFAULT_COMMAND_TIMEOUT_MS,
+  DEFAULT_NAVIGATION_TIMEOUT_MS,
+  NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS,
+  isNavigationLikeCommand,
   raceCommandTimeout,
   resolveBatchBudgetMs,
   resolveBatchStepTimeoutMs,
   resolveCommandTimeoutMs,
   resolveLocatorTimeoutMs,
+  resolveNavigationTimeoutMs,
   resolveSubOperationTimeoutMs
 } from "./command-timeout.js";
 export { isSessionReadOnlyCommand } from "./session-command-class.js";
+export {
+  DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS,
+  extractWaitedMsFromMessage,
+  isTimeoutFailure,
+  releaseOnWaitTimeoutMs,
+  shouldReleaseSessionOnTimeout
+} from "./session-release-policy.js";
 export {
   UI_ELEMENT_NOT_FOUND,
   buildOptionalUiMissResult,
@@ -361,6 +372,7 @@ export { resolvePlaywrightBringToFront, resolvePlaywrightHeadless } from "./play
 export { ElementIdCache, locatorCacheKey } from "./mobile-element-cache.js";
 export { isTransientMobileErrorCode, MOBILE_TRANSIENT_ERROR_CODES } from "./mobile-transient-errors.js";
 export {
+  allocateFreeTcpPort,
   defaultCdpPort,
   ensureCdpEndpointReady,
   parseCdpEndpoint,
@@ -368,12 +380,14 @@ export {
   resolveCdpAutoLaunchPlan,
   resolveCdpBrowserFamily,
   resolveChromiumCdpUserDataDir,
+  resolveShareCdpBrowser,
   stopCdpSpawn,
   cleanupCdpSpawns,
   cleanupAllCdpSpawns,
   cleanupAllCdpSpawnsDetached,
   forceKillProcessTree,
   forceKillProcessTreeDetached,
+  withCdpPlanPort,
   type CdpAutoLaunchPlan,
   type CdpBrowserFamily,
   type CdpSpawnHandle

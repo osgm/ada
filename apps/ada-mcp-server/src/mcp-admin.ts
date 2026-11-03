@@ -4,6 +4,7 @@ import { clearActionLedger, clearAllActionLedgers } from "./mcp-action-ledger.js
 import { invalidateMobilePageSourceCache } from "./mcp-mobile-dump-cache.js";
 import { clearLocatorHintCache } from "./mcp-locator-cache.js";
 import { clearMobileSessionProbeCache } from "./mcp-mobile-session-liveness.js";
+import { clearReleasedSession, markSessionReleased } from "./mcp-released-sessions.js";
 import { clearAllWebSessionTracks, clearWebSessionTrack } from "./mcp-session-liveness.js";
 import { asRecord } from "./mcp-utils.js";
 
@@ -63,6 +64,9 @@ export async function handleCloseSession(
   const engine = platform === "web" && typeof payload.engine === "string" ? (payload.engine as "playwright") : undefined;
   const closed = await deps.closeSession(platform, sessionId, { engine, payload });
   let iproxyStopped = 0;
+  if (closed) {
+    markSessionReleased(platform, sessionId, "ada_close_session");
+  }
   if (closed && platform === "web") {
     clearWebSessionTrack(sessionId);
     clearActionLedger(sessionId);
@@ -97,6 +101,7 @@ export async function handleCloseAllSessions(
   invalidateMobilePageSourceCache();
   clearMobileSessionProbeCache();
   clearLocatorHintCache();
+  clearReleasedSession();
   const iproxyStopped = stopAllIosIproxyForwards();
   return deps.mcpTextResult({ status: "ok", closed, iproxyStopped });
 }

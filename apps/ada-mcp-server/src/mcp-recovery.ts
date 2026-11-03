@@ -98,6 +98,35 @@ export function buildRecoveryPlan(input: {
   const sessionId = input.sessionId ?? input.envelope?.sessionId ?? "same-session";
   const platform = input.platform ?? input.envelope?.platform ?? "web";
   const command = input.envelope?.command;
+  const resultData =
+    input.result?.data && typeof input.result.data === "object"
+      ? (input.result.data as Record<string, unknown>)
+      : undefined;
+  const suggestedSessionId =
+    typeof resultData?.suggestedSessionId === "string" ? resultData.suggestedSessionId : undefined;
+  if (
+    resultData?.sessionReleased === true ||
+    resultData?.requireNewSessionId === true ||
+    String(input.result?.errorCode ?? "").toUpperCase() === "SESSION_RELEASED"
+  ) {
+    const nextId = suggestedSessionId || `${sessionId}-r${Date.now()}`;
+    const startTool = platform === "web" ? "ada_web_action" : "ada_mobile_action";
+    const startCommand = platform === "web" ? "navigate" : "launchApp";
+    return [
+      {
+        kind: "tool",
+        tool: startTool,
+        note: `Do NOT reuse sessionId="${sessionId}". Use new sessionId="${nextId}" then ${startCommand}.`,
+        args: { sessionId: nextId, command: startCommand }
+      },
+      {
+        kind: "retry",
+        tool: input.tool,
+        note: `Retry original step with sessionId="${nextId}" only after ${startCommand} succeeds`,
+        args: { sessionId: nextId }
+      }
+    ];
+  }
   const errorKind = input.errorKind;
 
   if (errorKind === "environment") {
@@ -239,6 +268,19 @@ export function buildRecoveryHint(input: {
       ? assertionDiff.locatorUsed.trim()
       : undefined);
   const locatorHint = locatorUsed ? ` Current locator="${locatorUsed}".` : "";
+  if (
+    resultData?.sessionReleased === true ||
+    resultData?.requireNewSessionId === true ||
+    String(input.result?.errorCode ?? "").toUpperCase() === "SESSION_RELEASED"
+  ) {
+    const nextId =
+      (typeof resultData?.suggestedSessionId === "string" && resultData.suggestedSessionId) ||
+      `${sessionId}-r${Date.now()}`;
+    return (
+      `SESSION_RELEASED: do not reuse sessionId="${sessionId}". ` +
+      `Switch to sessionId="${nextId}", then ${platform === "web" ? "navigate" : "launchApp"} before retrying ${input.tool}.`
+    );
+  }
   const errorKind =
     input.errorKind ??
     (input.result && input.envelope ? classifyErrorKind(input.result, input.envelope.platform) : "unknown");

@@ -1,6 +1,6 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.90",
+  "version": "0.1.91",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "license": "Apache-2.0",
   "author": "Kalami (卡拉米)",
@@ -53,26 +53,26 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "zod": "3.25.76",
     "express": "^5.2.1",
+    "hypium-driver": "^6.1.210",
     "jimp": "^1.6.0",
     "js-yaml": "^4.1.0",
-    "hypium-driver": "^6.1.210",
-    "playwright": "1.59.1"
+    "playwright": "1.59.1",
+    "zod": "3.25.76"
   },
   "devDependencies": {
-    "@types/express": "^5.0.3",
-    "@ada/install-deps": "0.1.0",
-    "@ada/runtime-probe": "0.1.0",
     "@ada/agent-core": "0.1.0",
     "@ada/contracts": "0.1.0",
     "@ada/core-kernel": "0.1.0",
     "@ada/core-runtime": "0.1.0",
     "@ada/driver-android": "0.1.0",
-    "@ada/driver-ios": "0.1.0",
     "@ada/driver-harmony": "0.1.0",
+    "@ada/driver-ios": "0.1.0",
     "@ada/driver-playwright": "0.1.0",
-    "@ada/plugin-host": "0.1.0"
+    "@ada/install-deps": "0.1.0",
+    "@ada/plugin-host": "0.1.0",
+    "@ada/runtime-probe": "0.1.0",
+    "@types/express": "^5.0.3"
   },
   "engines": {
     "node": ">=22"

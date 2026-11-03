@@ -23,6 +23,10 @@ import { handleMobileDismissPopups, handleWebDismissPopups } from "./mcp-dismiss
 import { handleWebRecipe } from "./mcp-web-recipe.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import type { McpErrorKind } from "./mcp-recovery.js";
+import {
+  isSessionReleasedError,
+  sessionReleasedErrorToCommandResult
+} from "./mcp-released-sessions.js";
 import type { McpResultOptions } from "./mcp-result.js";
 import type { MonitorOptions } from "./monitoring.js";
 
@@ -131,7 +135,12 @@ export interface McpDispatchRuntimeDeps {
   requireMobilePlatform: (value: unknown) => MobilePlatform;
   mobilePreflight: (platform: AdaPlatform) => Promise<void>;
   ensureWebRuntimeReady: () => Promise<void>;
-  ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+  ensureSessionActive: (
+    platform: AdaPlatform,
+    sessionId: string,
+    command: string,
+    options?: { forceReuseReleasedSession?: boolean }
+  ) => Promise<void>;
   ensureWebPageReadyForTool: (sessionId: string, command: string) => Promise<void>;
   ensureMobileSessionReadyForTool: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
   toExtractResponse: (input: {
@@ -158,6 +167,36 @@ export async function dispatchAdaMcpTool(
   args: Record<string, unknown>,
   deps: McpToolDispatchDeps
   // MCP SDK ServerResult is a wide structural type; keep runtime flexible.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
+  try {
+    return await dispatchAdaMcpToolInner(tool, args, deps);
+  } catch (error) {
+    if (!isSessionReleasedError(error)) {
+      throw error;
+    }
+    const sessionId = String(args.sessionId ?? "mcp-session");
+    const platform = deps.normalizePlatform(args.platform, { allowDefaultWeb: true });
+    const command = typeof args.command === "string" ? args.command : "action";
+    const envelope = {
+      requestId: String(args.requestId ?? `session-released-${Date.now()}`),
+      sessionId,
+      platform,
+      command,
+      payload: deps.asRecord(args.payload)
+    } as CommandEnvelope;
+    return deps.wrapCommandToolResult({
+      tool,
+      envelope,
+      result: sessionReleasedErrorToCommandResult(error, envelope.requestId)
+    });
+  }
+}
+
+async function dispatchAdaMcpToolInner(
+  tool: string,
+  args: Record<string, unknown>,
+  deps: McpToolDispatchDeps
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   switch (tool) {

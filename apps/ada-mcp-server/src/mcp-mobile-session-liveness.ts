@@ -1,5 +1,11 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import { closeSession } from "./executor.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
+import {
+  createSessionReleasedError,
+  markSessionReleased,
+  suggestNextSessionId
+} from "./mcp-released-sessions.js";
 
 const probeCache = new Map<string, { at: number; ok: boolean }>();
 
@@ -135,9 +141,17 @@ export async function ensureMobileSessionReady(
   }
 
   probeCache.set(cacheKey, { at: Date.now(), ok: false });
-  throw new Error(
-    `Mobile session "${sessionId}" (${platform}) probe failed for ${command}: ` +
-      `${probe.errorMessage ?? probe.errorCode ?? "unknown"}. ` +
-      `Run ada_devices action=scan or relaunch with launchApp before retrying.`
-  );
+  clearMobileSessionProbeCache(platform, sessionId);
+  const reason =
+    `前置条件等待超时: Mobile session "${sessionId}" (${platform}) probe failed for ${command}: ` +
+    `${probe.errorMessage ?? probe.errorCode ?? "unknown"}`;
+  const record = markSessionReleased(platform, sessionId, reason);
+  await closeSession(platform, sessionId).catch(() => undefined);
+  const suggested = record?.suggestedSessionId ?? suggestNextSessionId(sessionId);
+  throw createSessionReleasedError({
+    sessionId,
+    reason,
+    suggestedSessionId: suggested,
+    command
+  });
 }

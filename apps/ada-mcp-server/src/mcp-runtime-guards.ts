@@ -16,6 +16,7 @@ import { ensureMobileSessionReady as probeMobileSession } from "./mcp-mobile-ses
 import { normalizeCommand, normalizePlatform, type AdaPlatform } from "./mcp-normalize.js";
 import { isMcpExtractRaw } from "./mcp-response-mode.js";
 import { invalidateRuntimePreflightCache, ensureMobileRuntimeReady } from "./mcp-runtime-preflight.js";
+import { assertSessionNotReleased } from "./mcp-released-sessions.js";
 import { ensureWebPageReady as probeAndRecoverWebPage } from "./mcp-session-liveness.js";
 import { captureMcpMonitor, type MonitorOptions } from "./monitoring.js";
 import { asRecord } from "./mcp-utils.js";
@@ -280,12 +281,18 @@ export function mobilePreflight(platform: AdaPlatform): Promise<void> {
 export async function ensureSessionActive(
   platform: AdaPlatform,
   sessionId: string,
-  command: string
+  command: string,
+  options?: { forceReuseReleasedSession?: boolean }
 ): Promise<void> {
-  if (!shouldPreflightSession(command, platform)) {
+  if (sessionId === "mcp-session" || sessionId === "mcp-batch" || sessionId === "mcp-invoke" || sessionId === "mcp-extract") {
     return;
   }
-  if (sessionId === "mcp-session" || sessionId === "mcp-batch" || sessionId === "mcp-invoke" || sessionId === "mcp-extract") {
+  // 已释放的 sessionId：所有命令（含 navigate）均拦截，强制换新 id，预防幽灵会话错误
+  assertSessionNotReleased(platform, sessionId, command, {
+    allowForceReuse: true,
+    forceReuse: options?.forceReuseReleasedSession === true
+  });
+  if (!shouldPreflightSession(command, platform)) {
     return;
   }
   const sessions = listActiveSessions();

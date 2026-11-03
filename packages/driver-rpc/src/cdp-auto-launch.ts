@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { resolvePlaywrightHeadless } from "./playwright-defaults.js";
@@ -29,6 +30,11 @@ export interface CdpAutoLaunchPlan {
   userDataDir: string;
   headless: boolean;
   extraArgs: string[];
+  /**
+   * 用户显式指定了 cdpEndpoint/cdpPort，或 payload.shareCdpBrowser=true：
+   * 允许附着已有浏览器。默认 false → 并发任务各自新开浏览器。
+   */
+  shareExisting: boolean;
 }
 
 export interface CdpSpawnHandle {
@@ -97,6 +103,64 @@ export function defaultCdpPort(browser: CdpBrowserFamily): number {
   return Number.isFinite(n) && n > 0 ? n : 9222;
 }
 
+/** 是否允许附着已有 CDP 浏览器（默认否：并发任务各自新开） */
+export function resolveShareCdpBrowser(payload?: Record<string, unknown>): boolean {
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const explicit =
+    pickBool(p, options, "shareCdpBrowser", "ADA_PLAYWRIGHT_CDP_SHARE_EXISTING") ??
+    pickBool(p, options, "shareExisting");
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  // 仅附着、未 autoLaunch：用户指定了 endpoint，视为有意共享/附着
+  const autoLaunch = pickBool(p, options, "cdpAutoLaunch", "ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH") ?? false;
+  const endpointRaw = pickString(p, options, "cdpEndpoint", "ADA_PLAYWRIGHT_CDP_ENDPOINT");
+  if (!autoLaunch && Boolean(endpointRaw)) {
+    return true;
+  }
+  return false;
+}
+
+/** 分配本机空闲端口，供并发 autoLaunch 各自开浏览器 */
+export async function allocateFreeTcpPort(host = "127.0.0.1"): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!port) {
+          reject(new Error("allocateFreeTcpPort: failed to bind ephemeral port"));
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+export function withCdpPlanPort(plan: CdpAutoLaunchPlan, port: number): CdpAutoLaunchPlan {
+  const host = (() => {
+    try {
+      return new URL(plan.url).hostname || "127.0.0.1";
+    } catch {
+      return "127.0.0.1";
+    }
+  })();
+  return {
+    ...plan,
+    port,
+    url: `http://${host}:${port}`
+  };
+}
+
 export function resolveCdpAutoLaunchPlan(payload?: Record<string, unknown>): CdpAutoLaunchPlan | null {
   const p = asRecord(payload);
   const options = asRecord(p.options);
@@ -125,6 +189,7 @@ export function resolveCdpAutoLaunchPlan(payload?: Record<string, unknown>): Cdp
     ? (launchOptions.args as unknown[]).map(String)
     : [];
   const extraArgs = [...launchOptionsArgs, ...cdpLaunchArgs];
+  const shareExisting = resolveShareCdpBrowser(p);
 
   return {
     url: parts.url,
@@ -135,7 +200,8 @@ export function resolveCdpAutoLaunchPlan(payload?: Record<string, unknown>): Cdp
     channel: pickString(p, options, "channel", "ADA_PLAYWRIGHT_CHANNEL"),
     userDataDir: pickString(p, options, "userDataDir", "ADA_PLAYWRIGHT_USER_DATA_DIR"),
     headless,
-    extraArgs
+    extraArgs,
+    shareExisting
   };
 }
 
@@ -331,30 +397,55 @@ export function cleanupAllCdpSpawnsDetached(): number {
   return handles.length;
 }
 
-/** Probe CDP; if autoLaunch and unreachable, spawn browser and wait until debugger is up. */
+async function waitForCdpUrl(
+  url: string,
+  spawned: CdpSpawnHandle | null,
+  browser: CdpBrowserFamily,
+  timeoutMs: number
+): Promise<{ url: string; spawned: CdpSpawnHandle | null }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await probeCdpEndpoint(url)) {
+      return { url, spawned };
+    }
+    await sleep(500);
+  }
+  await stopCdpSpawn(spawned).catch(() => undefined);
+  throw new Error(`cdpAutoLaunch: ${browser} did not expose CDP at ${url} within ${timeoutMs}ms`);
+}
+
+/**
+ * Probe CDP; if autoLaunch and unreachable, spawn browser and wait until debugger is up.
+ * 默认不共用已有浏览器：autoLaunch 且 !shareExisting 时始终分配空闲端口新开独立进程（并发隔离）。
+ * 显式共享：plan.shareExisting / payload.shareCdpBrowser / ADA_PLAYWRIGHT_CDP_SHARE_EXISTING。
+ */
 export async function ensureCdpEndpointReady(
   plan: CdpAutoLaunchPlan,
   opts?: { waitTimeoutMs?: number }
 ): Promise<{ url: string; spawned: CdpSpawnHandle | null }> {
   const timeoutMs = opts?.waitTimeoutMs ?? 45_000;
-  if (await probeCdpEndpoint(plan.url)) {
-    return { url: plan.url, spawned: null };
-  }
+  const reachable = await probeCdpEndpoint(plan.url);
+
   if (!plan.autoLaunch) {
+    if (reachable) {
+      return { url: plan.url, spawned: null };
+    }
     throw new Error(
       `CDP endpoint not reachable at ${plan.url}. Start browser with remote debugging or set cdpAutoLaunch=true`
     );
   }
-  const spawned = spawnCdpBrowser(plan);
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await probeCdpEndpoint(plan.url)) {
-      return { url: plan.url, spawned };
+
+  if (plan.shareExisting) {
+    if (reachable) {
+      return { url: plan.url, spawned: null };
     }
-    await sleep(500);
+    const spawned = spawnCdpBrowser(plan);
+    return waitForCdpUrl(plan.url, spawned, plan.browser, timeoutMs);
   }
-  await stopCdpSpawn(spawned).catch(() => undefined);
-  throw new Error(
-    `cdpAutoLaunch: ${plan.browser} did not expose CDP at ${plan.url} within ${timeoutMs}ms`
-  );
+
+  // 并发默认：每个 session 独立浏览器（空闲端口 + 独立 profile）
+  const freePort = await allocateFreeTcpPort();
+  const dedicated = withCdpPlanPort(plan, freePort);
+  const spawned = spawnCdpBrowser(dedicated);
+  return waitForCdpUrl(dedicated.url, spawned, dedicated.browser, timeoutMs);
 }

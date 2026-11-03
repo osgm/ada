@@ -1,8 +1,6 @@
-const VALID_WAIT_UNTIL = new Set(["load", "domcontentloaded", "networkidle", "commit"]);
+import { resolveNavigationTimeoutMs } from "@ada/driver-rpc";
 
-function getNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
+const VALID_WAIT_UNTIL = new Set(["load", "domcontentloaded", "networkidle", "commit"]);
 
 export type GotoWaitUntil = "load" | "domcontentloaded" | "networkidle" | "commit";
 
@@ -11,16 +9,12 @@ export interface GotoOptions {
   timeout: number;
 }
 
-/** 重站默认 domcontentloaded，避免 load 事件迟迟不触发导致 30s 超时 */
+/** 重站默认 domcontentloaded；超时默认 ≥60s（登录墙），见 resolveNavigationTimeoutMs */
 export function resolveGotoOptions(payload: Record<string, unknown> | undefined): GotoOptions {
   const raw = payload?.waitUntil;
   const waitUntil =
     typeof raw === "string" && VALID_WAIT_UNTIL.has(raw) ? (raw as GotoWaitUntil) : "domcontentloaded";
-  const timeout =
-    getNumber(payload?.navigationTimeoutMs) ??
-    getNumber(payload?.timeoutMs) ??
-    30_000;
-  return { waitUntil, timeout: Math.max(1000, timeout) };
+  return { waitUntil, timeout: resolveNavigationTimeoutMs(payload) };
 }
 
 export async function gotoPage(

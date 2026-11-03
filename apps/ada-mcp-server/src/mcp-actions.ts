@@ -23,7 +23,12 @@ export async function handleWebAction(
     mergeWebEngineIntoPayload: (args: Record<string, unknown>) => Record<string, unknown>;
     allowMock: (args: Record<string, unknown>) => boolean;
     ensureWebRuntimeReady: () => Promise<void>;
-    ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureSessionActive: (
+      platform: AdaPlatform,
+      sessionId: string,
+      command: string,
+      options?: { forceReuseReleasedSession?: boolean }
+    ) => Promise<void>;
     ensureWebPageReady?: (sessionId: string, command: string) => Promise<void>;
     parseActionRunOptions: (args: Record<string, unknown>) => ActionRunOptions;
     runCommandWithRetry: (
@@ -57,7 +62,8 @@ export async function handleWebAction(
     deps.allowMock(args)
   );
   await deps.ensureWebRuntimeReady();
-  await deps.ensureSessionActive("web", envelope.sessionId, command);
+  const forceReuseReleasedSession = asRecord(envelope.payload).forceReuseReleasedSession === true;
+  await deps.ensureSessionActive("web", envelope.sessionId, command, { forceReuseReleasedSession });
   if (deps.ensureWebPageReady) {
     await deps.ensureWebPageReady(envelope.sessionId, command);
   }
@@ -150,7 +156,12 @@ export async function handleMobileAction(
     allowMock: (args: Record<string, unknown>) => boolean;
     withTiming: <T>(label: string, fn: () => Promise<T>) => Promise<T>;
     mobilePreflight: (platform: AdaPlatform) => Promise<void>;
-    ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+    ensureSessionActive: (
+      platform: AdaPlatform,
+      sessionId: string,
+      command: string,
+      options?: { forceReuseReleasedSession?: boolean }
+    ) => Promise<void>;
     ensureMobileSessionReady?: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
     parseActionRunOptions: (args: Record<string, unknown>) => ActionRunOptions;
     runCommandWithRetry: (
@@ -182,7 +193,10 @@ export async function handleMobileAction(
     deps.allowMock(args)
   );
   await deps.withTiming(`ensureMobileRuntimeReady(${envelope.platform})`, () => deps.mobilePreflight(envelope.platform));
-  await deps.ensureSessionActive(envelope.platform, envelope.sessionId, command);
+  const forceReuseReleasedSession = asRecord(envelope.payload).forceReuseReleasedSession === true;
+  await deps.ensureSessionActive(envelope.platform, envelope.sessionId, command, {
+    forceReuseReleasedSession
+  });
   if (deps.ensureMobileSessionReady) {
     await deps.ensureMobileSessionReady(envelope.platform, envelope.sessionId, command);
   }

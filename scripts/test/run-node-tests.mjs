@@ -31,6 +31,9 @@ const MCP_UNIT_FILES = new Set([
   "session-command-class.test.ts",
   "inbound-command.test.ts",
   "command-timeout.test.ts",
+  "web-navigation-timeout.test.ts",
+  "session-release-policy.test.ts",
+  "mcp-released-sessions.test.ts",
   "web-interaction-recipe.test.ts",
   "web-fill-search-e2e.test.ts",
   "view-tree-e2e.test.ts"

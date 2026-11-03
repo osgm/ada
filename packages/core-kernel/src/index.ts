@@ -8,7 +8,8 @@ import {
   parseKernelSessionKey,
   parseWebEngineFromPayload,
   raceCommandTimeout,
-  resolveCommandTimeoutMs
+  resolveCommandTimeoutMs,
+  shouldReleaseSessionOnTimeout
 } from "@ada/driver-rpc";
 import { PluginHost } from "@ada/plugin-host";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
@@ -254,7 +255,7 @@ export class TaskExecutor {
   }
 
   private async runPluginExecute(context: ExecuteContext, command: CommandEnvelope): Promise<CommandResult> {
-    const timeoutMs = resolveCommandTimeoutMs(command.payload);
+    const timeoutMs = resolveCommandTimeoutMs(command.payload, command.command);
     const work = context.plugin.execute(context.session, command);
     try {
       return await raceCommandTimeout(work, timeoutMs, `${command.platform}:${command.command}`);
@@ -265,6 +266,18 @@ export class TaskExecutor {
       }
       throw error;
     }
+  }
+
+  /** 打开页 / 前置条件 / 长时间无正确响应超时：释放驱动会话，避免连接泄漏 */
+  private shouldReleaseOnFailedResult(command: CommandEnvelope, result: CommandResult): boolean {
+    if (result.success) {
+      return false;
+    }
+    return shouldReleaseSessionOnTimeout({
+      command: command.command,
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage
+    });
   }
 
   private static readonly DESTROY_SESSION_MS = 20_000;
@@ -321,6 +334,18 @@ export class TaskExecutor {
             attempt
           }
         });
+        if (this.shouldReleaseOnFailedResult(command, normalized)) {
+          await this.teardownSession(command, context.plugin, context.session);
+          return {
+            ...normalized,
+            errorCode: normalized.errorCode || "PRECONDITION_TIMEOUT",
+            data: {
+              ...(normalized.data ?? {}),
+              sessionReleased: true,
+              requireNewSessionId: true
+            }
+          };
+        }
         if (this.shouldRetryCommand(normalized, attempt, command.platform)) {
           await this.teardownSession(command, context.plugin, context.session);
           lastFailure = normalized;
@@ -329,7 +354,20 @@ export class TaskExecutor {
         return normalized;
       } catch (error) {
         if (error instanceof CommandTimeoutError) {
-          return this.resultAssembler.failure(command.requestId, "COMMAND_TIMEOUT", error.message);
+          // teardown 已在 runPluginExecute 完成；标记必须换 sessionId
+          const timedOut = this.resultAssembler.failure(
+            command.requestId,
+            "COMMAND_TIMEOUT",
+            error.message
+          );
+          return {
+            ...timedOut,
+            data: {
+              ...(timedOut.data ?? {}),
+              sessionReleased: true,
+              requireNewSessionId: true
+            }
+          };
         }
         const message = error instanceof Error ? error.message : String(error);
         const failed = this.resultAssembler.failure(command.requestId, "KERNEL_EXECUTION_FAILED", message);
@@ -349,7 +387,14 @@ export class TaskExecutor {
           lastFailure = failed;
           continue;
         }
-        return failed;
+        return {
+          ...failed,
+          data: {
+            ...(failed.data ?? {}),
+            sessionReleased: true,
+            requireNewSessionId: true
+          }
+        };
       }
     }
     return lastFailure;

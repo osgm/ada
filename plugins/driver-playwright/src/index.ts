@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
 import { executePlaywrightCommand } from "./commands/index.js";
@@ -26,7 +27,8 @@ const playwrightPlugin: DriverPlugin = {
   async init() {},
 
   async createSession(platform): Promise<DriverSession> {
-    return { id: `pw-${Date.now()}`, platform };
+    // UUID：避免并发 createSession 在同一毫秒碰撞导致共用浏览器
+    return { id: `pw-${randomUUID()}`, platform };
   },
 
   async execute(session: DriverSession, command: CommandEnvelope): Promise<CommandResult> {

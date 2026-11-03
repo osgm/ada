@@ -2,6 +2,12 @@ import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { runCommand } from "./executor.js";
 import { applyLocatorWarmHint, rememberLocatorSuccess } from "./mcp-locator-cache.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
+import {
+  assertSessionNotReleased,
+  clearReleasedSession,
+  markSessionReleased,
+  suggestNextSessionId
+} from "./mcp-released-sessions.js";
 
 export { ensureWebRuntimeReady } from "./mcp-runtime-preflight.js";
 
@@ -66,8 +72,50 @@ export function applyCommandTimeout(
   return { ...command, payload };
 }
 
+function annotateReleasedResult(command: CommandEnvelope, result: CommandResult): CommandResult {
+  const data = result.data && typeof result.data === "object" ? { ...result.data } : {};
+  if (data.sessionReleased !== true && data.requireNewSessionId !== true) {
+    return result;
+  }
+  const record = markSessionReleased(
+    command.platform,
+    command.sessionId,
+    String(result.errorMessage ?? result.errorCode ?? "timeout/precondition release")
+  );
+  const suggestedSessionId =
+    (typeof data.suggestedSessionId === "string" && data.suggestedSessionId) ||
+    record?.suggestedSessionId ||
+    suggestNextSessionId(command.sessionId);
+  return {
+    ...result,
+    data: {
+      ...data,
+      sessionReleased: true,
+      requireNewSessionId: true,
+      previousSessionId: command.sessionId,
+      suggestedSessionId,
+      recoveryHint:
+        typeof data.recoveryHint === "string" && data.recoveryHint
+          ? data.recoveryHint
+          : `Session released. Use new sessionId="${suggestedSessionId}" then navigate/launchApp; do not reuse "${command.sessionId}".`
+    }
+  };
+}
+
 export async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: number): Promise<CommandResult> {
-  return runCommand(applyCommandTimeout(command, timeoutMs));
+  const forceReuse = command.payload?.forceReuseReleasedSession === true;
+  assertSessionNotReleased(command.platform, command.sessionId, command.command, {
+    allowForceReuse: true,
+    forceReuse
+  });
+  const result = await runCommand(applyCommandTimeout(command, timeoutMs));
+  if (
+    result.success &&
+    (command.command === "navigate" || command.command === "launchApp" || command.command === "newTab")
+  ) {
+    clearReleasedSession(command.platform, command.sessionId);
+  }
+  return annotateReleasedResult(command, result);
 }
 
 export async function runCommandWithRetry(
@@ -95,6 +143,13 @@ export async function runCommandWithRetry(
     last = await executeWithTimeout(warmed, options.timeoutMs);
     if (last.success) {
       rememberLocatorSuccess(warmed, last);
+      return { result: last, attempts: attempt };
+    }
+    // 已释放会话：禁止同 sessionId 重试，避免幽灵连接错误
+    if (last.data && (last.data as { sessionReleased?: boolean }).sessionReleased === true) {
+      return { result: last, attempts: attempt };
+    }
+    if (String(last.errorCode ?? "").toUpperCase() === "SESSION_RELEASED") {
       return { result: last, attempts: attempt };
     }
     if (attempt < maxAttempts && !isTransientCommandFailure(last)) {

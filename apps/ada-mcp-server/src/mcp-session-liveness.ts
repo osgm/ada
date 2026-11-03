@@ -1,6 +1,25 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import { closeSession } from "./executor.js";
+import {
+  createSessionReleasedError,
+  markSessionReleased,
+  suggestNextSessionId
+} from "./mcp-released-sessions.js";
 import { clearWebViewTreeCache } from "./mcp-view-tree-cache.js";
 import { asRecord } from "./mcp-utils.js";
+
+async function releaseWebSessionOnPreconditionFailure(sessionId: string, reason: string): Promise<never> {
+  const record = markSessionReleased("web", sessionId, reason);
+  clearWebSessionTrack(sessionId);
+  await closeSession("web", sessionId).catch(() => undefined);
+  const suggested = record?.suggestedSessionId ?? suggestNextSessionId(sessionId);
+  throw createSessionReleasedError({
+    sessionId,
+    reason,
+    suggestedSessionId: suggested,
+    command: "web-precondition"
+  });
+}
 
 const lastUrlBySession = new Map<string, string>();
 
@@ -103,8 +122,9 @@ export async function ensureWebPageReady(
   );
 
   if (!probe.success) {
-    throw new Error(
-      `Web session "${sessionId}" page probe failed for ${command}: ${probe.errorMessage ?? probe.errorCode ?? "unknown"}`
+    await releaseWebSessionOnPreconditionFailure(
+      sessionId,
+      `前置条件等待超时: Web session "${sessionId}" page probe failed for ${command}: ${probe.errorMessage ?? probe.errorCode ?? "unknown"}`
     );
   }
 
@@ -140,9 +160,10 @@ export async function ensureWebPageReady(
   }
 
   if (blank) {
-    throw new Error(
-      `Web page is blank (about:blank) for session "${sessionId}" during ${command}. ` +
-        `Run ada_web_action navigate first${lastUrl ? `; auto-recover to ${lastUrl} failed` : ""}.`
+    await releaseWebSessionOnPreconditionFailure(
+      sessionId,
+      `前置条件等待超时: Web page is blank (about:blank) for session "${sessionId}" during ${command}. ` +
+        `Run ada_web_action navigate first${lastUrl ? `; auto-recover to ${lastUrl} failed` : ""}`
     );
   }
 }

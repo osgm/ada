@@ -40,27 +40,57 @@ module.exports = __toCommonJS(index_exports);
 
 // ../../packages/driver-rpc/src/command-timeout.ts
 var DEFAULT_COMMAND_TIMEOUT_MS = 3e4;
+var DEFAULT_NAVIGATION_TIMEOUT_MS = 75e3;
+var NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS = 5e3;
 var CommandTimeoutError = class extends Error {
   name = "CommandTimeoutError";
   constructor(message) {
     super(message);
   }
 };
-function resolveCommandTimeoutMs(payload) {
+function isNavigationLikeCommand(command) {
+  return command === "navigate" || command === "reload" || command === "newTab";
+}
+function resolveNavigationTimeoutMs(payload) {
+  const p = payload ?? {};
+  const fromPayload = typeof p.navigationTimeoutMs === "number" ? p.navigationTimeoutMs : typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : void 0;
+  if (typeof fromPayload === "number" && fromPayload > 0) {
+    return Math.max(1e3, Math.floor(fromPayload));
+  }
+  const env = process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS?.trim();
+  if (env) {
+    const n = Number(env);
+    if (Number.isFinite(n) && n > 0) {
+      return Math.max(1e3, Math.floor(n));
+    }
+  }
+  return DEFAULT_NAVIGATION_TIMEOUT_MS;
+}
+function resolveCommandTimeoutMs(payload, command) {
   const p = payload ?? {};
   const options = typeof p.options === "object" && p.options !== null ? p.options : {};
   const fromPayload = typeof p.commandTimeoutMs === "number" ? p.commandTimeoutMs : typeof options.commandTimeoutMs === "number" ? options.commandTimeoutMs : void 0;
+  let resolved;
   if (typeof fromPayload === "number" && fromPayload > 0) {
-    return fromPayload;
-  }
-  const env = process.env.ADA_COMMAND_TIMEOUT_MS;
-  if (env?.trim()) {
-    const n = Number(env);
-    if (Number.isFinite(n) && n > 0) {
-      return n;
+    resolved = Math.floor(fromPayload);
+  } else {
+    const env = process.env.ADA_COMMAND_TIMEOUT_MS;
+    if (env?.trim()) {
+      const n = Number(env);
+      if (Number.isFinite(n) && n > 0) {
+        resolved = Math.floor(n);
+      } else {
+        resolved = DEFAULT_COMMAND_TIMEOUT_MS;
+      }
+    } else {
+      resolved = DEFAULT_COMMAND_TIMEOUT_MS;
     }
   }
-  return DEFAULT_COMMAND_TIMEOUT_MS;
+  if (isNavigationLikeCommand(command)) {
+    const navMs = resolveNavigationTimeoutMs(payload);
+    resolved = Math.max(resolved, navMs + NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS);
+  }
+  return resolved;
 }
 function resolveLocatorTimeoutMs(payload, options) {
   const p = payload ?? {};

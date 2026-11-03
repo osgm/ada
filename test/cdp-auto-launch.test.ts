@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  allocateFreeTcpPort,
   defaultCdpPort,
   parseCdpEndpoint,
   resolveCdpAutoLaunchPlan,
   resolveCdpBrowserFamily,
-  resolveChromiumCdpUserDataDir
+  resolveChromiumCdpUserDataDir,
+  resolveShareCdpBrowser,
+  withCdpPlanPort
 } from "@ada/driver-rpc";
 
 test("parseCdpEndpoint: port shorthand", () => {
@@ -59,4 +62,32 @@ test("cleanupCdpSpawns: exported alongside cleanupAllCdpSpawns", async () => {
   const { cleanupCdpSpawns, cleanupAllCdpSpawns } = await import("@ada/driver-rpc");
   assert.equal(typeof cleanupCdpSpawns, "function");
   assert.equal(typeof cleanupAllCdpSpawns, "function");
+});
+
+test("resolveShareCdpBrowser: default false for autoLaunch; attach-only shares", () => {
+  assert.equal(resolveShareCdpBrowser({ cdpAutoLaunch: true }), false);
+  assert.equal(resolveShareCdpBrowser({ cdpEndpoint: "http://127.0.0.1:9222" }), true);
+  assert.equal(resolveShareCdpBrowser({ cdpAutoLaunch: true, shareCdpBrowser: true }), true);
+  assert.equal(resolveShareCdpBrowser({ cdpAutoLaunch: true, shareCdpBrowser: false }), false);
+});
+
+test("resolveCdpAutoLaunchPlan: shareExisting follows shareCdpBrowser", () => {
+  const dedicated = resolveCdpAutoLaunchPlan({ cdpAutoLaunch: true });
+  assert.ok(dedicated);
+  assert.equal(dedicated!.shareExisting, false);
+  const shared = resolveCdpAutoLaunchPlan({ cdpAutoLaunch: true, shareCdpBrowser: true });
+  assert.ok(shared);
+  assert.equal(shared!.shareExisting, true);
+});
+
+test("withCdpPlanPort + allocateFreeTcpPort for concurrent isolation", async () => {
+  const plan = resolveCdpAutoLaunchPlan({ cdpAutoLaunch: true, browser: "chromium" });
+  assert.ok(plan);
+  const a = await allocateFreeTcpPort();
+  const b = await allocateFreeTcpPort();
+  assert.notEqual(a, b);
+  const next = withCdpPlanPort(plan!, a);
+  assert.equal(next.port, a);
+  assert.equal(next.url, `http://127.0.0.1:${a}`);
+  assert.equal(next.shareExisting, false);
 });

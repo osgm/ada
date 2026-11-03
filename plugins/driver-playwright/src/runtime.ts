@@ -20,6 +20,7 @@ import {
   cleanupAllCdpSpawnsDetached,
   forceKillProcessTree,
   forceKillProcessTreeDetached,
+  shouldReleaseSessionOnTimeout,
   type CdpSpawnHandle
 } from "@ada/driver-rpc";
 import { createRequire } from "node:module";
@@ -134,8 +135,30 @@ function shouldForceMaximize(payload?: Record<string, unknown>): boolean {
   return state === "maximized";
 }
 
-/** CDP 下 viewport:null 表示用窗口自然尺寸，复用已有 context，避免 newContext 多开窗口 */
-function shouldCreateCdpContext(contextOptions: Record<string, unknown>): boolean {
+/**
+ * CDP 默认每个 ADA session 新建 context（并发隔离）。
+ * 仅当 reuseCdpContext=true（或 ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT=true）时复用已有 context。
+ * 复用模式下：viewport:null  alone 仍视为「无实质 options」，不 newContext。
+ */
+export function shouldCreateCdpContext(
+  contextOptions: Record<string, unknown>,
+  payload?: Record<string, unknown>
+): boolean {
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const reuseExplicit =
+    typeof p.reuseCdpContext === "boolean"
+      ? p.reuseCdpContext
+      : typeof options.reuseCdpContext === "boolean"
+        ? options.reuseCdpContext
+        : undefined;
+  const reuseEnv = process.env.ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT?.trim().toLowerCase();
+  const reuse =
+    reuseExplicit === true ||
+    (reuseExplicit !== false && (reuseEnv === "1" || reuseEnv === "true"));
+  if (!reuse) {
+    return true;
+  }
   const keys = Object.keys(contextOptions);
   if (keys.length === 0) return false;
   if (keys.length === 1 && "viewport" in contextOptions && contextOptions.viewport === null) {
@@ -297,9 +320,21 @@ export async function releasePlaywrightDriverSession(driverSessionId: string): P
   await closePlaywrightSession(pw);
 }
 
-/** 定位/点击超时等可恢复错误：保持浏览器会话，避免关弹窗探测时反复 launch */
-export function isRecoverableInteractionError(error: unknown): boolean {
+/**
+ * 可恢复错误：保持浏览器会话，避免短 locator 未命中时反复 launch。
+ * 打开页 / wait / 长时间前置条件等待超时 → 不可恢复，调用方应释放连接。
+ */
+export function isRecoverableInteractionError(error: unknown, command?: string): boolean {
   const message = error instanceof Error ? error.message : String(error);
+  if (
+    shouldReleaseSessionOnTimeout({
+      command,
+      errorMessage: message,
+      errorCode: /timeout|timed out/i.test(message) ? "TIMEOUT" : undefined
+    })
+  ) {
+    return false;
+  }
   return /timeout|locator|not found|not visible|not enabled|strict mode violation|intercepts pointer events/i.test(
     message
   );
@@ -366,8 +401,8 @@ async function createPlaywrightSession(
     const connectOptions = asRecord(merged.connectOptions);
     const browser = await chromium.connectOverCDP(cdpUrl, connectOptions);
     const contexts = browser.contexts();
-    const createNewContext = shouldCreateCdpContext(contextOptions);
-    // CDP 默认复用已有 context；仅在有实质 contextOptions 时才 newContext
+    const createNewContext = shouldCreateCdpContext(contextOptions, merged);
+    // CDP 默认 newContext（并发隔离）；reuseCdpContext=true 时可复用已有 context
     const context = createNewContext
       ? await browser.newContext(contextOptions)
       : contexts[0] ?? (await browser.newContext(contextOptions));
