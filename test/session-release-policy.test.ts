@@ -13,7 +13,7 @@ test("extractWaitedMsFromMessage parses playwright timeout text", () => {
   assert.equal(extractWaitedMsFromMessage("web:navigate timed out after 80000ms"), 80_000);
 });
 
-test("shouldReleaseSessionOnTimeout: navigate/wait always", () => {
+test("shouldReleaseSessionOnTimeout: navigate always; short wait keeps session", () => {
   assert.equal(
     shouldReleaseSessionOnTimeout({
       command: "navigate",
@@ -27,6 +27,14 @@ test("shouldReleaseSessionOnTimeout: navigate/wait always", () => {
       command: "wait",
       errorCode: "TIMEOUT",
       errorMessage: "Timeout 1000ms exceeded"
+    }),
+    false
+  );
+  assert.equal(
+    shouldReleaseSessionOnTimeout({
+      command: "wait",
+      errorCode: "TIMEOUT",
+      errorMessage: `Timeout ${DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS}ms exceeded`
     }),
     true
   );
@@ -47,6 +55,14 @@ test("shouldReleaseSessionOnTimeout: long precondition wait releases", () => {
       command: "click",
       errorCode: "TIMEOUT",
       errorMessage: "Timeout 2500ms exceeded"
+    }),
+    false
+  );
+  assert.equal(
+    shouldReleaseSessionOnTimeout({
+      command: "click",
+      errorCode: "TIMEOUT",
+      errorMessage: "locator.waitFor: Timeout 2500ms exceeded"
     }),
     false
   );

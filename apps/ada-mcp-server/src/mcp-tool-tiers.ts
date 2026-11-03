@@ -4,17 +4,17 @@ export { buildRecoveryHint } from "./mcp-recovery.js";
 
 /** Full policy copy — advanced mode or ada://guide/routing resource. */
 export const MCP_GLOBAL_POLICY =
-  "Policy: riskApproved=true for invoke/custom/launchApp/destructive deviceAdmin; allowMock=false unless offline demo; reuse sessionId within one task until released; concurrent web tasks MUST use distinct sessionId (each opens its own browser by default); if sessionReleased/SESSION_RELEASED use suggestedSessionId then navigate/launchApp (never reuse released id); prefer ada_batch_actions for multi-step; observe(extract) once then act; default retry=0 (retry=1 only on transient); avoid concurrent writes on same sessionId (reads may parallel); mobile: ada_devices(scan) then deviceParams.recommended; on failure read recoveryHint then extract/pageSource then invoke.";
+  "Policy: riskApproved=true for invoke/custom/launchApp/destructive deviceAdmin; allowMock=false unless offline demo; reuse sessionId within one task until released; concurrent web tasks MUST use distinct sessionId (each opens its own browser; same-id parallel navigate/recipe/invoke/custom returns SESSION_BUSY+suggestedSessionId; click/type may still queue unless ADA_WEB_SESSION_BUSY_WRITES=all); if sessionReleased/SESSION_RELEASED/SESSION_BUSY use suggestedSessionId then navigate/launchApp (or wait+retry same id if same task); prefer ada_batch_actions for multi-step; observe(extract) once then act; MCP retry=0 default (retry=1 only on transient); kernel may retry mobile transient once before release; never retry same sessionId after sessionReleased/COMMAND_TIMEOUT; avoid concurrent writes on same sessionId (reads may parallel); browser cap ADA_PLAYWRIGHT_MAX_BROWSERS=20; mobile: ada_devices(scan) then deviceParams.recommended; on failure read recoveryHint then extract/pageSource then invoke.";
 
 /** Compact policy — single ada_health anchor; keeps trial-reduction essentials. */
 export const MCP_GLOBAL_POLICY_COMPACT =
-  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId within one task until released; concurrent web→distinct sessionId (new browser each); on SESSION_RELEASED switch to suggestedSessionId then navigate/launchApp; batch multi-step; observe once then act; retry=0 default; no concurrent writes same session; mobile: ada_devices(scan) first; on fail recoveryHint→extract→invoke.";
+  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId within one task until released; concurrent web→distinct sessionId (SESSION_BUSY on parallel navigate/recipe/invoke/custom); on SESSION_RELEASED/SESSION_BUSY switch to suggestedSessionId or wait+retry same id; batch multi-step; observe once then act; MCP retry=0 (kernel may 1× mobile transient); never retry after sessionReleased; max 20 browsers; mobile: ada_devices(scan) first; on fail recoveryHint→extract→invoke.";
 
 export const MCP_WORKFLOW_L0_L4 =
-  "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy. Speed: reuse sessionId + batch + one observe.";
+  "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy. Speed: one task one sessionId until released + batch + one observe; concurrent web tasks use distinct sessionId.";
 
 export const MCP_WORKFLOW_COMPACT =
-  "START ada_health once → reuse sessionId → L2 batch when multi-step → L1 action → L3 invoke. ada://guide/routing.";
+  "START ada_health once → one task one sessionId (until released; concurrent web→new sessionId) → L2 batch when multi-step → L1 action → L3 invoke. ada://guide/routing.";
 
 export const UPGRADE_L2_L3_WEB =
   "Escalate: Playwright page.* or CDP → ada_invoke; multi-step → ada_batch_actions or ada_run_task_file.";

@@ -4,9 +4,14 @@ import { clearActionLedger, clearAllActionLedgers } from "./mcp-action-ledger.js
 import { invalidateMobilePageSourceCache } from "./mcp-mobile-dump-cache.js";
 import { clearLocatorHintCache } from "./mcp-locator-cache.js";
 import { clearMobileSessionProbeCache } from "./mcp-mobile-session-liveness.js";
-import { clearReleasedSession, markSessionReleased } from "./mcp-released-sessions.js";
+import {
+  countReleasedSessions,
+  clearReleasedSession,
+  markSessionReleased
+} from "./mcp-released-sessions.js";
 import { clearAllWebSessionTracks, clearWebSessionTrack } from "./mcp-session-liveness.js";
 import { asRecord } from "./mcp-utils.js";
+import { resolvePlaywrightMaxBrowsers } from "@ada/driver-rpc";
 
 function resolveIosUdidFromPayload(payload: Record<string, unknown>): string {
   const caps = asRecord(payload.capabilities);
@@ -34,12 +39,31 @@ export async function handleConfig(
 
 export function handleSessions(
   deps: {
-    listActiveSessions: () => unknown[];
+    listActiveSessions: () => Array<{ platform?: string; engine?: string; sessionId?: string }>;
     mcpTextResult: (data: Record<string, unknown>) => any;
+    countPlaywrightBrowsers?: () => number | undefined;
   }
 ): any {
   const sessions = deps.listActiveSessions();
-  return deps.mcpTextResult({ count: sessions.length, sessions });
+  const kernelWebSessions = sessions.filter(
+    (item) => item.platform === "web" || item.engine === "playwright"
+  ).length;
+  const fromRuntime =
+    typeof deps.countPlaywrightBrowsers === "function" ? deps.countPlaywrightBrowsers() : undefined;
+  const playwrightBrowsers = typeof fromRuntime === "number" ? fromRuntime : kernelWebSessions;
+  const playwrightBrowsersSource =
+    typeof fromRuntime === "number" ? ("playwright-runtime" as const) : ("kernel-fallback" as const);
+  const maxBrowsers = resolvePlaywrightMaxBrowsers();
+  return deps.mcpTextResult({
+    count: sessions.length,
+    sessions,
+    releasedSessionCount: countReleasedSessions(),
+    playwrightBrowsers,
+    playwrightBrowsersSource,
+    kernelWebSessions,
+    playwrightMaxBrowsers: maxBrowsers,
+    playwrightBrowserSlotsRemaining: maxBrowsers > 0 ? Math.max(0, maxBrowsers - playwrightBrowsers) : null
+  });
 }
 
 export async function handleCloseSession(

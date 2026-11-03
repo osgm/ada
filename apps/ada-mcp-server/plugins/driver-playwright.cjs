@@ -31,6 +31,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // ../../plugins/driver-playwright/src/index.ts
 var index_exports = {};
 __export(index_exports, {
+  countActivePlaywrightBrowsers: () => countActivePlaywrightBrowsers,
   default: () => index_default,
   executeClickPath: () => executeClickPath,
   executeFillSearch: () => executeFillSearch,
@@ -105,6 +106,14 @@ function resolveNavigationTimeoutMs(payload) {
 
 // ../../packages/driver-rpc/src/session-release-policy.ts
 var DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS = 6e4;
+var DEFAULT_PLAYWRIGHT_MAX_BROWSERS = 20;
+function resolvePlaywrightMaxBrowsers() {
+  const raw = process.env.ADA_PLAYWRIGHT_MAX_BROWSERS?.trim();
+  if (!raw) return DEFAULT_PLAYWRIGHT_MAX_BROWSERS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_PLAYWRIGHT_MAX_BROWSERS;
+  return Math.floor(n);
+}
 function releaseOnWaitTimeoutMs() {
   const raw = process.env.ADA_RELEASE_ON_WAIT_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS;
@@ -130,14 +139,17 @@ function extractWaitedMsFromMessage(message) {
 function isTimeoutFailure(input) {
   const code = String(input.errorCode ?? "").toUpperCase();
   const message = String(input.errorMessage ?? "").toLowerCase();
-  return code.includes("TIMEOUT") || code === "NAVIGATION_TIMEOUT" || code === "PRECONDITION_TIMEOUT" || code === "COMMAND_TIMEOUT" || message.includes("timeout") || message.includes("timed out") || message.includes("\u524D\u7F6E\u6761\u4EF6") || message.includes("\u65E0\u6B63\u786E\u54CD\u5E94");
+  if (code.includes("TIMEOUT") || code === "NAVIGATION_TIMEOUT" || code === "PRECONDITION_TIMEOUT" || code === "COMMAND_TIMEOUT") {
+    return true;
+  }
+  return message.includes("timed out") || /timeout\s+\d+\s*ms/i.test(message) || message.includes("\u524D\u7F6E\u6761\u4EF6") || message.includes("\u65E0\u6B63\u786E\u54CD\u5E94");
 }
 function shouldReleaseSessionOnTimeout(input) {
   if (!isTimeoutFailure(input)) {
     return false;
   }
   const command = input.command ?? "";
-  if (command === "navigate" || command === "reload" || command === "newTab" || command === "wait") {
+  if (command === "navigate" || command === "reload" || command === "newTab") {
     return true;
   }
   const code = String(input.errorCode ?? "").toUpperCase();
@@ -153,11 +165,17 @@ function shouldReleaseSessionOnTimeout(input) {
   if (threshold <= 0) {
     return true;
   }
+  if (command === "wait") {
+    return waited !== void 0 && waited >= threshold;
+  }
   if (waited !== void 0 && waited >= threshold) {
     return true;
   }
-  if (/waitfor|page\.goto|navigation|waiting for (load|url|function|selector|locator)/i.test(message)) {
+  if (/page\.goto|navigation timed out|waiting for (load|url|function)\b/i.test(message)) {
     return true;
+  }
+  if (/locator\.(waitfor|click|fill)|waiting for (selector|locator)/i.test(message)) {
+    return false;
   }
   return false;
 }
@@ -631,27 +649,40 @@ function resolveShareCdpBrowser(payload) {
   }
   return false;
 }
-async function allocateFreeTcpPort(host = "127.0.0.1") {
+function listenTcp(server, port, host) {
   return new Promise((resolve, reject) => {
-    const server = import_node_net.default.createServer();
-    server.unref();
     server.once("error", reject);
-    server.listen(0, host, () => {
+    server.listen(port, host, () => {
       const addr = server.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      server.close((err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        if (!port) {
-          reject(new Error("allocateFreeTcpPort: failed to bind ephemeral port"));
-          return;
-        }
-        resolve(port);
-      });
+      const bound = typeof addr === "object" && addr ? addr.port : 0;
+      if (!bound) {
+        reject(new Error(`listenTcp: failed to bind port=${port}`));
+        return;
+      }
+      resolve(bound);
     });
   });
+}
+async function reserveTcpPort(port, host = "127.0.0.1") {
+  const server = import_node_net.default.createServer();
+  server.unref();
+  const bound = await listenTcp(server, port, host);
+  return {
+    port: bound,
+    release: () => new Promise((resolve, reject) => {
+      server.close((err) => err ? reject(err) : resolve());
+    })
+  };
+}
+async function tryReserveTcpPort(port, host = "127.0.0.1") {
+  try {
+    return await reserveTcpPort(port, host);
+  } catch {
+    return null;
+  }
+}
+async function reserveFreeTcpPort(host = "127.0.0.1") {
+  return reserveTcpPort(0, host);
 }
 function withCdpPlanPort(plan, port) {
   const host = (() => {
@@ -876,13 +907,27 @@ async function ensureCdpEndpointReady(plan, opts) {
     if (reachable) {
       return { url: plan.url, spawned: null };
     }
-    const spawned2 = spawnCdpBrowser(plan);
-    return waitForCdpUrl(plan.url, spawned2, plan.browser, timeoutMs);
+    const spawned = spawnCdpBrowser(plan);
+    return waitForCdpUrl(plan.url, spawned, plan.browser, timeoutMs);
   }
-  const freePort = await allocateFreeTcpPort();
-  const dedicated = withCdpPlanPort(plan, freePort);
-  const spawned = spawnCdpBrowser(dedicated);
-  return waitForCdpUrl(dedicated.url, spawned, dedicated.browser, timeoutMs);
+  let reserved = null;
+  try {
+    if (reachable) {
+      reserved = await reserveFreeTcpPort();
+    } else {
+      reserved = await tryReserveTcpPort(plan.port) ?? await reserveFreeTcpPort();
+    }
+    const dedicated = withCdpPlanPort(plan, reserved.port);
+    await reserved.release();
+    reserved = null;
+    const spawned = spawnCdpBrowser(dedicated);
+    return waitForCdpUrl(dedicated.url, spawned, dedicated.browser, timeoutMs);
+  } catch (error) {
+    if (reserved) {
+      await reserved.release().catch(() => void 0);
+    }
+    throw error;
+  }
 }
 
 // ../../packages/driver-rpc/src/index.ts
@@ -2321,11 +2366,26 @@ async function createPlaywrightSession(playwrightModule, payload) {
 function mergeWithLaunchDefaults(pw, payload) {
   return mergeOptionsIntoPayload({ ...pw.launchPayload, ...payload });
 }
+function countActivePlaywrightBrowsers() {
+  return sessions.size;
+}
+function assertPlaywrightBrowserLimit() {
+  const max = resolvePlaywrightMaxBrowsers();
+  if (max <= 0) return;
+  const active = sessions.size;
+  if (active < max) return;
+  const err = new Error(
+    `BROWSER_LIMIT_EXCEEDED: active Playwright browsers=${active}, max=${max}. Close unused sessions (ada_close_session / ada_close_all_sessions) or raise ADA_PLAYWRIGHT_MAX_BROWSERS.`
+  );
+  err.code = "BROWSER_LIMIT_EXCEEDED";
+  throw err;
+}
 async function ensurePlaywrightSession(session, payload) {
   const existed = sessions.get(session.id);
   if (existed) {
     return existed;
   }
+  assertPlaywrightBrowserLimit();
   const merged = mergeOptionsIntoPayload(payload);
   const sessionKey = buildSessionKey(merged);
   const playwrightModule = await loadPlaywrightModule();
@@ -2851,11 +2911,15 @@ var playwrightPlugin = {
   },
   forceDispose() {
     forceDisposePlaywrightRuntime();
+  },
+  getActiveBrowserCount() {
+    return countActivePlaywrightBrowsers();
   }
 };
 var index_default = playwrightPlugin;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  countActivePlaywrightBrowsers,
   executeClickPath,
   executeFillSearch,
   executePlaywrightCommand,

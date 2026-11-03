@@ -53,8 +53,14 @@
 | `ADA_WEB_EXPAND_SETTLE_MS` | — | Web expand 后固定 settle（默认 50） |
 | `ADA_WEB_NAVIGATION_TIMEOUT_MS` | — | `navigate` / `reload` / `newTab` 打开页等待（默认 **75000**，覆盖登录墙）；也可用 payload `navigationTimeoutMs` / `timeoutMs`。超时会释放浏览器连接 |
 | `ADA_RELEASE_ON_WAIT_TIMEOUT_MS` | — | 前置条件/locator 等待达到该毫秒数即释放连接（默认 **60000**）；`0`=任意 timeout 都释放。另：navigate/wait、`COMMAND_TIMEOUT`、文案含「前置条件/无正确响应」一律释放。释放后须换新 `sessionId`（复用返回 `SESSION_RELEASED` + `suggestedSessionId`；`payload.forceReuseReleasedSession=true` 可清登记） |
-| `ADA_PLAYWRIGHT_CDP_SHARE_EXISTING` | — | `true` 时 CDP autoLaunch 可附着已有调试端口（默认关闭：每个 session 新开独立浏览器） |
+| `ADA_PLAYWRIGHT_CDP_SHARE_EXISTING` | — | `true` 时 CDP autoLaunch 可附着已有调试端口（默认关闭：端口空闲用计划端口，占用则换空闲端口新开） |
 | `ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT` | — | `true` 时 CDP 复用已有 BrowserContext（默认关闭：每 session `newContext` 隔离） |
+| `ADA_PLAYWRIGHT_MAX_BROWSERS` | — | 同时打开的 Playwright 浏览器上限（默认 **20**）；`0`=不限制。超限返回 `BROWSER_LIMIT_EXCEEDED` |
+| `ADA_WEB_SESSION_BUSY_ON_PARALLEL_START` | — | 默认开：同 sessionId 写冲突返回 `SESSION_BUSY`+`suggestedSessionId`；`0` 关闭 |
+| `ADA_WEB_SESSION_BUSY_WRITES` | — | 冲突拦截范围：`heavy`（默认：开页+`recipe`/`invoke`/`custom`）/ `open`（仅开页）/ `all`（全部写，含 click/type） |
+| `ADA_RELEASED_SESSION_TTL_MS` | — | 已释放 sessionId 登记 TTL（默认 **3600000**=1h）；`0`=不按时间过期 |
+| `ADA_RELEASED_SESSION_MAX` | — | 已释放登记表上限（默认 **200**），超出淘汰最旧 |
+| `ADA_RELEASED_PLACEHOLDER_MODE` | — | 占位 id（`mcp-session` 等）释放后：`warn`（默认，提示可继续）/ `block`（硬拦）/ `off` |
 
 ## 动作熔断（Web clickPath / Mobile tap_path）
 

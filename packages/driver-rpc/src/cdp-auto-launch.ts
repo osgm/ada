@@ -122,28 +122,61 @@ export function resolveShareCdpBrowser(payload?: Record<string, unknown>): boole
   return false;
 }
 
-/** 分配本机空闲端口，供并发 autoLaunch 各自开浏览器 */
-export async function allocateFreeTcpPort(host = "127.0.0.1"): Promise<number> {
+export type ReservedTcpPort = {
+  port: number;
+  /** 关闭占位监听，供浏览器立刻 bind；应紧挨 spawn 调用 */
+  release: () => Promise<void>;
+};
+
+function listenTcp(server: net.Server, port: number, host: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
     server.once("error", reject);
-    server.listen(0, host, () => {
+    server.listen(port, host, () => {
       const addr = server.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      server.close((err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        if (!port) {
-          reject(new Error("allocateFreeTcpPort: failed to bind ephemeral port"));
-          return;
-        }
-        resolve(port);
-      });
+      const bound = typeof addr === "object" && addr ? addr.port : 0;
+      if (!bound) {
+        reject(new Error(`listenTcp: failed to bind port=${port}`));
+        return;
+      }
+      resolve(bound);
     });
   });
+}
+
+/** 占住端口直到 release()，缩小 allocate→spawn 之间的 TOCTOU 窗口 */
+export async function reserveTcpPort(port: number, host = "127.0.0.1"): Promise<ReservedTcpPort> {
+  const server = net.createServer();
+  server.unref();
+  const bound = await listenTcp(server, port, host);
+  return {
+    port: bound,
+    release: () =>
+      new Promise((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      })
+  };
+}
+
+/** 尝试占住指定端口；已被占用返回 null */
+export async function tryReserveTcpPort(port: number, host = "127.0.0.1"): Promise<ReservedTcpPort | null> {
+  try {
+    return await reserveTcpPort(port, host);
+  } catch {
+    return null;
+  }
+}
+
+/** 占住一个空闲端口（listen(0)） */
+export async function reserveFreeTcpPort(host = "127.0.0.1"): Promise<ReservedTcpPort> {
+  return reserveTcpPort(0, host);
+}
+
+/** 分配本机空闲端口（兼容旧调用；内部仍会先关监听，存在极短窗口） */
+export async function allocateFreeTcpPort(host = "127.0.0.1"): Promise<number> {
+  const reserved = await reserveFreeTcpPort(host);
+  const port = reserved.port;
+  await reserved.release();
+  return port;
 }
 
 export function withCdpPlanPort(plan: CdpAutoLaunchPlan, port: number): CdpAutoLaunchPlan {
@@ -416,7 +449,10 @@ async function waitForCdpUrl(
 
 /**
  * Probe CDP; if autoLaunch and unreachable, spawn browser and wait until debugger is up.
- * 默认不共用已有浏览器：autoLaunch 且 !shareExisting 时始终分配空闲端口新开独立进程（并发隔离）。
+ *
+ * 最佳默认（!shareExisting）：
+ * - 计划端口空闲 → 使用该端口（尊重 cdpPort/默认 9222，单任务不浪费）
+ * - 计划端口已被占用 → 分配空闲端口新开独立浏览器（并发隔离）
  * 显式共享：plan.shareExisting / payload.shareCdpBrowser / ADA_PLAYWRIGHT_CDP_SHARE_EXISTING。
  */
 export async function ensureCdpEndpointReady(
@@ -443,9 +479,23 @@ export async function ensureCdpEndpointReady(
     return waitForCdpUrl(plan.url, spawned, plan.browser, timeoutMs);
   }
 
-  // 并发默认：每个 session 独立浏览器（空闲端口 + 独立 profile）
-  const freePort = await allocateFreeTcpPort();
-  const dedicated = withCdpPlanPort(plan, freePort);
-  const spawned = spawnCdpBrowser(dedicated);
-  return waitForCdpUrl(dedicated.url, spawned, dedicated.browser, timeoutMs);
+  // 独立浏览器：先占住端口再 release+spawn，缩小 TOCTOU（并发第二任务换空闲端口）
+  let reserved: ReservedTcpPort | null = null;
+  try {
+    if (reachable) {
+      reserved = await reserveFreeTcpPort();
+    } else {
+      reserved = (await tryReserveTcpPort(plan.port)) ?? (await reserveFreeTcpPort());
+    }
+    const dedicated = withCdpPlanPort(plan, reserved.port);
+    await reserved.release();
+    reserved = null;
+    const spawned = spawnCdpBrowser(dedicated);
+    return waitForCdpUrl(dedicated.url, spawned, dedicated.browser, timeoutMs);
+  } catch (error) {
+    if (reserved) {
+      await reserved.release().catch(() => undefined);
+    }
+    throw error;
+  }
 }

@@ -21,7 +21,13 @@ import {
 
 import { ensureWinConsoleUtf8 } from "./console-encoding.js";
 import { loadAgentConfig } from "./config.js";
-import { closeAllSessions, closeSession, listActiveSessions, runCommand } from "./executor.js";
+import {
+  closeAllSessions,
+  closeSession,
+  countPlaywrightBrowsers,
+  listActiveSessions,
+  runCommand
+} from "./executor.js";
 import { buildAdaMcpToolDefinitions } from "./mcp-tool-definitions.js";
 import { normalizeCommand, normalizePlatform, requireMobilePlatform } from "./mcp-normalize.js";
 import {
@@ -104,6 +110,7 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
       installDependencies,
       runStartFlow,
       listActiveSessions,
+      countPlaywrightBrowsers,
       normalizePlatform,
       mergeWebEngineIntoPayload,
       closeSession,

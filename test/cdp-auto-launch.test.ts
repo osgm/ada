@@ -4,12 +4,15 @@ import {
   allocateFreeTcpPort,
   defaultCdpPort,
   parseCdpEndpoint,
+  reserveFreeTcpPort,
   resolveCdpAutoLaunchPlan,
   resolveCdpBrowserFamily,
   resolveChromiumCdpUserDataDir,
   resolveShareCdpBrowser,
+  tryReserveTcpPort,
   withCdpPlanPort
 } from "@ada/driver-rpc";
+import net from "node:net";
 
 test("parseCdpEndpoint: port shorthand", () => {
   const p = parseCdpEndpoint("9222");
@@ -90,4 +93,43 @@ test("withCdpPlanPort + allocateFreeTcpPort for concurrent isolation", async () 
   assert.equal(next.port, a);
   assert.equal(next.url, `http://127.0.0.1:${a}`);
   assert.equal(next.shareExisting, false);
+});
+
+test("tryReserveTcpPort: occupied port returns null; free port holds until release", async () => {
+  const holder = await reserveFreeTcpPort();
+  try {
+    const again = await tryReserveTcpPort(holder.port);
+    assert.equal(again, null);
+  } finally {
+    await holder.release();
+  }
+  const reserved = await tryReserveTcpPort(holder.port);
+  assert.ok(reserved);
+  assert.equal(reserved!.port, holder.port);
+  await reserved!.release();
+  // confirm port is free again
+  await new Promise<void>((resolve, reject) => {
+    const s = net.createServer();
+    s.once("error", reject);
+    s.listen(holder.port, "127.0.0.1", () => {
+      s.close(() => resolve());
+    });
+  });
+});
+
+test("resolvePlaywrightMaxBrowsers defaults to 20", async () => {
+  const { DEFAULT_PLAYWRIGHT_MAX_BROWSERS, resolvePlaywrightMaxBrowsers } = await import("@ada/driver-rpc");
+  const prev = process.env.ADA_PLAYWRIGHT_MAX_BROWSERS;
+  delete process.env.ADA_PLAYWRIGHT_MAX_BROWSERS;
+  try {
+    assert.equal(DEFAULT_PLAYWRIGHT_MAX_BROWSERS, 20);
+    assert.equal(resolvePlaywrightMaxBrowsers(), 20);
+    process.env.ADA_PLAYWRIGHT_MAX_BROWSERS = "0";
+    assert.equal(resolvePlaywrightMaxBrowsers(), 0);
+    process.env.ADA_PLAYWRIGHT_MAX_BROWSERS = "8";
+    assert.equal(resolvePlaywrightMaxBrowsers(), 8);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_PLAYWRIGHT_MAX_BROWSERS;
+    else process.env.ADA_PLAYWRIGHT_MAX_BROWSERS = prev;
+  }
 });

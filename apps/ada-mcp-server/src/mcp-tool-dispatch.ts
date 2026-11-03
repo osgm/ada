@@ -117,6 +117,7 @@ export interface McpDispatchAdminDeps {
     engine?: WebEngine;
     driverSessionId: string;
   }>;
+  countPlaywrightBrowsers?: () => number | undefined;
   mergeWebEngineIntoPayload: (args: Record<string, unknown>) => Record<string, unknown>;
   closeSession: (
     platform: CommandEnvelope["platform"],
@@ -236,7 +237,11 @@ async function dispatchAdaMcpToolInner(
     case "ada_start_once":
       return handleStartOnce(args, { runStartFlow: deps.runStartFlow, mcpTextResult: deps.mcpTextResult });
     case "ada_sessions":
-      return handleSessions({ listActiveSessions: deps.listActiveSessions, mcpTextResult: deps.mcpTextResult });
+      return handleSessions({
+        listActiveSessions: deps.listActiveSessions,
+        countPlaywrightBrowsers: deps.countPlaywrightBrowsers,
+        mcpTextResult: deps.mcpTextResult
+      });
     case "ada_close_session":
       return handleCloseSession(args, {
         normalizePlatform: deps.normalizePlatform,

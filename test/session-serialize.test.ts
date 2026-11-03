@@ -69,6 +69,157 @@ test("TaskExecutor serializes concurrent writes on the same session", async () =
   }
 });
 
+test("TaskExecutor rejects parallel web recipe on busy session (heavy whitelist)", async () => {
+  const session: DriverSession = { id: "drv-recipe", platform: "web" };
+  const plugin: DriverPlugin = {
+    manifest: {
+      id: "test-web-recipe-busy",
+      version: "0.0.0",
+      platforms: ["web"],
+      capabilities: ["recipe", "click"],
+      engine: "playwright"
+    },
+    async createSession() {
+      return session;
+    },
+    async execute(_session, command) {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      return { requestId: command.requestId, success: true, data: {} } satisfies CommandResult;
+    }
+  };
+
+  const prevStart = process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START;
+  const prevWrites = process.env.ADA_WEB_SESSION_BUSY_WRITES;
+  delete process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START;
+  delete process.env.ADA_WEB_SESSION_BUSY_WRITES;
+  try {
+    const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
+    const [a, b] = await Promise.all([
+      executor.execute({
+        requestId: "rec-a",
+        sessionId: "web-rec",
+        platform: "web",
+        command: "recipe",
+        payload: { action: "clickPath", path: ["A"] }
+      }),
+      executor.execute({
+        requestId: "rec-b",
+        sessionId: "web-rec",
+        platform: "web",
+        command: "recipe",
+        payload: { action: "clickPath", path: ["B"] }
+      })
+    ]);
+    const busy = a.success ? b : a;
+    assert.equal(busy.success, false);
+    assert.equal(busy.errorCode, "SESSION_BUSY");
+  } finally {
+    if (prevStart === undefined) delete process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START;
+    else process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START = prevStart;
+    if (prevWrites === undefined) delete process.env.ADA_WEB_SESSION_BUSY_WRITES;
+    else process.env.ADA_WEB_SESSION_BUSY_WRITES = prevWrites;
+  }
+});
+
+test("TaskExecutor still queues parallel click by default (heavy mode)", async () => {
+  let maxActive = 0;
+  let active = 0;
+  const session: DriverSession = { id: "drv-click", platform: "web" };
+  const plugin: DriverPlugin = {
+    manifest: {
+      id: "test-web-click-queue",
+      version: "0.0.0",
+      platforms: ["web"],
+      capabilities: ["click"],
+      engine: "playwright"
+    },
+    async createSession() {
+      return session;
+    },
+    async execute(_session, command) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      active -= 1;
+      return { requestId: command.requestId, success: true, data: {} } satisfies CommandResult;
+    }
+  };
+
+  const prevWrites = process.env.ADA_WEB_SESSION_BUSY_WRITES;
+  delete process.env.ADA_WEB_SESSION_BUSY_WRITES;
+  try {
+    const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
+    const results = await Promise.all([
+      executor.execute({
+        requestId: "c1",
+        sessionId: "web-click",
+        platform: "web",
+        command: "click",
+        payload: { locator: { text: "a" } }
+      }),
+      executor.execute({
+        requestId: "c2",
+        sessionId: "web-click",
+        platform: "web",
+        command: "click",
+        payload: { locator: { text: "b" } }
+      })
+    ]);
+    assert.ok(results.every((r) => r.success));
+    assert.equal(maxActive, 1);
+  } finally {
+    if (prevWrites === undefined) delete process.env.ADA_WEB_SESSION_BUSY_WRITES;
+    else process.env.ADA_WEB_SESSION_BUSY_WRITES = prevWrites;
+  }
+});
+
+test("TaskExecutor rejects parallel web navigate on busy session with SESSION_BUSY", async () => {
+  const session: DriverSession = { id: "drv-busy", platform: "web" };
+  const manifest: PluginManifest = {
+    id: "test-web-busy",
+    version: "0.0.0",
+    platforms: ["web"],
+    capabilities: ["navigate"],
+    engine: "playwright"
+  };
+  const plugin: DriverPlugin = {
+    manifest,
+    async createSession() {
+      return session;
+    },
+    async execute(_session, command) {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      return { requestId: command.requestId, success: true, data: {} } satisfies CommandResult;
+    }
+  };
+
+  const prev = process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START;
+  delete process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START;
+  try {
+    const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
+    const base: Omit<CommandEnvelope, "requestId"> = {
+      sessionId: "web-shared",
+      platform: "web",
+      command: "navigate",
+      payload: { url: "https://example.com" }
+    };
+    const [a, b] = await Promise.all([
+      executor.execute({ ...base, requestId: "nav-a" }),
+      executor.execute({ ...base, requestId: "nav-b" })
+    ]);
+    const ok = a.success ? a : b;
+    const busy = a.success ? b : a;
+    assert.equal(ok.success, true);
+    assert.equal(busy.success, false);
+    assert.equal(busy.errorCode, "SESSION_BUSY");
+    assert.equal((busy.data as { sessionBusy?: boolean })?.sessionBusy, true);
+    assert.match(String((busy.data as { suggestedSessionId?: string })?.suggestedSessionId ?? ""), /^web-shared-r/);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START;
+    else process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START = prev;
+  }
+});
+
 test("TaskExecutor allows concurrent read-only commands on the same session", async () => {
   let active = 0;
   let maxActive = 0;

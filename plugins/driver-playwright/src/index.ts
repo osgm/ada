@@ -3,6 +3,7 @@ import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
 import { executePlaywrightCommand } from "./commands/index.js";
 import {
+  countActivePlaywrightBrowsers,
   destroyPlaywrightSession,
   disposePlaywrightRuntime,
   forceDisposePlaywrightRuntime,
@@ -45,6 +46,10 @@ const playwrightPlugin: DriverPlugin = {
 
   forceDispose() {
     forceDisposePlaywrightRuntime();
+  },
+
+  getActiveBrowserCount() {
+    return countActivePlaywrightBrowsers();
   }
 };
 
@@ -52,3 +57,4 @@ export default playwrightPlugin;
 export { executeClickPath, executeFillSearch, observeViewOnPage } from "./web-interaction-recipe.js";
 export { locatorFromPayload, summarizeLocator } from "./playwright-locator.js";
 export { executePlaywrightCommand } from "./commands/index.js";
+export { countActivePlaywrightBrowsers } from "./runtime.js";

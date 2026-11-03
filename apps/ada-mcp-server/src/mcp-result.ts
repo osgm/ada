@@ -223,14 +223,22 @@ export function wrapCommandToolResult(input: {
   if (!result.success) {
     const data =
       result.data && typeof result.data === "object" ? (result.data as Record<string, unknown>) : {};
+    const code = String(result.errorCode ?? "").toUpperCase();
     if (
       data.sessionReleased === true ||
       data.requireNewSessionId === true ||
-      String(result.errorCode ?? "").toUpperCase() === "SESSION_RELEASED"
+      data.sessionBusy === true ||
+      code === "SESSION_RELEASED" ||
+      code === "SESSION_BUSY"
     ) {
-      payload.sessionReleased = true;
+      if (data.sessionBusy === true || code === "SESSION_BUSY") {
+        payload.sessionBusy = true;
+        payload.errorCode = "SESSION_BUSY";
+      } else {
+        payload.sessionReleased = true;
+        payload.errorCode = "SESSION_RELEASED";
+      }
       payload.requireNewSessionId = true;
-      payload.errorCode = "SESSION_RELEASED";
       if (typeof data.suggestedSessionId === "string") {
         payload.suggestedSessionId = data.suggestedSessionId;
       }

@@ -104,19 +104,39 @@ export function buildRecoveryPlan(input: {
       : undefined;
   const suggestedSessionId =
     typeof resultData?.suggestedSessionId === "string" ? resultData.suggestedSessionId : undefined;
+  const errorCode = String(input.result?.errorCode ?? "").toUpperCase();
   if (
     resultData?.sessionReleased === true ||
     resultData?.requireNewSessionId === true ||
-    String(input.result?.errorCode ?? "").toUpperCase() === "SESSION_RELEASED"
+    resultData?.sessionBusy === true ||
+    errorCode === "SESSION_RELEASED" ||
+    errorCode === "SESSION_BUSY"
   ) {
     const nextId = suggestedSessionId || `${sessionId}-r${Date.now()}`;
     const startTool = platform === "web" ? "ada_web_action" : "ada_mobile_action";
     const startCommand = platform === "web" ? "navigate" : "launchApp";
+    const busy = errorCode === "SESSION_BUSY" || resultData?.sessionBusy === true;
+    if (busy) {
+      return [
+        {
+          kind: "tool",
+          tool: startTool,
+          note: `SESSION_BUSY: parallel task → new sessionId="${nextId}" then ${startCommand}. Same task → wait, retry same sessionId (or allowQueuedStart=true).`,
+          args: { sessionId: nextId, command: startCommand }
+        },
+        {
+          kind: "retry",
+          tool: input.tool,
+          note: `If same task: retry after in-flight write finishes (sessionId="${sessionId}"). If parallel: use sessionId="${nextId}" after ${startCommand}.`,
+          args: { sessionId: nextId }
+        }
+      ];
+    }
     return [
       {
         kind: "tool",
         tool: startTool,
-        note: `Do NOT reuse sessionId="${sessionId}". Use new sessionId="${nextId}" then ${startCommand}.`,
+        note: `Session was released. Do NOT reuse sessionId="${sessionId}". Use new sessionId="${nextId}" then ${startCommand}.`,
         args: { sessionId: nextId, command: startCommand }
       },
       {
@@ -268,18 +288,24 @@ export function buildRecoveryHint(input: {
       ? assertionDiff.locatorUsed.trim()
       : undefined);
   const locatorHint = locatorUsed ? ` Current locator="${locatorUsed}".` : "";
-  if (
-    resultData?.sessionReleased === true ||
-    resultData?.requireNewSessionId === true ||
-    String(input.result?.errorCode ?? "").toUpperCase() === "SESSION_RELEASED"
-  ) {
-    const nextId =
-      (typeof resultData?.suggestedSessionId === "string" && resultData.suggestedSessionId) ||
-      `${sessionId}-r${Date.now()}`;
-    return (
-      `SESSION_RELEASED: do not reuse sessionId="${sessionId}". ` +
-      `Switch to sessionId="${nextId}", then ${platform === "web" ? "navigate" : "launchApp"} before retrying ${input.tool}.`
-    );
+  {
+    const code = String(input.result?.errorCode ?? "").toUpperCase();
+    if (
+      resultData?.sessionReleased === true ||
+      resultData?.requireNewSessionId === true ||
+      resultData?.sessionBusy === true ||
+      code === "SESSION_RELEASED" ||
+      code === "SESSION_BUSY"
+    ) {
+      const nextId =
+        (typeof resultData?.suggestedSessionId === "string" && resultData.suggestedSessionId) ||
+        `${sessionId}-r${Date.now()}`;
+      const label = code === "SESSION_BUSY" || resultData?.sessionBusy === true ? "SESSION_BUSY" : "SESSION_RELEASED";
+      return (
+        `${label}: do not reuse sessionId="${sessionId}". ` +
+        `Switch to sessionId="${nextId}", then ${platform === "web" ? "navigate" : "launchApp"} before retrying ${input.tool}.`
+      );
+    }
   }
   const errorKind =
     input.errorKind ??

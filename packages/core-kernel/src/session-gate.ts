@@ -10,6 +10,11 @@ export class SessionGate {
   private writer = false;
   private readonly waiters: Waiter[] = [];
 
+  /** 已有写锁或写等待：同 session 并发 navigate 等应换新 sessionId，勿静默排队 */
+  isWriteContended(): boolean {
+    return this.writer || this.waiters.some((w) => w.kind === "write");
+  }
+
   private pump(): void {
     while (this.waiters.length > 0) {
       const next = this.waiters[0]!;

@@ -104,7 +104,7 @@ function annotateReleasedResult(command: CommandEnvelope, result: CommandResult)
 
 export async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: number): Promise<CommandResult> {
   const forceReuse = command.payload?.forceReuseReleasedSession === true;
-  assertSessionNotReleased(command.platform, command.sessionId, command.command, {
+  const placeholderWarn = assertSessionNotReleased(command.platform, command.sessionId, command.command, {
     allowForceReuse: true,
     forceReuse
   });
@@ -115,7 +115,26 @@ export async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: n
   ) {
     clearReleasedSession(command.platform, command.sessionId);
   }
-  return annotateReleasedResult(command, result);
+  const annotated = annotateReleasedResult(command, result);
+  if (!placeholderWarn) {
+    return annotated;
+  }
+  const data =
+    annotated.data && typeof annotated.data === "object" ? { ...(annotated.data as object) } : {};
+  return {
+    ...annotated,
+    data: {
+      ...data,
+      sessionReleasedWarning: true,
+      requireNewSessionId: true,
+      previousSessionId: command.sessionId,
+      suggestedSessionId: placeholderWarn.suggestedSessionId,
+      recoveryHint:
+        `WARN: placeholder sessionId="${command.sessionId}" was previously released. ` +
+        `Prefer new sessionId="${placeholderWarn.suggestedSessionId}" then navigate/launchApp. ` +
+        `(Set ADA_RELEASED_PLACEHOLDER_MODE=block to hard-fail.)`
+    }
+  };
 }
 
 export async function runCommandWithRetry(

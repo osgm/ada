@@ -234,11 +234,14 @@ export {
 } from "./command-timeout.js";
 export { isSessionReadOnlyCommand } from "./session-command-class.js";
 export {
+  DEFAULT_PLAYWRIGHT_MAX_BROWSERS,
   DEFAULT_RELEASE_ON_WAIT_TIMEOUT_MS,
   extractWaitedMsFromMessage,
   isTimeoutFailure,
   releaseOnWaitTimeoutMs,
-  shouldReleaseSessionOnTimeout
+  resolvePlaywrightMaxBrowsers,
+  shouldReleaseSessionOnTimeout,
+  suggestNextSessionId
 } from "./session-release-policy.js";
 export {
   UI_ELEMENT_NOT_FOUND,
@@ -377,6 +380,8 @@ export {
   ensureCdpEndpointReady,
   parseCdpEndpoint,
   probeCdpEndpoint,
+  reserveFreeTcpPort,
+  reserveTcpPort,
   resolveCdpAutoLaunchPlan,
   resolveCdpBrowserFamily,
   resolveChromiumCdpUserDataDir,
@@ -387,10 +392,12 @@ export {
   cleanupAllCdpSpawnsDetached,
   forceKillProcessTree,
   forceKillProcessTreeDetached,
+  tryReserveTcpPort,
   withCdpPlanPort,
   type CdpAutoLaunchPlan,
   type CdpBrowserFamily,
-  type CdpSpawnHandle
+  type CdpSpawnHandle,
+  type ReservedTcpPort
 } from "./cdp-auto-launch.js";
 export {
   executeAndroidMethodInvoke,

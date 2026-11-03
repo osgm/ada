@@ -53,6 +53,11 @@ export function listActiveSessions(): Array<{
   return getSharedTaskExecutor().listSessions();
 }
 
+/** 与 Playwright 浏览器闸门同源；插件未暴露计数时返回 undefined */
+export function countPlaywrightBrowsers(): number | undefined {
+  return getSharedTaskExecutor().countPlaywrightBrowsers();
+}
+
 export async function closeSession(
   platform: CommandEnvelope["platform"],
   sessionId: string,

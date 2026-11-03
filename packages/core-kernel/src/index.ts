@@ -9,7 +9,8 @@ import {
   parseWebEngineFromPayload,
   raceCommandTimeout,
   resolveCommandTimeoutMs,
-  shouldReleaseSessionOnTimeout
+  shouldReleaseSessionOnTimeout,
+  suggestNextSessionId
 } from "@ada/driver-rpc";
 import { PluginHost } from "@ada/plugin-host";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
@@ -301,10 +302,78 @@ export class TaskExecutor {
     ]).catch(() => undefined);
   }
 
+  private withSessionReleasedMeta(
+    command: CommandEnvelope,
+    result: CommandResult,
+    extra?: Record<string, unknown>
+  ): CommandResult {
+    const suggestedSessionId = suggestNextSessionId(command.sessionId);
+    return {
+      ...result,
+      data: {
+        ...(result.data ?? {}),
+        sessionReleased: true,
+        requireNewSessionId: true,
+        previousSessionId: command.sessionId,
+        suggestedSessionId,
+        ...(extra ?? {})
+      }
+    };
+  }
+
+  /**
+   * Web 同 session 写冲突时是否返回 SESSION_BUSY（避免静默排队）。
+   * 白名单模式（默认 heavy）：开页 + recipe/invoke/custom；
+   * `ADA_WEB_SESSION_BUSY_WRITES=all` 扩到全部写；`=open` 仅开页；总开关仍可用 `ADA_WEB_SESSION_BUSY_ON_PARALLEL_START=0`。
+   */
+  private shouldRejectBusyWebWrite(command: CommandEnvelope): boolean {
+    if (command.platform !== "web") return false;
+    const raw = process.env.ADA_WEB_SESSION_BUSY_ON_PARALLEL_START?.trim().toLowerCase();
+    if (raw === "0" || raw === "false" || raw === "off") return false;
+    if (command.payload?.allowQueuedStart === true) return false;
+
+    const cmd = command.command;
+    const openPage = cmd === "navigate" || cmd === "newTab" || cmd === "reload";
+    const heavyWrite = cmd === "recipe" || cmd === "invoke" || cmd === "custom";
+    const mode = (process.env.ADA_WEB_SESSION_BUSY_WRITES?.trim().toLowerCase() || "heavy") as string;
+    if (mode === "open" || mode === "navigate") {
+      return openPage;
+    }
+    if (mode === "all" || mode === "1" || mode === "true") {
+      return true;
+    }
+    // default heavy：开页 + 重写操作；click/type 等仍可排队（同任务连点更安全）
+    return openPage || heavyWrite;
+  }
+
   async execute(command: CommandEnvelope): Promise<CommandResult> {
     const key = this.sessionQueueKey(command);
     const readOnly = !this.forceSerializeAll() && isSessionReadOnlyCommand(command);
-    const release = await this.gateFor(key).acquire(readOnly);
+    const gate = this.gateFor(key);
+    if (!readOnly && this.shouldRejectBusyWebWrite(command) && gate.isWriteContended()) {
+      const suggestedSessionId = suggestNextSessionId(command.sessionId);
+      const failed = this.resultAssembler.failure(
+        command.requestId,
+        "SESSION_BUSY",
+        `Session "${command.sessionId}" is busy with another write (${command.command}). ` +
+          `For a parallel web task use new sessionId="${suggestedSessionId}" then navigate. ` +
+          `For the same task: wait for the in-flight command, then retry this sessionId ` +
+          `(or payload.allowQueuedStart=true to queue). ` +
+          `(ADA_WEB_SESSION_BUSY_WRITES=open|heavy|all; ADA_WEB_SESSION_BUSY_ON_PARALLEL_START=0 disables.)`
+      );
+      return {
+        ...failed,
+        data: {
+          ...(failed.data ?? {}),
+          sessionBusy: true,
+          requireNewSessionId: true,
+          previousSessionId: command.sessionId,
+          suggestedSessionId,
+          busyCommand: command.command
+        }
+      };
+    }
+    const release = await gate.acquire(readOnly);
     try {
       return await this.executeExclusive(command);
     } finally {
@@ -336,15 +405,10 @@ export class TaskExecutor {
         });
         if (this.shouldReleaseOnFailedResult(command, normalized)) {
           await this.teardownSession(command, context.plugin, context.session);
-          return {
+          return this.withSessionReleasedMeta(command, {
             ...normalized,
-            errorCode: normalized.errorCode || "PRECONDITION_TIMEOUT",
-            data: {
-              ...(normalized.data ?? {}),
-              sessionReleased: true,
-              requireNewSessionId: true
-            }
-          };
+            errorCode: normalized.errorCode || "PRECONDITION_TIMEOUT"
+          });
         }
         if (this.shouldRetryCommand(normalized, attempt, command.platform)) {
           await this.teardownSession(command, context.plugin, context.session);
@@ -360,14 +424,7 @@ export class TaskExecutor {
             "COMMAND_TIMEOUT",
             error.message
           );
-          return {
-            ...timedOut,
-            data: {
-              ...(timedOut.data ?? {}),
-              sessionReleased: true,
-              requireNewSessionId: true
-            }
-          };
+          return this.withSessionReleasedMeta(command, timedOut);
         }
         const message = error instanceof Error ? error.message : String(error);
         const failed = this.resultAssembler.failure(command.requestId, "KERNEL_EXECUTION_FAILED", message);
@@ -387,12 +444,22 @@ export class TaskExecutor {
           lastFailure = failed;
           continue;
         }
+        // 已 teardown 清理驱动，但仅超时/前置类失败才强制换 sessionId（避免业务错误杀）
+        if (
+          this.shouldReleaseOnFailedResult(command, failed) ||
+          shouldReleaseSessionOnTimeout({
+            command: command.command,
+            errorCode: failed.errorCode,
+            errorMessage: failed.errorMessage
+          })
+        ) {
+          return this.withSessionReleasedMeta(command, failed);
+        }
         return {
           ...failed,
           data: {
             ...(failed.data ?? {}),
-            sessionReleased: true,
-            requireNewSessionId: true
+            driverSessionCleared: true
           }
         };
       }
@@ -407,6 +474,11 @@ export class TaskExecutor {
     driverSessionId: string;
   }> {
     return this.sessions.list();
+  }
+
+  /** Playwright 真实浏览器数（闸门同源）；不可用时 undefined */
+  countPlaywrightBrowsers(): number | undefined {
+    return this.pluginHost.getActiveBrowserCount("playwright");
   }
 
   async closeSession(

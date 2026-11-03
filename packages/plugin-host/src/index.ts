@@ -121,6 +121,20 @@ export class PluginHost {
     return Array.from(this.webEngines.keys());
   }
 
+  /** 与 Playwright 闸门同源的活跃浏览器数；插件未实现时返回 undefined */
+  getActiveBrowserCount(engine: WebEngine = "playwright"): number | undefined {
+    const plugin = this.webEngines.get(engine);
+    if (!plugin || typeof plugin.getActiveBrowserCount !== "function") {
+      return undefined;
+    }
+    try {
+      const n = plugin.getActiveBrowserCount();
+      return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   listManifests(): DriverPlugin["manifest"][] {
     return Array.from(this.manifests.values());
   }

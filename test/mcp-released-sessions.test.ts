@@ -10,6 +10,7 @@ import {
   suggestNextSessionId
 } from "../apps/ada-mcp-server/src/mcp-released-sessions.ts";
 import { buildRecoveryHint } from "../apps/ada-mcp-server/src/mcp-recovery.ts";
+import { handleSessions } from "../apps/ada-mcp-server/src/mcp-admin.ts";
 
 test("suggestNextSessionId appends release suffix", () => {
   const next = suggestNextSessionId("web-jd");
@@ -63,6 +64,76 @@ test("sessionReleasedErrorToCommandResult keeps suggestedSessionId", () => {
   } finally {
     clearReleasedSession();
   }
+});
+
+test("placeholder sessionId warns by default instead of hard block", () => {
+  clearReleasedSession();
+  const prev = process.env.ADA_RELEASED_PLACEHOLDER_MODE;
+  delete process.env.ADA_RELEASED_PLACEHOLDER_MODE;
+  try {
+    const record = markSessionReleased("web", "mcp-session", "timeout");
+    assert.ok(record);
+    assert.equal(record!.placeholder, true);
+    const warn = assertSessionNotReleased("web", "mcp-session", "click");
+    assert.ok(warn);
+    assert.match(warn!.suggestedSessionId, /^mcp-session-r/);
+
+    process.env.ADA_RELEASED_PLACEHOLDER_MODE = "block";
+    assert.throws(() => assertSessionNotReleased("web", "mcp-session", "click"), /SESSION_RELEASED/);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_RELEASED_PLACEHOLDER_MODE;
+    else process.env.ADA_RELEASED_PLACEHOLDER_MODE = prev;
+    clearReleasedSession();
+  }
+});
+
+test("released session registry respects TTL prune", () => {
+  clearReleasedSession();
+  const prev = process.env.ADA_RELEASED_SESSION_TTL_MS;
+  process.env.ADA_RELEASED_SESSION_TTL_MS = "1";
+  try {
+    markSessionReleased("web", "ttl-sess", "timeout");
+    assert.ok(getReleasedSession("web", "ttl-sess"));
+    const start = Date.now();
+    while (Date.now() - start < 5) {
+      // wait >1ms
+    }
+    assert.equal(getReleasedSession("web", "ttl-sess"), undefined);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_RELEASED_SESSION_TTL_MS;
+    else process.env.ADA_RELEASED_SESSION_TTL_MS = prev;
+    clearReleasedSession();
+  }
+});
+
+test("handleSessions prefers playwright-runtime count over kernel list", () => {
+  const out = handleSessions({
+    listActiveSessions: () => [
+      { platform: "web", engine: "playwright", sessionId: "a" },
+      { platform: "web", engine: "playwright", sessionId: "stale" },
+      { platform: "android", sessionId: "b" }
+    ],
+    countPlaywrightBrowsers: () => 1,
+    mcpTextResult: (data) => data
+  }) as Record<string, unknown>;
+  assert.equal(out.count, 3);
+  assert.equal(out.kernelWebSessions, 2);
+  assert.equal(out.playwrightBrowsers, 1);
+  assert.equal(out.playwrightBrowsersSource, "playwright-runtime");
+  assert.equal(out.playwrightMaxBrowsers, 20);
+  assert.equal(out.playwrightBrowserSlotsRemaining, 19);
+  assert.equal(typeof out.releasedSessionCount, "number");
+});
+
+test("handleSessions falls back to kernel web count when runtime unavailable", () => {
+  const out = handleSessions({
+    listActiveSessions: () => [{ platform: "web", engine: "playwright", sessionId: "a" }],
+    countPlaywrightBrowsers: () => undefined,
+    mcpTextResult: (data) => data
+  }) as Record<string, unknown>;
+  assert.equal(out.playwrightBrowsers, 1);
+  assert.equal(out.playwrightBrowsersSource, "kernel-fallback");
+  assert.equal(out.kernelWebSessions, 1);
 });
 
 test("buildRecoveryHint forces new sessionId when sessionReleased", () => {

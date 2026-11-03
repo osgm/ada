@@ -1,3 +1,4 @@
+import { suggestNextSessionId as suggestNextSessionIdShared } from "@ada/driver-rpc";
 import type { AdaPlatform } from "./mcp-normalize.js";
 
 export type ReleasedSessionRecord = {
@@ -6,15 +7,21 @@ export type ReleasedSessionRecord = {
   reason: string;
   releasedAt: number;
   suggestedSessionId: string;
+  placeholder?: boolean;
 };
 
 const released = new Map<string, ReleasedSessionRecord>();
+
+/** 默认 1 小时；`0`=不按时间过期 */
+export const DEFAULT_RELEASED_SESSION_TTL_MS = 3_600_000;
+/** 登记表上限，超出淘汰最旧 */
+export const DEFAULT_RELEASED_SESSION_MAX = 200;
 
 function keyOf(platform: string, sessionId: string): string {
   return `${platform}:${sessionId}`;
 }
 
-function isPlaceholderSessionId(sessionId: string): boolean {
+export function isPlaceholderSessionId(sessionId: string): boolean {
   return (
     sessionId === "mcp-session" ||
     sessionId === "mcp-batch" ||
@@ -24,10 +31,50 @@ function isPlaceholderSessionId(sessionId: string): boolean {
   );
 }
 
+export function resolveReleasedSessionTtlMs(): number {
+  const raw = process.env.ADA_RELEASED_SESSION_TTL_MS?.trim();
+  if (!raw) return DEFAULT_RELEASED_SESSION_TTL_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_RELEASED_SESSION_TTL_MS;
+}
+
+export function resolveReleasedSessionMax(): number {
+  const raw = process.env.ADA_RELEASED_SESSION_MAX?.trim();
+  if (!raw) return DEFAULT_RELEASED_SESSION_MAX;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_RELEASED_SESSION_MAX;
+}
+
+/** 占位 sessionId：默认 warn（登记+提示，不硬拦）；`block` 硬拦；`off` 忽略 */
+export function resolvePlaceholderReleasedMode(): "warn" | "block" | "off" {
+  const raw = process.env.ADA_RELEASED_PLACEHOLDER_MODE?.trim().toLowerCase();
+  if (raw === "block" || raw === "enforce" || raw === "1" || raw === "true") return "block";
+  if (raw === "off" || raw === "0" || raw === "false") return "off";
+  return "warn";
+}
+
+function pruneReleasedSessions(now = Date.now()): void {
+  const ttl = resolveReleasedSessionTtlMs();
+  if (ttl > 0) {
+    for (const [key, record] of released) {
+      if (now - record.releasedAt > ttl) {
+        released.delete(key);
+      }
+    }
+  }
+  const max = resolveReleasedSessionMax();
+  if (max <= 0 || released.size <= max) return;
+  const ordered = [...released.entries()].sort((a, b) => a[1].releasedAt - b[1].releasedAt);
+  const overflow = released.size - max;
+  for (let i = 0; i < overflow; i += 1) {
+    const key = ordered[i]?.[0];
+    if (key) released.delete(key);
+  }
+}
+
 /** 生成建议的新 sessionId，避免 Agent 继续复用已释放 id */
 export function suggestNextSessionId(sessionId: string): string {
-  const base = String(sessionId || "mcp-session").replace(/-r\d{6,}.*$/, "") || "mcp-session";
-  return `${base}-r${Date.now()}`;
+  return suggestNextSessionIdShared(sessionId);
 }
 
 export function markSessionReleased(
@@ -36,17 +83,24 @@ export function markSessionReleased(
   reason = "session released after timeout/precondition failure"
 ): ReleasedSessionRecord | undefined {
   const id = String(sessionId ?? "").trim();
-  if (!id || isPlaceholderSessionId(id)) {
+  if (!id) {
     return undefined;
   }
+  const placeholder = isPlaceholderSessionId(id);
+  if (placeholder && resolvePlaceholderReleasedMode() === "off") {
+    return undefined;
+  }
+  pruneReleasedSessions();
   const record: ReleasedSessionRecord = {
     platform,
     sessionId: id,
     reason,
     releasedAt: Date.now(),
-    suggestedSessionId: suggestNextSessionId(id)
+    suggestedSessionId: suggestNextSessionId(id),
+    ...(placeholder ? { placeholder: true } : {})
   };
   released.set(keyOf(platform, id), record);
+  pruneReleasedSessions();
   return record;
 }
 
@@ -72,7 +126,41 @@ export function getReleasedSession(
   platform: string,
   sessionId: string
 ): ReleasedSessionRecord | undefined {
+  pruneReleasedSessions();
   return released.get(keyOf(platform, sessionId));
+}
+
+export function countReleasedSessions(): number {
+  pruneReleasedSessions();
+  return released.size;
+}
+
+export type SessionReleasedGuardResult =
+  | { action: "allow" }
+  | { action: "warn"; record: ReleasedSessionRecord }
+  | { action: "block"; record: ReleasedSessionRecord };
+
+/** 检查是否可复用；占位 id 默认 warn，正式 id 硬拦 */
+export function checkSessionNotReleased(
+  platform: string,
+  sessionId: string,
+  options?: { allowForceReuse?: boolean; forceReuse?: boolean }
+): SessionReleasedGuardResult {
+  if (options?.allowForceReuse && options.forceReuse) {
+    clearReleasedSession(platform, sessionId);
+    return { action: "allow" };
+  }
+  const hit = getReleasedSession(platform, sessionId);
+  if (!hit) {
+    return { action: "allow" };
+  }
+  if (hit.placeholder || isPlaceholderSessionId(sessionId)) {
+    const mode = resolvePlaceholderReleasedMode();
+    if (mode === "off") return { action: "allow" };
+    if (mode === "warn") return { action: "warn", record: hit };
+    return { action: "block", record: hit };
+  }
+  return { action: "block", record: hit };
 }
 
 export function assertSessionNotReleased(
@@ -80,22 +168,18 @@ export function assertSessionNotReleased(
   sessionId: string,
   command: string,
   options?: { allowForceReuse?: boolean; forceReuse?: boolean }
-): void {
-  if (isPlaceholderSessionId(sessionId)) {
-    return;
+): ReleasedSessionRecord | undefined {
+  const checked = checkSessionNotReleased(platform, sessionId, options);
+  if (checked.action === "allow") {
+    return undefined;
   }
-  if (options?.allowForceReuse && options.forceReuse) {
-    clearReleasedSession(platform, sessionId);
-    return;
-  }
-  const hit = getReleasedSession(platform, sessionId);
-  if (!hit) {
-    return;
+  if (checked.action === "warn") {
+    return checked.record;
   }
   throw createSessionReleasedError({
     sessionId,
-    reason: hit.reason,
-    suggestedSessionId: hit.suggestedSessionId,
+    reason: checked.record.reason,
+    suggestedSessionId: checked.record.suggestedSessionId,
     command
   });
 }

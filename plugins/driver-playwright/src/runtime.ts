@@ -20,6 +20,7 @@ import {
   cleanupAllCdpSpawnsDetached,
   forceKillProcessTree,
   forceKillProcessTreeDetached,
+  resolvePlaywrightMaxBrowsers,
   shouldReleaseSessionOnTimeout,
   type CdpSpawnHandle
 } from "@ada/driver-rpc";
@@ -491,11 +492,30 @@ export function mergeWithLaunchDefaults(pw: PlaywrightSession, payload?: Record<
   return mergeOptionsIntoPayload({ ...pw.launchPayload, ...payload });
 }
 
+export function countActivePlaywrightBrowsers(): number {
+  return sessions.size;
+}
+
+/** 超过 ADA_PLAYWRIGHT_MAX_BROWSERS（默认 20）时拒绝新开浏览器 */
+export function assertPlaywrightBrowserLimit(): void {
+  const max = resolvePlaywrightMaxBrowsers();
+  if (max <= 0) return;
+  const active = sessions.size;
+  if (active < max) return;
+  const err = new Error(
+    `BROWSER_LIMIT_EXCEEDED: active Playwright browsers=${active}, max=${max}. ` +
+      `Close unused sessions (ada_close_session / ada_close_all_sessions) or raise ADA_PLAYWRIGHT_MAX_BROWSERS.`
+  );
+  (err as Error & { code?: string }).code = "BROWSER_LIMIT_EXCEEDED";
+  throw err;
+}
+
 export async function ensurePlaywrightSession(session: DriverSession, payload?: Record<string, unknown>): Promise<PlaywrightSession> {
   const existed = sessions.get(session.id);
   if (existed) {
     return existed;
   }
+  assertPlaywrightBrowserLimit();
   const merged = mergeOptionsIntoPayload(payload);
   const sessionKey = buildSessionKey(merged);
 
