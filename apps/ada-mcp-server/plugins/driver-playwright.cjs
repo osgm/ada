@@ -34,6 +34,7 @@ __export(index_exports, {
   default: () => index_default,
   executeClickPath: () => executeClickPath,
   executeFillSearch: () => executeFillSearch,
+  executePlaywrightCommand: () => executePlaywrightCommand,
   locatorFromPayload: () => locatorFromPayload,
   observeViewOnPage: () => observeViewOnPage,
   summarizeLocator: () => summarizeLocator
@@ -336,9 +337,9 @@ var WEB_VIEW_SCRIPT = `(() => {
     url: location.href
   };
 })()`;
-function normalizeControlPath(path3) {
-  if (!Array.isArray(path3)) return [];
-  return path3.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0);
+function normalizeControlPath(path4) {
+  if (!Array.isArray(path4)) return [];
+  return path4.map((item) => String(item ?? "").trim()).filter((item) => item.length > 0);
 }
 function resolveExpandStrategy(requested, item) {
   const raw = typeof requested === "string" ? requested.toLowerCase() : "auto";
@@ -346,9 +347,9 @@ function resolveExpandStrategy(requested, item) {
   if (item?.triggerKind === "hover" || item?.triggerKind === "click") return item.triggerKind;
   return "click";
 }
-function findControlByPath(flat, path3) {
-  if (path3.length === 0) return void 0;
-  const target = path3.join(">");
+function findControlByPath(flat, path4) {
+  if (path4.length === 0) return void 0;
+  const target = path4.join(">");
   let best;
   let bestLen = -1;
   for (const item of flat) {
@@ -933,10 +934,9 @@ function mergeOptionsIntoPayload(payload) {
   return p;
 }
 
-// ../../plugins/driver-playwright/src/index.ts
-var import_node_module = require("node:module");
-var import_promises = __toESM(require("node:fs/promises"), 1);
-var import_node_path2 = __toESM(require("node:path"), 1);
+// ../../plugins/driver-playwright/src/commands/router.ts
+var import_promises2 = __toESM(require("node:fs/promises"), 1);
+var import_node_path3 = __toESM(require("node:path"), 1);
 
 // ../../plugins/driver-playwright/src/playwright-locator.ts
 function asRecord4(value) {
@@ -1378,38 +1378,38 @@ async function executeFillSearch(command, page, payload) {
   };
 }
 async function executeClickPath(command, page, payload) {
-  const path3 = normalizeControlPath(payload?.path);
-  if (path3.length === 0) {
+  const path4 = normalizeControlPath(payload?.path);
+  if (path4.length === 0) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_INVALID, "clickPath requires non-empty path array");
   }
   const waitMs = resolveAutoWaitMs(payload);
   const expandSettleMs = resolveWebExpandSettleMs(payload);
   let observed = await observeViewOnPage(page);
-  let targetMeta = findControlByPath(observed.flat, path3);
+  let targetMeta = findControlByPath(observed.flat, path4);
   const beforeUrl = page.url();
-  for (let i = 0; i < path3.length - 1; i += 1) {
-    const segment = path3[i];
-    const segMeta = findControlByPath(observed.flat, path3.slice(0, i + 1));
+  for (let i = 0; i < path4.length - 1; i += 1) {
+    const segment = path4[i];
+    const segMeta = findControlByPath(observed.flat, path4.slice(0, i + 1));
     const segStrategy = resolveExpandStrategy(payload?.strategy, segMeta);
     const nthFallback = segment ? void 0 : Number(payload?.triggerNth ?? i);
     const expanded = await expandPathSegment(page, segment || "", segStrategy, waitMs, expandSettleMs, nthFallback);
     if (!expanded.ok) {
       return failResult(command, WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED, expanded.error ?? `failed to expand ${segment}`, {
-        path: path3,
+        path: path4,
         segment,
         businessCode: WEB_INTERACTION_ERROR_CODES.PATH_NOT_EXPANDED
       });
     }
     observed = await observeViewOnPage(page);
-    targetMeta = findControlByPath(observed.flat, path3);
+    targetMeta = findControlByPath(observed.flat, path4);
   }
-  const leaf = path3[path3.length - 1];
+  const leaf = path4[path4.length - 1];
   const leafStrategy = resolveExpandStrategy(payload?.strategy, targetMeta);
-  const isLeafPopup = targetMeta?.hasPopup === true && path3.length === 1;
+  const isLeafPopup = targetMeta?.hasPopup === true && path4.length === 1;
   const locator = await resolveLabelLocator(page, leaf, Number(payload?.leafNth));
   if (!locator) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.CONTROL_NOT_FOUND, `path leaf not found: ${leaf}`, {
-      path: path3,
+      path: path4,
       businessCode: WEB_INTERACTION_ERROR_CODES.CONTROL_NOT_FOUND
     });
   }
@@ -1426,7 +1426,7 @@ async function executeClickPath(command, page, payload) {
   const nav = await waitAfterNavigation(page, waitPayload, beforeUrl);
   if (shouldWaitNavigation && !nav.navigated && (targetMeta?.href || payload?.requireNavigation === true)) {
     return failResult(command, WEB_INTERACTION_ERROR_CODES.NAV_TIMEOUT, `navigation did not complete after clickPath: ${leaf}`, {
-      path: path3,
+      path: path4,
       beforeUrl,
       afterUrl: nav.url,
       businessCode: WEB_INTERACTION_ERROR_CODES.NAV_TIMEOUT
@@ -1439,14 +1439,14 @@ async function executeClickPath(command, page, payload) {
       driver: "playwright",
       command: "recipe",
       action: "clickPath",
-      path: path3,
+      path: path4,
       strategy: leafStrategy,
       navigated: nav.navigated,
       url: nav.url,
       waitNavigation: shouldWaitNavigation,
       controls: serializeRpcResult(truncateViewTreeValue(observed.flat, CLICK_PATH_CONTROLS_PREVIEW).value),
       controlsTruncated: observed.flat.length > CLICK_PATH_CONTROLS_PREVIEW ? true : void 0,
-      reObservedAfterExpand: path3.length > 1 ? true : void 0,
+      reObservedAfterExpand: path4.length > 1 ? true : void 0,
       businessCode: "PATH_CLICK_OK"
     }
   };
@@ -1831,7 +1831,10 @@ async function executeDismissPopups(command, page, payload) {
   };
 }
 
-// ../../plugins/driver-playwright/src/index.ts
+// ../../plugins/driver-playwright/src/runtime.ts
+var import_node_module = require("node:module");
+var import_promises = __toESM(require("node:fs/promises"), 1);
+var import_node_path2 = __toESM(require("node:path"), 1);
 var sessions = /* @__PURE__ */ new Map();
 var localRequire = (0, import_node_module.createRequire)(typeof __filename === "string" ? __filename : process.cwd());
 var SEMANTIC_COMMANDS = [
@@ -2319,6 +2322,341 @@ function getStringArray(value) {
   }
   return value.filter((item) => typeof item === "string");
 }
+async function destroyPlaywrightSession(session) {
+  const existed = sessions.get(session.id);
+  if (!existed) return;
+  await closePlaywrightSession(existed);
+  sessions.delete(session.id);
+}
+async function disposePlaywrightRuntime() {
+  for (const [, pw] of sessions) {
+    await closePlaywrightSession(pw);
+  }
+  sessions.clear();
+}
+function forceDisposePlaywrightRuntime() {
+  forceShutdown = true;
+  for (const [, pw] of sessions) {
+    forceKillPlaywrightProcessDetached(pw);
+  }
+  sessions.clear();
+  cleanupAllCdpSpawnsDetached();
+}
+function getPlaywrightSession(sessionId) {
+  return sessions.get(sessionId);
+}
+
+// ../../plugins/driver-playwright/src/commands/router.ts
+async function executePlaywrightCommand(session, command) {
+  const cmd = command.command;
+  const payload = command.payload;
+  const forceMock = Boolean(payload?.mock);
+  if (forceMock) {
+    return runMock(command, "payload.mock=true");
+  }
+  if (cmd === "invoke") {
+    try {
+      const pw = await ensurePlaywrightSession(session, payload);
+      await focusVisibleBrowser(pw, payload);
+      return await executePlaywrightInvoke(command, pw, payload);
+    } catch (error) {
+      if (!isRecoverableInteractionError(error)) {
+        await releasePlaywrightDriverSession(session.id);
+      }
+      return failResult2(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
+    }
+  }
+  try {
+    const pw = await ensurePlaywrightSession(session, payload);
+    const effective = mergeWithLaunchDefaults(pw, payload);
+    await focusVisibleBrowser(pw, effective);
+    const page = pw.page;
+    const url = getString2(effective?.url);
+    const locator = locatorFromPayload(page, effective);
+    const waitMs = resolveAutoWaitMs(effective);
+    if (cmd === "navigate") {
+      if (!url) {
+        return failResult2(command, "INVALID_PAYLOAD", "navigate requires url");
+      }
+      await gotoPage(page, url, effective);
+      await focusVisibleBrowser(pw, effective);
+    } else if (command.command === "click") {
+      if (!locator) {
+        return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `click requires locator. ${LOCATOR_FORMAT_HINT}`, {
+          locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
+          locatorHint: LOCATOR_FORMAT_HINT
+        });
+      }
+      await autoWaitEnabled(locator, waitMs);
+      const beforeClickUrl = page.url();
+      await locator.click({ timeout: waitMs });
+      await waitAfterNavigation(page, effective, beforeClickUrl);
+    } else if (command.command === "hover") {
+      if (!locator) {
+        return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `hover requires locator. ${LOCATOR_FORMAT_HINT}`, {
+          locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
+          locatorHint: LOCATOR_FORMAT_HINT
+        });
+      }
+      await autoWaitEnabled(locator, waitMs);
+      await locator.hover({ timeout: waitMs });
+    } else if (command.command === "type") {
+      if (!locator) {
+        return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `type requires locator. ${LOCATOR_FORMAT_HINT}`, {
+          locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
+          locatorHint: LOCATOR_FORMAT_HINT
+        });
+      }
+      await autoWaitEnabled(locator, waitMs);
+      if (isTypeClearOp(payload)) {
+        await locator.clear({ timeout: waitMs });
+      } else {
+        const text = getString2(payload?.text) ?? "";
+        await locator.fill(text, { timeout: waitMs });
+      }
+    } else if (command.command === "press") {
+      const key = getString2(payload?.key);
+      if (!key) {
+        return failResult2(command, "INVALID_PAYLOAD", "press requires key");
+      }
+      if (locator) {
+        await locator.press(key);
+      } else {
+        await page.keyboard.press(key);
+      }
+    } else if (command.command === "select") {
+      if (!locator) {
+        return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
+      }
+      const value = getString2(payload?.value);
+      const label = getString2(payload?.label);
+      const index = getNumber3(payload?.index);
+      if (value) {
+        await locator.selectOption({ value });
+      } else if (label) {
+        await locator.selectOption({ label });
+      } else if (typeof index === "number") {
+        await locator.selectOption({ index });
+      } else {
+        return failResult2(command, "INVALID_PAYLOAD", "select requires value, label, or index");
+      }
+    } else if (command.command === "scroll") {
+      const deltaX = getNumber3(payload?.deltaX) ?? 0;
+      const deltaY = getNumber3(payload?.deltaY) ?? 500;
+      if (locator) {
+        await locator.scrollIntoViewIfNeeded();
+      }
+      await page.mouse.wheel(deltaX, deltaY);
+    } else if (command.command === "forward") {
+      await page.goForward().catch(() => null);
+    } else if (command.command === "newTab") {
+      const newPage = await pw.context.newPage();
+      pw.page = newPage;
+      if (url) {
+        await gotoPage(newPage, url, effective);
+      }
+      await focusVisibleBrowser(pw, effective);
+    } else if (command.command === "switchTab") {
+      const pages = pw.context.pages();
+      const tabIndex = getNumber3(payload?.tabIndex) ?? 0;
+      const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
+      const selected = pages[safeIndex];
+      if (!selected) {
+        return failResult2(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
+      }
+      pw.page = selected;
+      await focusVisibleBrowser(pw, effective);
+    } else if (command.command === "uploadFile") {
+      if (!locator) {
+        return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
+      }
+      const filePath = getString2(payload?.filePath);
+      const filePaths = getStringArray(payload?.filePaths);
+      const targetPaths = filePaths.length > 0 ? filePaths : filePath ? [filePath] : [];
+      if (targetPaths.length === 0) {
+        return failResult2(command, "INVALID_PAYLOAD", "uploadFile requires filePath or filePaths");
+      }
+      await locator.setInputFiles(targetPaths);
+    } else if (command.command === "dragDrop") {
+      const sourceLocatorObj = asRecord6(payload?.sourceLocator ?? payload?.fromLocator);
+      const targetLocatorObj = asRecord6(payload?.targetLocator ?? payload?.toLocator);
+      const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
+      const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
+      if (!source || !target) {
+        return failResult2(command, "LOCATOR_NOT_FOUND", "dragDrop requires source and target locator");
+      }
+      await source.dragTo(target);
+    } else if (command.command === "wait") {
+      const timeoutMs = getNumber3(payload?.timeoutMs) ?? 300;
+      await page.waitForTimeout(timeoutMs);
+    } else if (command.command === "back") {
+      await page.goBack().catch(() => null);
+    } else if (command.command === "reload") {
+      await page.reload();
+    } else if (command.command === "closeTab") {
+      await page.close();
+      pw.page = await pw.context.newPage();
+    } else if (command.command === "assertVisible") {
+      if (!locator) {
+        return failResult2(command, "LOCATOR_NOT_FOUND", "assertVisible requires locator", {
+          locatorUsed: summarizeLocator(payload?.locator)
+        });
+      }
+      try {
+        await autoWaitLocator(locator, waitMs);
+      } catch {
+        return failResult2(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.", {
+          assertionDiff: {
+            type: "visible",
+            expected: true,
+            actual: false,
+            locatorUsed: summarizeLocator(payload?.locator)
+          }
+        });
+      }
+    } else if (command.command === "assertText") {
+      if (!locator) {
+        return failResult2(command, "LOCATOR_NOT_FOUND", "assertText requires locator", {
+          locatorUsed: summarizeLocator(payload?.locator)
+        });
+      }
+      const expected = getString2(payload?.expectedText);
+      if (!expected) {
+        return failResult2(command, "INVALID_PAYLOAD", "assertText requires expectedText");
+      }
+      try {
+        await autoWaitLocator(locator, waitMs);
+      } catch {
+        return failResult2(command, "ASSERT_NOT_VISIBLE", "Target element is not visible before text assert.", {
+          assertionDiff: {
+            type: "text",
+            expected,
+            actual: null,
+            locatorUsed: summarizeLocator(payload?.locator)
+          }
+        });
+      }
+      const actual = await locator.textContent() ?? "";
+      if (!actual.includes(expected)) {
+        return failResult2(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`, {
+          assertionDiff: {
+            type: "text",
+            expected,
+            actual,
+            locatorUsed: summarizeLocator(payload?.locator)
+          }
+        });
+      }
+    } else if (command.command === "getText") {
+      if (!locator) {
+        return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
+      }
+      const text = await locator.textContent() ?? "";
+      return {
+        requestId: command.requestId,
+        success: true,
+        data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
+      };
+    } else if (command.command === "screenshot") {
+      const customPath = getString2(payload?.screenshotPath);
+      const dir = import_node_path3.default.join(process.cwd(), "artifacts");
+      await import_promises2.default.mkdir(dir, { recursive: true });
+      const target = customPath ? import_node_path3.default.resolve(customPath) : import_node_path3.default.join(dir, `${command.requestId}.png`);
+      if (customPath) {
+        await import_promises2.default.mkdir(import_node_path3.default.dirname(target), { recursive: true });
+      }
+      const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : false;
+      await page.screenshot({ path: target, fullPage });
+      return {
+        requestId: command.requestId,
+        success: true,
+        data: {
+          driver: "playwright",
+          command: command.command,
+          screenshot: target,
+          fullPage,
+          headless: pw.headless,
+          browser: pw.browserKind
+        }
+      };
+    } else if (command.command === "recipe") {
+      const action = getString2(payload?.action)?.toLowerCase();
+      if (action === "clickpath") {
+        return executeClickPath(command, page, payload);
+      }
+      if (action === "fill_search" || action === "fillsearch") {
+        return executeFillSearch(command, page, payload);
+      }
+      return failResult2(
+        command,
+        "UNSUPPORTED_COMMAND",
+        `unsupported web recipe action: ${action ?? "(missing)"}; supported: clickPath, fill_search`
+      );
+    } else if (command.command === "custom") {
+      const action = getString2(payload?.action)?.toLowerCase();
+      if (action === "invoke" || payload?.method && !action) {
+        return executePlaywrightInvoke(command, pw, payload);
+      }
+      if (action === "evaluate") {
+        const script = getString2(payload?.script);
+        if (!script) {
+          return failResult2(command, "INVALID_PAYLOAD", "evaluate requires script");
+        }
+        const value = await page.evaluate(script);
+        return {
+          requestId: command.requestId,
+          success: true,
+          data: {
+            driver: "playwright",
+            command: command.command,
+            mode: "real",
+            action: "evaluate",
+            value: serializeRpcResult(value),
+            headless: pw.headless,
+            browser: pw.browserKind
+          }
+        };
+      }
+      if (action === "dismisspopups" || action === "dismiss_popups") {
+        return executeDismissPopups(command, page, effective);
+      }
+      return failResult2(
+        command,
+        "UNSUPPORTED_COMMAND",
+        "unsupported custom action; use action=evaluate|invoke or command=invoke"
+      );
+    } else {
+      return failResult2(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
+    }
+    return {
+      requestId: command.requestId,
+      success: true,
+      data: {
+        driver: "playwright",
+        command: command.command,
+        mode: "real",
+        headless: pw.headless,
+        browser: pw.browserKind,
+        connectedOverCdp: pw.connectedOverCdp,
+        localBrowser: pw.localBrowser
+      }
+    };
+  } catch (error) {
+    if (!isRecoverableInteractionError(error)) {
+      await releasePlaywrightDriverSession(session.id);
+    }
+    const pw = getPlaywrightSession(session.id);
+    return await failWithPage(
+      command,
+      pw?.page,
+      "COMMAND_FAILED",
+      error instanceof Error ? error.message : String(error),
+      { locatorUsed: summarizeLocator(payload?.locator ?? payload?.selector) }
+    );
+  }
+}
+
+// ../../plugins/driver-playwright/src/index.ts
 var playwrightPlugin = {
   manifest: {
     id: "driver-playwright",
@@ -2339,334 +2677,16 @@ var playwrightPlugin = {
     return { id: `pw-${Date.now()}`, platform };
   },
   async execute(session, command) {
-    const cmd = command.command;
-    const payload = command.payload;
-    const forceMock = Boolean(payload?.mock);
-    if (forceMock) {
-      return runMock(command, "payload.mock=true");
-    }
-    if (cmd === "invoke") {
-      try {
-        const pw = await ensurePlaywrightSession(session, payload);
-        await focusVisibleBrowser(pw, payload);
-        return await executePlaywrightInvoke(command, pw, payload);
-      } catch (error) {
-        if (!isRecoverableInteractionError(error)) {
-          await releasePlaywrightDriverSession(session.id);
-        }
-        return failResult2(command, "INVOKE_FAILED", error instanceof Error ? error.message : String(error));
-      }
-    }
-    try {
-      const pw = await ensurePlaywrightSession(session, payload);
-      const effective = mergeWithLaunchDefaults(pw, payload);
-      await focusVisibleBrowser(pw, effective);
-      const page = pw.page;
-      const url = getString2(effective?.url);
-      const locator = locatorFromPayload(page, effective);
-      const waitMs = resolveAutoWaitMs(effective);
-      if (cmd === "navigate") {
-        if (!url) {
-          return failResult2(command, "INVALID_PAYLOAD", "navigate requires url");
-        }
-        await gotoPage(page, url, effective);
-        await focusVisibleBrowser(pw, effective);
-      } else if (command.command === "click") {
-        if (!locator) {
-          return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `click requires locator. ${LOCATOR_FORMAT_HINT}`, {
-            locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
-            locatorHint: LOCATOR_FORMAT_HINT
-          });
-        }
-        await autoWaitEnabled(locator, waitMs);
-        const beforeClickUrl = page.url();
-        await locator.click({ timeout: waitMs });
-        await waitAfterNavigation(page, effective, beforeClickUrl);
-      } else if (command.command === "hover") {
-        if (!locator) {
-          return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `hover requires locator. ${LOCATOR_FORMAT_HINT}`, {
-            locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
-            locatorHint: LOCATOR_FORMAT_HINT
-          });
-        }
-        await autoWaitEnabled(locator, waitMs);
-        await locator.hover({ timeout: waitMs });
-      } else if (command.command === "type") {
-        if (!locator) {
-          return await failWithPage(command, page, "LOCATOR_NOT_FOUND", `type requires locator. ${LOCATOR_FORMAT_HINT}`, {
-            locatorUsed: summarizeLocator(effective?.locator ?? effective?.selector),
-            locatorHint: LOCATOR_FORMAT_HINT
-          });
-        }
-        await autoWaitEnabled(locator, waitMs);
-        if (isTypeClearOp(payload)) {
-          await locator.clear({ timeout: waitMs });
-        } else {
-          const text = getString2(payload?.text) ?? "";
-          await locator.fill(text, { timeout: waitMs });
-        }
-      } else if (command.command === "press") {
-        const key = getString2(payload?.key);
-        if (!key) {
-          return failResult2(command, "INVALID_PAYLOAD", "press requires key");
-        }
-        if (locator) {
-          await locator.press(key);
-        } else {
-          await page.keyboard.press(key);
-        }
-      } else if (command.command === "select") {
-        if (!locator) {
-          return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
-        }
-        const value = getString2(payload?.value);
-        const label = getString2(payload?.label);
-        const index = getNumber3(payload?.index);
-        if (value) {
-          await locator.selectOption({ value });
-        } else if (label) {
-          await locator.selectOption({ label });
-        } else if (typeof index === "number") {
-          await locator.selectOption({ index });
-        } else {
-          return failResult2(command, "INVALID_PAYLOAD", "select requires value, label, or index");
-        }
-      } else if (command.command === "scroll") {
-        const deltaX = getNumber3(payload?.deltaX) ?? 0;
-        const deltaY = getNumber3(payload?.deltaY) ?? 500;
-        if (locator) {
-          await locator.scrollIntoViewIfNeeded();
-        }
-        await page.mouse.wheel(deltaX, deltaY);
-      } else if (command.command === "forward") {
-        await page.goForward().catch(() => null);
-      } else if (command.command === "newTab") {
-        const newPage = await pw.context.newPage();
-        pw.page = newPage;
-        if (url) {
-          await gotoPage(newPage, url, effective);
-        }
-        await focusVisibleBrowser(pw, effective);
-      } else if (command.command === "switchTab") {
-        const pages = pw.context.pages();
-        const tabIndex = getNumber3(payload?.tabIndex) ?? 0;
-        const safeIndex = Math.max(0, Math.min(pages.length - 1, tabIndex));
-        const selected = pages[safeIndex];
-        if (!selected) {
-          return failResult2(command, "TAB_NOT_FOUND", `No tab found at index ${tabIndex}`);
-        }
-        pw.page = selected;
-        await focusVisibleBrowser(pw, effective);
-      } else if (command.command === "uploadFile") {
-        if (!locator) {
-          return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
-        }
-        const filePath = getString2(payload?.filePath);
-        const filePaths = getStringArray(payload?.filePaths);
-        const targetPaths = filePaths.length > 0 ? filePaths : filePath ? [filePath] : [];
-        if (targetPaths.length === 0) {
-          return failResult2(command, "INVALID_PAYLOAD", "uploadFile requires filePath or filePaths");
-        }
-        await locator.setInputFiles(targetPaths);
-      } else if (command.command === "dragDrop") {
-        const sourceLocatorObj = asRecord6(payload?.sourceLocator ?? payload?.fromLocator);
-        const targetLocatorObj = asRecord6(payload?.targetLocator ?? payload?.toLocator);
-        const source = Object.keys(sourceLocatorObj).length > 0 ? locatorFromPayload(page, { locator: sourceLocatorObj }) : locator;
-        const target = Object.keys(targetLocatorObj).length > 0 ? locatorFromPayload(page, { locator: targetLocatorObj }) : void 0;
-        if (!source || !target) {
-          return failResult2(command, "LOCATOR_NOT_FOUND", "dragDrop requires source and target locator");
-        }
-        await source.dragTo(target);
-      } else if (command.command === "wait") {
-        const timeoutMs = getNumber3(payload?.timeoutMs) ?? 300;
-        await page.waitForTimeout(timeoutMs);
-      } else if (command.command === "back") {
-        await page.goBack().catch(() => null);
-      } else if (command.command === "reload") {
-        await page.reload();
-      } else if (command.command === "closeTab") {
-        await page.close();
-        pw.page = await pw.context.newPage();
-      } else if (command.command === "assertVisible") {
-        if (!locator) {
-          return failResult2(command, "LOCATOR_NOT_FOUND", "assertVisible requires locator", {
-            locatorUsed: summarizeLocator(payload?.locator)
-          });
-        }
-        try {
-          await autoWaitLocator(locator, waitMs);
-        } catch {
-          return failResult2(command, "ASSERT_NOT_VISIBLE", "Target element is not visible.", {
-            assertionDiff: {
-              type: "visible",
-              expected: true,
-              actual: false,
-              locatorUsed: summarizeLocator(payload?.locator)
-            }
-          });
-        }
-      } else if (command.command === "assertText") {
-        if (!locator) {
-          return failResult2(command, "LOCATOR_NOT_FOUND", "assertText requires locator", {
-            locatorUsed: summarizeLocator(payload?.locator)
-          });
-        }
-        const expected = getString2(payload?.expectedText);
-        if (!expected) {
-          return failResult2(command, "INVALID_PAYLOAD", "assertText requires expectedText");
-        }
-        try {
-          await autoWaitLocator(locator, waitMs);
-        } catch {
-          return failResult2(command, "ASSERT_NOT_VISIBLE", "Target element is not visible before text assert.", {
-            assertionDiff: {
-              type: "text",
-              expected,
-              actual: null,
-              locatorUsed: summarizeLocator(payload?.locator)
-            }
-          });
-        }
-        const actual = await locator.textContent() ?? "";
-        if (!actual.includes(expected)) {
-          return failResult2(command, "ASSERT_TEXT_MISMATCH", `Expected text to include "${expected}", got "${actual}"`, {
-            assertionDiff: {
-              type: "text",
-              expected,
-              actual,
-              locatorUsed: summarizeLocator(payload?.locator)
-            }
-          });
-        }
-      } else if (command.command === "getText") {
-        if (!locator) {
-          return failResult2(command, "LOCATOR_NOT_FOUND", "click requires locator");
-        }
-        const text = await locator.textContent() ?? "";
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: { driver: "playwright", command: command.command, mode: "real", text, headless: pw.headless, browser: pw.browserKind }
-        };
-      } else if (command.command === "screenshot") {
-        const customPath = getString2(payload?.screenshotPath);
-        const dir = import_node_path2.default.join(process.cwd(), "artifacts");
-        await import_promises.default.mkdir(dir, { recursive: true });
-        const target = customPath ? import_node_path2.default.resolve(customPath) : import_node_path2.default.join(dir, `${command.requestId}.png`);
-        if (customPath) {
-          await import_promises.default.mkdir(import_node_path2.default.dirname(target), { recursive: true });
-        }
-        const fullPage = typeof payload?.fullPage === "boolean" ? payload.fullPage : false;
-        await page.screenshot({ path: target, fullPage });
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: {
-            driver: "playwright",
-            command: command.command,
-            screenshot: target,
-            fullPage,
-            headless: pw.headless,
-            browser: pw.browserKind
-          }
-        };
-      } else if (command.command === "recipe") {
-        const action = getString2(payload?.action)?.toLowerCase();
-        if (action === "clickpath") {
-          return executeClickPath(command, page, payload);
-        }
-        if (action === "fill_search" || action === "fillsearch") {
-          return executeFillSearch(command, page, payload);
-        }
-        return failResult2(
-          command,
-          "UNSUPPORTED_COMMAND",
-          `unsupported web recipe action: ${action ?? "(missing)"}; supported: clickPath, fill_search`
-        );
-      } else if (command.command === "custom") {
-        const action = getString2(payload?.action)?.toLowerCase();
-        if (action === "invoke" || payload?.method && !action) {
-          return executePlaywrightInvoke(command, pw, payload);
-        }
-        if (action === "evaluate") {
-          const script = getString2(payload?.script);
-          if (!script) {
-            return failResult2(command, "INVALID_PAYLOAD", "evaluate requires script");
-          }
-          const value = await page.evaluate(script);
-          return {
-            requestId: command.requestId,
-            success: true,
-            data: {
-              driver: "playwright",
-              command: command.command,
-              mode: "real",
-              action: "evaluate",
-              value: serializeRpcResult(value),
-              headless: pw.headless,
-              browser: pw.browserKind
-            }
-          };
-        }
-        if (action === "dismisspopups" || action === "dismiss_popups") {
-          return executeDismissPopups(command, page, effective);
-        }
-        return failResult2(
-          command,
-          "UNSUPPORTED_COMMAND",
-          "unsupported custom action; use action=evaluate|invoke or command=invoke"
-        );
-      } else {
-        return failResult2(command, "UNSUPPORTED_COMMAND", `unsupported command: ${cmd}`);
-      }
-      return {
-        requestId: command.requestId,
-        success: true,
-        data: {
-          driver: "playwright",
-          command: command.command,
-          mode: "real",
-          headless: pw.headless,
-          browser: pw.browserKind,
-          connectedOverCdp: pw.connectedOverCdp,
-          localBrowser: pw.localBrowser
-        }
-      };
-    } catch (error) {
-      if (!isRecoverableInteractionError(error)) {
-        await releasePlaywrightDriverSession(session.id);
-      }
-      const pw = sessions.get(session.id);
-      return await failWithPage(
-        command,
-        pw?.page,
-        "COMMAND_FAILED",
-        error instanceof Error ? error.message : String(error),
-        { locatorUsed: summarizeLocator(payload?.locator ?? payload?.selector) }
-      );
-    }
+    return executePlaywrightCommand(session, command);
   },
   async destroySession(session) {
-    const existed = sessions.get(session.id);
-    if (!existed) {
-      return;
-    }
-    await closePlaywrightSession(existed);
-    sessions.delete(session.id);
+    await destroyPlaywrightSession(session);
   },
   async dispose() {
-    for (const [, pw] of sessions) {
-      await closePlaywrightSession(pw);
-    }
-    sessions.clear();
+    await disposePlaywrightRuntime();
   },
   forceDispose() {
-    forceShutdown = true;
-    for (const [, pw] of sessions) {
-      forceKillPlaywrightProcessDetached(pw);
-    }
-    sessions.clear();
-    cleanupAllCdpSpawnsDetached();
+    forceDisposePlaywrightRuntime();
   }
 };
 var index_default = playwrightPlugin;
@@ -2674,6 +2694,7 @@ var index_default = playwrightPlugin;
 0 && (module.exports = {
   executeClickPath,
   executeFillSearch,
+  executePlaywrightCommand,
   locatorFromPayload,
   observeViewOnPage,
   summarizeLocator

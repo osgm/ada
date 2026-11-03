@@ -13,13 +13,10 @@ test("buildSinglePointerTapActions emits pointer down/up at coordinates", () => 
   assert.equal(steps[3]!.type, "pointerUp");
 });
 
-test("tapAtPointWithFallback uses drag when wda/tap/0 is unsupported", async () => {
+test("tapAtPointWithFallback prefers micro-drag before wda/tap", async () => {
   const calls: string[] = [];
   const wdaFetch = async (_method: string, url: string) => {
     calls.push(url);
-    if (url.endsWith("/wda/tap/0") || url.endsWith("/wda/tap")) {
-      return { ok: false, raw: { message: "unknown command" } };
-    }
     if (url.endsWith("/wda/dragfromtoforduration")) {
       return { ok: true };
     }
@@ -27,11 +24,11 @@ test("tapAtPointWithFallback uses drag when wda/tap/0 is unsupported", async () 
   };
   const mode = await tapAtPointWithFallback(wdaFetch, "http://127.0.0.1:8100", "sess-1", [10, 20]);
   assert.equal(mode, "drag-tap");
-  assert.ok(calls[0]!.endsWith("/wda/tap/0"));
-  assert.ok(calls.some((u) => u.endsWith("/wda/dragfromtoforduration")));
+  assert.ok(calls[0]!.endsWith("/wda/dragfromtoforduration"));
+  assert.equal(calls.length, 1);
 });
 
-test("tapAtPointWithFallback falls back to W3C actions when drag fails", async () => {
+test("tapAtPointWithFallback falls back to W3C actions when earlier paths fail", async () => {
   const calls: string[] = [];
   const wdaFetch = async (_method: string, url: string, body?: unknown) => {
     calls.push(url);
@@ -43,5 +40,11 @@ test("tapAtPointWithFallback falls back to W3C actions when drag fails", async (
   };
   const mode = await tapAtPointWithFallback(wdaFetch, "http://127.0.0.1:8100", "sess-2", [5, 6]);
   assert.equal(mode, "actions-tap");
-  assert.equal(calls.length, 4);
+  // drag → touchAndHold → wda/tap/0 → wda/tap → actions
+  assert.equal(calls.length, 5);
+  assert.ok(calls[0]!.endsWith("/wda/dragfromtoforduration"));
+  assert.ok(calls[1]!.endsWith("/wda/touchAndHold"));
+  assert.ok(calls[2]!.endsWith("/wda/tap/0"));
+  assert.ok(calls[3]!.endsWith("/wda/tap"));
+  assert.ok(calls[4]!.endsWith("/actions"));
 });

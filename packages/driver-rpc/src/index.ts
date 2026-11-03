@@ -217,8 +217,13 @@ export function serializeRpcResult(value: unknown, depth = 0): unknown {
 
 export {
   CommandTimeoutError,
+  DEFAULT_BATCH_MAX_BUDGET_MS,
+  DEFAULT_BATCH_MIN_BUDGET_MS,
+  DEFAULT_BATCH_PER_STEP_MS,
   DEFAULT_COMMAND_TIMEOUT_MS,
   raceCommandTimeout,
+  resolveBatchBudgetMs,
+  resolveBatchStepTimeoutMs,
   resolveCommandTimeoutMs,
   resolveLocatorTimeoutMs,
   resolveSubOperationTimeoutMs

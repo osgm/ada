@@ -62,6 +62,11 @@ export function resetPluginHostCache(): void {
   cachedPluginHost = null;
 }
 
+/** 不创建实例；供 shutdown 判断是否已有运行时。 */
+export function peekPluginHostCache(): PluginHost | null {
+  return cachedPluginHost;
+}
+
 export function listBuiltInPluginManifests(): PluginManifest[] {
   return buildPluginHost().listManifests();
 }

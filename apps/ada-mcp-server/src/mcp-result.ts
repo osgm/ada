@@ -7,6 +7,7 @@ import {
   isLocatorFailure,
   suggestRecoveryTool
 } from "./mcp-recovery.js";
+import { clipMcpPayloadForCorrectness } from "./mcp-payload-clip.js";
 import { resolveRecoveryFields } from "./mcp-payload-slim.js";
 import {
   isMcpJsonPretty,
@@ -75,7 +76,7 @@ function serializeMcpPayload(payload: unknown): string {
 export function mcpTextResult(data: unknown, options?: McpResultOptions) {
   if (Array.isArray(data)) {
     const isError = options?.isError ?? false;
-    const payload = { ok: !isError, items: data };
+    const payload = clipMcpPayloadForCorrectness({ ok: !isError, items: data });
     return {
       content: [{ type: "text" as const, text: serializeMcpPayload(payload) }],
       ...(isError ? { isError: true as const } : {})
@@ -84,7 +85,7 @@ export function mcpTextResult(data: unknown, options?: McpResultOptions) {
   const record =
     typeof data === "object" && data !== null ? (data as Record<string, unknown>) : { value: data };
   const isError = options?.isError ?? inferIsError(record);
-  const payload = enrichMcpPayload(record, { ...options, isError });
+  const payload = clipMcpPayloadForCorrectness(enrichMcpPayload(record, { ...options, isError }));
   return {
     content: [{ type: "text" as const, text: serializeMcpPayload(payload) }],
     ...(isError ? { isError: true as const } : {})

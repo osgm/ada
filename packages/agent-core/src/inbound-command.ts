@@ -1,5 +1,9 @@
 import type { CommandEnvelope, CommandResult, CommandType, Platform } from "@ada/contracts";
-import { normalizeCommandEnvelope } from "@ada/driver-rpc";
+import {
+  normalizeCommandEnvelope,
+  resolveBatchBudgetMs,
+  resolveBatchStepTimeoutMs
+} from "@ada/driver-rpc";
 import type { StreamRequest, StreamResponse } from "@ada/transport-stream";
 
 const CONTROL_META_ACTIONS = new Set(["ada_register", "ada_heartbeat", "ada_ping", "ada_device_sync"]);
@@ -207,7 +211,12 @@ export async function executeInboundPlan(
   }
 
   // 剩余墙钟预算：前序步骤很快时，后续步可吃满剩余时间，避免均等切分导致后步过早超时。
-  const budget = Math.max(5_000, (request.timeoutMs ?? 45_000) - 2_000);
+  const budget = resolveBatchBudgetMs({
+    timeoutMs: request.timeoutMs,
+    actionCount: plan.commands.length,
+    minBudgetMs: 5_000,
+    overheadMs: 2_000
+  });
   const deadline = Date.now() + budget;
   const results: CommandResult[] = [];
   let failedIndex: number | undefined;
@@ -227,9 +236,16 @@ export async function executeInboundPlan(
     const command = plan.commands[index]!;
     const payload = { ...(command.payload ?? {}) };
     if (typeof payload.commandTimeoutMs !== "number") {
-      // 单步吃满剩余；多步上限 30s，下限 3s（比旧均等切分更跟实际进度）。
-      payload.commandTimeoutMs =
-        plan.commands.length <= 1 ? remaining : Math.min(30_000, Math.max(3_000, remaining));
+      payload.commandTimeoutMs = resolveBatchStepTimeoutMs({
+        remainingMs: remaining,
+        totalSteps: plan.commands.length
+      });
+    } else {
+      payload.commandTimeoutMs = resolveBatchStepTimeoutMs({
+        remainingMs: remaining,
+        totalSteps: plan.commands.length,
+        explicitTimeoutMs: Number(payload.commandTimeoutMs)
+      });
     }
     const result = await execute({ ...command, payload });
     results.push(result);

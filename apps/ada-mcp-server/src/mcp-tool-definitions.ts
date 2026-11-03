@@ -531,7 +531,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_batch_actions",
       description:
-        "L2 multi-step batch (shared sessionId). ARGS: platform, sessionId, actions[{command,payload,retry,retryDelayMs,timeoutMs}], onFailure=stop|continue, retryDelayMs, dryRun=true (validate only, no runtime probe).",
+        "L2 multi-step batch (shared sessionId + wall budget). ARGS: platform, sessionId, timeoutMs (batch budget), actions[{command,payload,retry,retryDelayMs,timeoutMs}], onFailure=stop|continue, retryDelayMs, dryRun=true (validate only).",
       inputSchema: {
         type: "object",
         properties: {
@@ -543,6 +543,11 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           sessionId: {
             type: "string",
             description: "Active session that all steps share (required)"
+          },
+          timeoutMs: {
+            type: "number",
+            description:
+              "Whole-batch wall-clock budget (ms). Steps share remaining time; exhausted → BATCH_BUDGET_EXHAUSTED. Default scales with step count (cap 180s)."
           },
           continueOnError: {
             type: "boolean",

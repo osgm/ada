@@ -1,0 +1,58 @@
+name: Publish MCP packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run preflight + pack only (no npm publish)"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Align package metadata (npm pkg fix)
+        run: |
+          npm pkg fix --prefix apps/ada-mcp-server || true
+          npm pkg fix --prefix apps/ada-mcp-launcher || true
+
+      - name: MCP preflight
+        run: npm run mcp:preflight
+
+      - name: Pack dry-run
+        run: |
+          npm --prefix apps/ada-mcp-server run pack:dry-run
+          npm pack --dry-run --prefix apps/ada-mcp-launcher
+
+      - name: Publish @ada-mcp/mcp-server and @ada-mcp/launcher
+        if: ${{ github.event_name == 'push' || inputs.dry_run == 'false' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Prefer 2FA-bypass / automation token in NPM_TOKEN secret.
+          npm publish --access public --prefix apps/ada-mcp-server --provenance
+          npm publish --access public --prefix apps/ada-mcp-launcher --provenance

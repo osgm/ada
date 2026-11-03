@@ -109,7 +109,7 @@ export function resolveRecoveryFields(input: {
   result?: CommandResult;
   errorKind: McpErrorKind;
   sessionId?: string;
-  platform?: string;
+  platform?: import("./mcp-normalize.js").AdaPlatform;
 }): {
   recoveryPlan: ReturnType<typeof slimRecoveryPlan> | ReturnType<typeof buildRecoveryPlan>;
   recoveryHint: string;

@@ -11,7 +11,15 @@ export * from "./mcp-normalize.js";
 export * from "./mcp-payload-slim.js";
 export * from "./mcp-recovery.js";
 export * from "./mcp-response-mode.js";
-export * from "./mcp-result.js";
+export {
+  enrichMcpPayload,
+  isBestEffortRequest,
+  mcpTextResult,
+  wrapAssertionResult,
+  wrapBestEffortCommandResult,
+  wrapCommandToolResult,
+  type McpResultOptions
+} from "./mcp-result.js";
 export * from "./mcp-mobile-session-liveness.js";
 export * from "./mcp-schema-slim.js";
 export * from "./mcp-session-liveness.js";

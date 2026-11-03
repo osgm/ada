@@ -2,6 +2,8 @@
   "name": "@ada/graphics-safety",
   "version": "0.1.0",
   "private": true,
+  "description": "EXPERIMENTAL stub — graphics safety placeholder; do not use in production paths",
+  "keywords": ["ada", "experimental", "stub"],
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

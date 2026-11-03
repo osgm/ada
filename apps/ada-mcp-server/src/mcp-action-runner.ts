@@ -23,6 +23,7 @@ export function isTransientCommandFailure(result: CommandResult): boolean {
     code.includes("TIMEOUT") ||
     code.includes("TIMED_OUT") ||
     code === "MCP_ACTION_TIMEOUT" ||
+    code === "COMMAND_TIMEOUT" ||
     code === "INBOUND_BUDGET_EXHAUSTED"
   ) {
     return false;
@@ -43,30 +44,29 @@ export function isTransientCommandFailure(result: CommandResult): boolean {
   return true;
 }
 
-export async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: number): Promise<CommandResult> {
-  const effectiveTimeout = typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 0;
+/**
+ * 将 MCP 层 timeoutMs 写入 payload.commandTimeoutMs，交给内核墙钟超时。
+ * 内核超时会 teardown 驱动会话，避免 Promise.race 留下孤儿命令与会话泄漏。
+ */
+export function applyCommandTimeout(
+  command: CommandEnvelope,
+  timeoutMs?: number
+): CommandEnvelope {
+  const effectiveTimeout = typeof timeoutMs === "number" && timeoutMs > 0 ? Math.floor(timeoutMs) : 0;
   if (effectiveTimeout <= 0) {
-    return runCommand(command);
+    return command;
   }
+  const payload = { ...(command.payload ?? {}) };
+  const existing =
+    typeof payload.commandTimeoutMs === "number" && payload.commandTimeoutMs > 0
+      ? Math.floor(payload.commandTimeoutMs)
+      : undefined;
+  payload.commandTimeoutMs = existing ? Math.min(existing, effectiveTimeout) : effectiveTimeout;
+  return { ...command, payload };
+}
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      runCommand(command),
-      new Promise<CommandResult>((resolve) => {
-        timer = setTimeout(() => {
-          resolve({
-            requestId: command.requestId,
-            success: false,
-            errorCode: "MCP_ACTION_TIMEOUT",
-            errorMessage: `action timeout after ${effectiveTimeout}ms`
-          });
-        }, effectiveTimeout);
-      })
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+export async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: number): Promise<CommandResult> {
+  return runCommand(applyCommandTimeout(command, timeoutMs));
 }
 
 export async function runCommandWithRetry(

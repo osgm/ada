@@ -33,6 +33,7 @@ var index_exports = {};
 __export(index_exports, {
   buildHarmonyPinchPointerMatrix: () => buildHarmonyPinchPointerMatrix,
   default: () => index_default,
+  executeHarmonyCommand: () => executeHarmonyCommand,
   executeHarmonyPinch: () => executeHarmonyPinch
 });
 module.exports = __toCommonJS(index_exports);
@@ -1717,195 +1718,9 @@ async function executeHarmonyPinch(driver, ends, durationMs, types) {
   return { mode: "sequential" };
 }
 
-// ../../plugins/driver-harmony/src/device-admin.ts
+// ../../plugins/driver-harmony/src/runtime.ts
 var import_promises = __toESM(require("node:fs/promises"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
-function deviceSn(payload) {
-  const caps = payload.capabilities ?? {};
-  return String(caps.deviceSn ?? caps.udid ?? caps["ada:udid"] ?? process.env.ADA_HARMONY_DEVICE_SN ?? "").trim();
-}
-function adminTimeoutMs(payload, fallback) {
-  const raw = payload.commandTimeoutMs;
-  return typeof raw === "number" && raw > 0 ? Math.min(raw, fallback * 3) : fallback;
-}
-async function runShell(driver, payload, cmd) {
-  const ms = adminTimeoutMs(payload, 15e3);
-  return raceCommandTimeout(driver.shell(cmd, ms), ms, "harmony.shell");
-}
-async function runHdc(driver, payload, cmd) {
-  const ms = adminTimeoutMs(payload, 2e4);
-  return raceCommandTimeout(driver.hdc(cmd, ms), ms, "harmony.hdc");
-}
-async function executeHarmonyDeviceAdmin(command, driver, payload) {
-  const action = readDeviceAdminAction(payload);
-  if (!action) return deviceAdminFail(command, "DEVICE_ADMIN_ACTION_MISSING", "payload.action required");
-  const appId = String(payload.appId ?? "").trim();
-  const sn = deviceSn(payload);
-  try {
-    switch (action) {
-      case "listApps": {
-        if (typeof driver.getInstalledApps !== "function") {
-          return deviceAdminFail(command, "HARMONY_LIST_APPS_UNSUPPORTED", "getInstalledApps not available");
-        }
-        const packages = await driver.getInstalledApps("");
-        return deviceAdminSuccess(command, action, { packages, count: packages.length });
-      }
-      case "appInfo": {
-        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
-        const out = await runShell(driver, payload, `bm dump -n ${appId}`);
-        const versionName = out.match(/versionName\s*[:=]\s*([^\s]+)/i)?.[1];
-        const versionCode = out.match(/versionCode\s*[:=]\s*(\d+)/i)?.[1];
-        return deviceAdminSuccess(command, action, {
-          appId,
-          package: appId,
-          versionName: versionName ?? null,
-          versionCode: versionCode ? Number(versionCode) : null,
-          raw: out.slice(0, 2e3)
-        });
-      }
-      case "isInstalled": {
-        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
-        if (typeof driver.getInstalledApps === "function") {
-          const packages = await driver.getInstalledApps("");
-          const installed2 = packages.includes(appId);
-          return deviceAdminSuccess(command, action, { appId, installed: installed2 });
-        }
-        const out = await runShell(driver, payload, `bm dump -n ${appId}`);
-        const installed = !/error|not found|fail/i.test(out);
-        return deviceAdminSuccess(command, action, { appId, installed });
-      }
-      case "installApp": {
-        const localPath = import_node_path.default.resolve(String(payload.path ?? payload.localPath ?? ""));
-        if (!localPath) return deviceAdminFail(command, "HARMONY_INSTALL_PATH_MISSING", "path required");
-        const remote = `/data/local/tmp/${import_node_path.default.basename(localPath)}`;
-        if (sn) {
-          await runHdc(driver, payload, `file send "${localPath}" "${remote}"`);
-        }
-        const out = await runShell(driver, payload, `bm install -p ${remote}`);
-        return deviceAdminSuccess(command, action, { path: localPath, remote, output: out });
-      }
-      case "uninstallApp": {
-        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
-        const out = await runShell(driver, payload, `bm uninstall -n ${appId}`);
-        return deviceAdminSuccess(command, action, { appId, output: out });
-      }
-      case "pushFile": {
-        const localPath = import_node_path.default.resolve(String(payload.localPath ?? payload.path ?? ""));
-        const remotePath = String(payload.remotePath ?? "").trim();
-        if (!localPath || !remotePath) {
-          return deviceAdminFail(command, "HARMONY_PUSH_PATHS_MISSING", "localPath and remotePath required");
-        }
-        const hdcCmd = sn ? `file send "${localPath}" "${remotePath}"` : `file send "${localPath}" "${remotePath}"`;
-        await runHdc(driver, payload, hdcCmd);
-        return deviceAdminSuccess(command, action, { localPath, remotePath });
-      }
-      case "pullFile": {
-        const localPath = import_node_path.default.resolve(String(payload.localPath ?? payload.path ?? ""));
-        const remotePath = String(payload.remotePath ?? "").trim();
-        if (!localPath || !remotePath) {
-          return deviceAdminFail(command, "HARMONY_PULL_PATHS_MISSING", "localPath and remotePath required");
-        }
-        await import_promises.default.mkdir(import_node_path.default.dirname(localPath), { recursive: true });
-        await runHdc(driver, payload, `file recv "${remotePath}" "${localPath}"`);
-        return deviceAdminSuccess(command, action, { localPath, remotePath });
-      }
-      case "shell": {
-        const cmd = String(payload.command ?? "").trim();
-        if (!cmd) return deviceAdminFail(command, "HARMONY_SHELL_COMMAND_MISSING", "command required");
-        const output = await runShell(driver, payload, cmd);
-        return deviceAdminSuccess(command, action, { output });
-      }
-      case "hdc": {
-        const cmd = String(payload.command ?? "").trim();
-        if (!cmd) return deviceAdminFail(command, "HARMONY_HDC_COMMAND_MISSING", "command required");
-        const output = await runHdc(driver, payload, cmd);
-        return deviceAdminSuccess(command, action, { output });
-      }
-      case "currentApp": {
-        const out = await runShell(driver, payload, "hidumper -s WindowManagerService -a -a");
-        const bundle = out.match(/bundleName[=:]\s*([^\s,;]+)/i)?.[1] ?? out.match(/focus.*?([a-z][a-z0-9_.]+)/i)?.[1];
-        if (!bundle) return deviceAdminFail(command, "HARMONY_CURRENT_APP_UNKNOWN", "could not parse foreground bundle");
-        return deviceAdminSuccess(command, action, { appId: bundle, package: bundle });
-      }
-      case "clearAppData": {
-        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
-        const out = await runShell(driver, payload, `bm clean -n ${appId}`);
-        return deviceAdminSuccess(command, action, { appId, cleared: true, output: out });
-      }
-      case "openUrl": {
-        const url = String(payload.url ?? "").trim();
-        if (!url) return deviceAdminFail(command, "HARMONY_URL_MISSING", "url required");
-        const out = await runShell(driver, payload, `aa start -U '${url.replace(/'/g, "'\\''")}'`);
-        return deviceAdminSuccess(command, action, { url, output: out });
-      }
-      case "pressKey": {
-        const key = String(payload.key ?? payload.keyCode ?? "Home");
-        const out = await runShell(driver, payload, `uitest uiInput keyEvent ${key}`);
-        return deviceAdminSuccess(command, action, { key, output: out });
-      }
-      case "longPress": {
-        const ms = Math.max(300, Number(payload.durationMs ?? payload.ms ?? 800));
-        const point = payload.point;
-        if (!point || point.length !== 2) {
-          return deviceAdminFail(command, "HARMONY_LONG_PRESS_POINT", "longPress requires payload.point [x,y]");
-        }
-        const [x, y] = point;
-        await driver.swipe(x, y, x, y, ms);
-        return deviceAdminSuccess(command, action, { point: [Math.round(x), Math.round(y)], durationMs: ms });
-      }
-      case "setClipboard":
-        return deviceAdminFail(command, "HARMONY_CLIPBOARD_UNSUPPORTED", "use shell/hdc or type() after focus");
-      case "getClipboard":
-        return deviceAdminFail(command, "HARMONY_CLIPBOARD_UNSUPPORTED", "not available via deviceAdmin");
-      case "deviceInfo": {
-        const model = await runShell(driver, payload, "param get const.product.model").catch(() => "");
-        const ver = await runShell(driver, payload, "param get const.os.fullname").catch(() => "");
-        const size = await runShell(driver, payload, "wm size").catch(() => "");
-        const w = size.match(/(\d+)\s*[xX]\s*(\d+)/);
-        return deviceAdminSuccess(command, action, {
-          platform: "harmony",
-          deviceSn: sn || void 0,
-          model: model.trim(),
-          osVersion: ver.trim(),
-          screenWidth: w ? Number(w[1]) : void 0,
-          screenHeight: w ? Number(w[2]) : void 0,
-          display: size.trim()
-        });
-      }
-      case "grantPermission":
-        return deviceAdminFail(command, "HARMONY_GRANT_PERMISSION_UNSUPPORTED", "use shell aa/bm if needed");
-      case "setOrientation": {
-        const orientation = String(payload.orientation ?? "portrait").toLowerCase();
-        const out = await runShell(
-          driver,
-          payload,
-          orientation.includes("land") ? "uitest uiInput rotate 90" : "uitest uiInput rotate 0"
-        ).catch(() => "");
-        return deviceAdminSuccess(command, action, { orientation, output: out });
-      }
-      case "startScreenRecord":
-        return deviceAdminFail(command, "HARMONY_SCREEN_RECORD_UNSUPPORTED", "not implemented");
-      case "stopScreenRecord":
-        return deviceAdminFail(command, "HARMONY_SCREEN_RECORD_UNSUPPORTED", "not implemented");
-      case "reboot": {
-        await runHdc(driver, payload, "target boot");
-        return deviceAdminSuccess(command, action, { rebooting: true });
-      }
-      default:
-        return deviceAdminFail(command, "DEVICE_ADMIN_UNSUPPORTED", `unsupported action: ${action}`);
-    }
-  } catch (error) {
-    return deviceAdminFail(
-      command,
-      "HARMONY_DEVICE_ADMIN_FAILED",
-      error instanceof Error ? error.message : String(error)
-    );
-  }
-}
-
-// ../../plugins/driver-harmony/src/index.ts
-var import_promises2 = __toESM(require("node:fs/promises"), 1);
-var import_node_path2 = __toESM(require("node:path"), 1);
 var import_node_module = require("node:module");
 var sessions = /* @__PURE__ */ new Map();
 var harmonyModulePromise = null;
@@ -2430,8 +2245,8 @@ async function pinchWithPayload(driver, payload) {
   );
 }
 async function screenshotWithPayload(command, driver, payload) {
-  const filePath = payload.screenshotPath ? import_node_path2.default.resolve(payload.screenshotPath) : import_node_path2.default.join(process.cwd(), "artifacts", `${command.requestId}-harmony.png`);
-  await import_promises2.default.mkdir(import_node_path2.default.dirname(filePath), { recursive: true });
+  const filePath = payload.screenshotPath ? import_node_path.default.resolve(payload.screenshotPath) : import_node_path.default.join(process.cwd(), "artifacts", `${command.requestId}-harmony.png`);
+  await import_promises.default.mkdir(import_node_path.default.dirname(filePath), { recursive: true });
   return await raceCommandTimeout(driver.screenCap(filePath), opTimeoutMs2(payload, 25e3), "harmony.screenCap");
 }
 async function getTextFromPayload(driver, payload) {
@@ -2545,6 +2360,513 @@ async function executeCustom(command, driver, payload, sessionId) {
     `Unsupported custom action: ${action || "empty"} (supported: dump_ui|tap_search|fill_search|tap_path|smart_wait|dismissPopups|shell|hdc|listApps)`
   );
 }
+async function initHarmonyRuntime() {
+  await loadHarmonyModule();
+}
+async function destroyHarmonySession(session) {
+  const state = sessions.get(session.id);
+  if (!state) return;
+  sessions.delete(session.id);
+  await Promise.race([
+    state.driver.disconnect(),
+    new Promise((resolve) => setTimeout(resolve, 8e3))
+  ]).catch(() => void 0);
+}
+async function disposeHarmonyRuntime() {
+  const all = Array.from(sessions.values());
+  sessions.clear();
+  await Promise.allSettled(
+    all.map(
+      (item) => Promise.race([
+        item.driver.disconnect(),
+        new Promise((resolve) => setTimeout(resolve, 8e3))
+      ]).catch(() => void 0)
+    )
+  );
+}
+function forceDisposeHarmonyRuntime() {
+  const all = Array.from(sessions.values());
+  sessions.clear();
+  for (const item of all) {
+    void item.driver.disconnect().catch(() => void 0);
+  }
+}
+
+// ../../plugins/driver-harmony/src/commands/app.ts
+async function runScreenshot(command, driver, payload) {
+  const screenshot = await screenshotWithPayload(command, driver, payload);
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "screenshot", screenshot }
+  };
+}
+async function runWait(command, _driver, payload) {
+  const timeoutMs = numberOr4(payload.timeoutMs, 300);
+  await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "wait", timeoutMs }
+  };
+}
+async function runBack(command, driver) {
+  await driver.pressBack();
+  return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "back" } };
+}
+async function runPressHome(command, driver) {
+  await driver.pressHome();
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "pressHome" }
+  };
+}
+async function runLaunchApp(command, driver, payload) {
+  const bundleName = String(payload.appId ?? payload.bundleId ?? "");
+  if (!bundleName) {
+    return failResult(command, "HARMONY_LAUNCH_APP_MISSING_BUNDLE", "launchApp requires payload.appId or payload.bundleId");
+  }
+  const abilityId = String(payload.abilityId ?? payload.ability ?? "").trim() || "EntryAbility";
+  await raceCommandTimeout(driver.startApp(bundleName, abilityId), opTimeoutMs2(payload, 6e4), "harmony.startApp");
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "launchApp", bundleName, abilityId }
+  };
+}
+async function runExitApp(command, driver, payload) {
+  const bundleName = String(payload.appId ?? payload.bundleId ?? "");
+  if (!bundleName) {
+    return failResult(command, "HARMONY_EXIT_APP_MISSING_BUNDLE", "exitApp requires payload.appId or payload.bundleId");
+  }
+  await raceCommandTimeout(driver.stopApp(bundleName), opTimeoutMs2(payload, 2e4), "harmony.stopApp");
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "exitApp", bundleName }
+  };
+}
+
+// ../../plugins/driver-harmony/src/commands/assert.ts
+async function runGetText(command, driver, payload) {
+  const text = await getTextFromPayload(driver, payload);
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "getText", text }
+  };
+}
+async function runAssertText(command, driver, payload) {
+  const text = await getTextFromPayload(driver, payload);
+  const expected = String(payload.expectedText ?? payload.text ?? "");
+  if (!expected) {
+    return failResult(command, "HARMONY_ASSERT_TEXT_MISSING_EXPECTED", "assertText requires payload.expectedText or payload.text");
+  }
+  if (!text.includes(expected)) {
+    return failResult(command, "HARMONY_ASSERT_TEXT_FAILED", `Expected text "${expected}" not found in "${text}"`);
+  }
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "assertText", text, expected }
+  };
+}
+async function runAssertVisible(command, driver, payload) {
+  const label = payload.locator?.text?.trim();
+  if (label && isSearchLabel(label)) {
+    const visible = await isSearchLabelVisibleViaUiDump(driver, payload, label);
+    if (!visible) {
+      return failResult(command, "HARMONY_ASSERT_VISIBLE_FAILED", `Element not found: text="${label}"`);
+    }
+    return {
+      requestId: command.requestId,
+      success: true,
+      data: { driver: "harmony", mode: "real", command: "assertVisible", via: "uiDump" }
+    };
+  }
+  const element = await withSuppressedHypiumProbeLogs(() => resolveElement(driver, payload));
+  if (!element) {
+    return failResult(command, "HARMONY_ASSERT_VISIBLE_FAILED", "Element not found");
+  }
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "assertVisible" }
+  };
+}
+
+// ../../plugins/driver-harmony/src/commands/custom.ts
+async function runCustom(command, driver, payload, sessionId) {
+  return executeCustom(command, driver, payload, sessionId);
+}
+async function runInvoke(command, driver, payload) {
+  const value = await invokeWithPayload(driver, payload);
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "invoke", value }
+  };
+}
+
+// ../../plugins/driver-harmony/src/device-admin.ts
+var import_promises2 = __toESM(require("node:fs/promises"), 1);
+var import_node_path2 = __toESM(require("node:path"), 1);
+function deviceSn(payload) {
+  const caps = payload.capabilities ?? {};
+  return String(caps.deviceSn ?? caps.udid ?? caps["ada:udid"] ?? process.env.ADA_HARMONY_DEVICE_SN ?? "").trim();
+}
+function adminTimeoutMs(payload, fallback) {
+  const raw = payload.commandTimeoutMs;
+  return typeof raw === "number" && raw > 0 ? Math.min(raw, fallback * 3) : fallback;
+}
+async function runShell(driver, payload, cmd) {
+  const ms = adminTimeoutMs(payload, 15e3);
+  return raceCommandTimeout(driver.shell(cmd, ms), ms, "harmony.shell");
+}
+async function runHdc(driver, payload, cmd) {
+  const ms = adminTimeoutMs(payload, 2e4);
+  return raceCommandTimeout(driver.hdc(cmd, ms), ms, "harmony.hdc");
+}
+async function executeHarmonyDeviceAdmin(command, driver, payload) {
+  const action = readDeviceAdminAction(payload);
+  if (!action) return deviceAdminFail(command, "DEVICE_ADMIN_ACTION_MISSING", "payload.action required");
+  const appId = String(payload.appId ?? "").trim();
+  const sn = deviceSn(payload);
+  try {
+    switch (action) {
+      case "listApps": {
+        if (typeof driver.getInstalledApps !== "function") {
+          return deviceAdminFail(command, "HARMONY_LIST_APPS_UNSUPPORTED", "getInstalledApps not available");
+        }
+        const packages = await driver.getInstalledApps("");
+        return deviceAdminSuccess(command, action, { packages, count: packages.length });
+      }
+      case "appInfo": {
+        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
+        const out = await runShell(driver, payload, `bm dump -n ${appId}`);
+        const versionName = out.match(/versionName\s*[:=]\s*([^\s]+)/i)?.[1];
+        const versionCode = out.match(/versionCode\s*[:=]\s*(\d+)/i)?.[1];
+        return deviceAdminSuccess(command, action, {
+          appId,
+          package: appId,
+          versionName: versionName ?? null,
+          versionCode: versionCode ? Number(versionCode) : null,
+          raw: out.slice(0, 2e3)
+        });
+      }
+      case "isInstalled": {
+        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
+        if (typeof driver.getInstalledApps === "function") {
+          const packages = await driver.getInstalledApps("");
+          const installed2 = packages.includes(appId);
+          return deviceAdminSuccess(command, action, { appId, installed: installed2 });
+        }
+        const out = await runShell(driver, payload, `bm dump -n ${appId}`);
+        const installed = !/error|not found|fail/i.test(out);
+        return deviceAdminSuccess(command, action, { appId, installed });
+      }
+      case "installApp": {
+        const localPath = import_node_path2.default.resolve(String(payload.path ?? payload.localPath ?? ""));
+        if (!localPath) return deviceAdminFail(command, "HARMONY_INSTALL_PATH_MISSING", "path required");
+        const remote = `/data/local/tmp/${import_node_path2.default.basename(localPath)}`;
+        if (sn) {
+          await runHdc(driver, payload, `file send "${localPath}" "${remote}"`);
+        }
+        const out = await runShell(driver, payload, `bm install -p ${remote}`);
+        return deviceAdminSuccess(command, action, { path: localPath, remote, output: out });
+      }
+      case "uninstallApp": {
+        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
+        const out = await runShell(driver, payload, `bm uninstall -n ${appId}`);
+        return deviceAdminSuccess(command, action, { appId, output: out });
+      }
+      case "pushFile": {
+        const localPath = import_node_path2.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+        const remotePath = String(payload.remotePath ?? "").trim();
+        if (!localPath || !remotePath) {
+          return deviceAdminFail(command, "HARMONY_PUSH_PATHS_MISSING", "localPath and remotePath required");
+        }
+        const hdcCmd = sn ? `file send "${localPath}" "${remotePath}"` : `file send "${localPath}" "${remotePath}"`;
+        await runHdc(driver, payload, hdcCmd);
+        return deviceAdminSuccess(command, action, { localPath, remotePath });
+      }
+      case "pullFile": {
+        const localPath = import_node_path2.default.resolve(String(payload.localPath ?? payload.path ?? ""));
+        const remotePath = String(payload.remotePath ?? "").trim();
+        if (!localPath || !remotePath) {
+          return deviceAdminFail(command, "HARMONY_PULL_PATHS_MISSING", "localPath and remotePath required");
+        }
+        await import_promises2.default.mkdir(import_node_path2.default.dirname(localPath), { recursive: true });
+        await runHdc(driver, payload, `file recv "${remotePath}" "${localPath}"`);
+        return deviceAdminSuccess(command, action, { localPath, remotePath });
+      }
+      case "shell": {
+        const cmd = String(payload.command ?? "").trim();
+        if (!cmd) return deviceAdminFail(command, "HARMONY_SHELL_COMMAND_MISSING", "command required");
+        const output = await runShell(driver, payload, cmd);
+        return deviceAdminSuccess(command, action, { output });
+      }
+      case "hdc": {
+        const cmd = String(payload.command ?? "").trim();
+        if (!cmd) return deviceAdminFail(command, "HARMONY_HDC_COMMAND_MISSING", "command required");
+        const output = await runHdc(driver, payload, cmd);
+        return deviceAdminSuccess(command, action, { output });
+      }
+      case "currentApp": {
+        const out = await runShell(driver, payload, "hidumper -s WindowManagerService -a -a");
+        const bundle = out.match(/bundleName[=:]\s*([^\s,;]+)/i)?.[1] ?? out.match(/focus.*?([a-z][a-z0-9_.]+)/i)?.[1];
+        if (!bundle) return deviceAdminFail(command, "HARMONY_CURRENT_APP_UNKNOWN", "could not parse foreground bundle");
+        return deviceAdminSuccess(command, action, { appId: bundle, package: bundle });
+      }
+      case "clearAppData": {
+        if (!appId) return deviceAdminFail(command, "HARMONY_APP_ID_MISSING", "appId required");
+        const out = await runShell(driver, payload, `bm clean -n ${appId}`);
+        return deviceAdminSuccess(command, action, { appId, cleared: true, output: out });
+      }
+      case "openUrl": {
+        const url = String(payload.url ?? "").trim();
+        if (!url) return deviceAdminFail(command, "HARMONY_URL_MISSING", "url required");
+        const out = await runShell(driver, payload, `aa start -U '${url.replace(/'/g, "'\\''")}'`);
+        return deviceAdminSuccess(command, action, { url, output: out });
+      }
+      case "pressKey": {
+        const key = String(payload.key ?? payload.keyCode ?? "Home");
+        const out = await runShell(driver, payload, `uitest uiInput keyEvent ${key}`);
+        return deviceAdminSuccess(command, action, { key, output: out });
+      }
+      case "longPress": {
+        const ms = Math.max(300, Number(payload.durationMs ?? payload.ms ?? 800));
+        const point = payload.point;
+        if (!point || point.length !== 2) {
+          return deviceAdminFail(command, "HARMONY_LONG_PRESS_POINT", "longPress requires payload.point [x,y]");
+        }
+        const [x, y] = point;
+        await driver.swipe(x, y, x, y, ms);
+        return deviceAdminSuccess(command, action, { point: [Math.round(x), Math.round(y)], durationMs: ms });
+      }
+      case "setClipboard":
+        return deviceAdminFail(command, "HARMONY_CLIPBOARD_UNSUPPORTED", "use shell/hdc or type() after focus");
+      case "getClipboard":
+        return deviceAdminFail(command, "HARMONY_CLIPBOARD_UNSUPPORTED", "not available via deviceAdmin");
+      case "deviceInfo": {
+        const model = await runShell(driver, payload, "param get const.product.model").catch(() => "");
+        const ver = await runShell(driver, payload, "param get const.os.fullname").catch(() => "");
+        const size = await runShell(driver, payload, "wm size").catch(() => "");
+        const w = size.match(/(\d+)\s*[xX]\s*(\d+)/);
+        return deviceAdminSuccess(command, action, {
+          platform: "harmony",
+          deviceSn: sn || void 0,
+          model: model.trim(),
+          osVersion: ver.trim(),
+          screenWidth: w ? Number(w[1]) : void 0,
+          screenHeight: w ? Number(w[2]) : void 0,
+          display: size.trim()
+        });
+      }
+      case "grantPermission":
+        return deviceAdminFail(command, "HARMONY_GRANT_PERMISSION_UNSUPPORTED", "use shell aa/bm if needed");
+      case "setOrientation": {
+        const orientation = String(payload.orientation ?? "portrait").toLowerCase();
+        const out = await runShell(
+          driver,
+          payload,
+          orientation.includes("land") ? "uitest uiInput rotate 90" : "uitest uiInput rotate 0"
+        ).catch(() => "");
+        return deviceAdminSuccess(command, action, { orientation, output: out });
+      }
+      case "startScreenRecord":
+        return deviceAdminFail(command, "HARMONY_SCREEN_RECORD_UNSUPPORTED", "not implemented");
+      case "stopScreenRecord":
+        return deviceAdminFail(command, "HARMONY_SCREEN_RECORD_UNSUPPORTED", "not implemented");
+      case "reboot": {
+        await runHdc(driver, payload, "target boot");
+        return deviceAdminSuccess(command, action, { rebooting: true });
+      }
+      default:
+        return deviceAdminFail(command, "DEVICE_ADMIN_UNSUPPORTED", `unsupported action: ${action}`);
+    }
+  } catch (error) {
+    return deviceAdminFail(
+      command,
+      "HARMONY_DEVICE_ADMIN_FAILED",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+// ../../plugins/driver-harmony/src/commands/interaction.ts
+async function runClick(command, driver, payload) {
+  if (isOptionalUiPayload(payload)) {
+    return withSuppressedHypiumProbeLogs(async () => {
+      try {
+        const point = asPoint2(payload.point);
+        if (!point) {
+          const element = await resolveElement(driver, payload);
+          if (!element) {
+            const label = payload.locator?.text ?? payload.locator?.id ?? "locator";
+            return buildOptionalUiMissResult(command, `optional click: ${label} not found`, {
+              driver: "harmony",
+              mode: "real",
+              locator: payload.locator
+            });
+          }
+        }
+        await clickWithPayload(driver, payload);
+      } catch (error) {
+        const label = payload.locator?.text ?? payload.locator?.id ?? payload.point ?? "locator";
+        return buildOptionalUiMissResult(
+          command,
+          `optional click: ${label} failed: ${error instanceof Error ? error.message : String(error)}`,
+          {
+            driver: "harmony",
+            mode: "real",
+            locator: payload.locator,
+            point: payload.point
+          }
+        );
+      }
+      return {
+        requestId: command.requestId,
+        success: true,
+        data: { driver: "harmony", mode: "real", command: "click" }
+      };
+    });
+  }
+  try {
+    await clickWithPayload(driver, payload);
+  } catch (error) {
+    return failResult(command, "HARMONY_CLICK_FAILED", error instanceof Error ? error.message : String(error));
+  }
+  return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "click" } };
+}
+async function runType(command, driver, payload) {
+  try {
+    await typeWithPayload(driver, payload);
+  } catch (error) {
+    return failResult(command, "HARMONY_TYPE_FAILED", error instanceof Error ? error.message : String(error));
+  }
+  return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "type" } };
+}
+async function runSwipe(command, driver, payload) {
+  await swipeWithPayload(driver, payload);
+  const durationMs = resolveSwipeDurationMs(payload, {
+    envDefaultMs: Number(process.env.ADA_HARMONY_SWIPE_SPEED_MS),
+    fallbackMs: 300
+  });
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: { driver: "harmony", mode: "real", command: "swipe", durationMs, from: payload.from, to: payload.to }
+  };
+}
+async function runPinch(command, driver, payload) {
+  const { mode: pinchMode } = await pinchWithPayload(driver, payload);
+  const durationMs = resolveSwipeDurationMs(payload, {
+    envDefaultMs: Number(process.env.ADA_HARMONY_SWIPE_SPEED_MS),
+    fallbackMs: 400
+  });
+  return {
+    requestId: command.requestId,
+    success: true,
+    data: {
+      driver: "harmony",
+      mode: "real",
+      command: "pinch",
+      durationMs,
+      pinchIn: payload.pinchIn,
+      pinchMode
+    }
+  };
+}
+async function runDeviceAdmin(command, driver, payload) {
+  return executeHarmonyDeviceAdmin(command, driver, payload);
+}
+
+// ../../plugins/driver-harmony/src/commands/router.ts
+async function executeHarmonyCommand(session, command) {
+  const payload = command.payload ?? {};
+  if (payload.probe === true) {
+    try {
+      const driver = await getOrCreateDriver(session, payload);
+      const size = await resolveDisplay(driver, session.id, payload);
+      return {
+        requestId: command.requestId,
+        success: true,
+        data: { driver: "harmony", platform: "harmony", probe: "ok", display: size }
+      };
+    } catch (error) {
+      return failResult(command, "HARMONY_PROBE_FAILED", error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (command.command === "invoke") {
+    const invoke = normalizeInvokePayload(payload, "method");
+    if (!invoke?.method) {
+      return failResult(command, "INVOKE_INVALID_PAYLOAD", "invoke requires payload.method");
+    }
+  }
+  if (!ensureReal(payload)) {
+    return {
+      requestId: command.requestId,
+      success: true,
+      data: {
+        driver: "harmony",
+        platform: "harmony",
+        command: command.command,
+        mode: "mock",
+        message: "Mock harmony command executed"
+      }
+    };
+  }
+  try {
+    const driver = await getOrCreateDriver(session, payload);
+    switch (command.command) {
+      case "click":
+        return runClick(command, driver, payload);
+      case "type":
+        return runType(command, driver, payload);
+      case "swipe":
+        return runSwipe(command, driver, payload);
+      case "deviceAdmin":
+        return runDeviceAdmin(command, driver, payload);
+      case "pinch":
+        return runPinch(command, driver, payload);
+      case "screenshot":
+        return runScreenshot(command, driver, payload);
+      case "wait":
+        return runWait(command, driver, payload);
+      case "back":
+        return runBack(command, driver);
+      case "pressHome":
+      case "home":
+        return runPressHome(command, driver);
+      case "launchApp":
+        return runLaunchApp(command, driver, payload);
+      case "exitApp":
+        return runExitApp(command, driver, payload);
+      case "getText":
+        return runGetText(command, driver, payload);
+      case "assertText":
+        return runAssertText(command, driver, payload);
+      case "assertVisible":
+        return runAssertVisible(command, driver, payload);
+      case "custom":
+        return runCustom(command, driver, payload, session.id);
+      case "invoke":
+        return runInvoke(command, driver, payload);
+      default:
+        return failResult(
+          command,
+          "HARMONY_REAL_UNSUPPORTED_COMMAND",
+          `Real mode does not support command: ${command.command}`
+        );
+    }
+  } catch (error) {
+    return failResult(command, "HARMONY_EXECUTION_FAILED", error instanceof Error ? error.message : String(error));
+  }
+}
+
+// ../../plugins/driver-harmony/src/index.ts
 var harmonyPlugin = {
   manifest: {
     id: "driver-harmony",
@@ -2598,259 +2920,28 @@ var harmonyPlugin = {
     }
   },
   async init() {
-    await loadHarmonyModule();
+    await initHarmonyRuntime();
   },
   async createSession(platform) {
     return { id: `harmony-${Date.now()}`, platform };
   },
   async execute(session, command) {
-    const payload = command.payload ?? {};
-    if (payload.probe === true) {
-      try {
-        const driver = await getOrCreateDriver(session, payload);
-        const size = await resolveDisplay(driver, session.id, payload);
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: { driver: "harmony", platform: "harmony", probe: "ok", display: size }
-        };
-      } catch (error) {
-        return failResult(command, "HARMONY_PROBE_FAILED", error instanceof Error ? error.message : String(error));
-      }
-    }
-    if (command.command === "invoke") {
-      const invoke = normalizeInvokePayload(payload, "method");
-      if (!invoke?.method) {
-        return failResult(command, "INVOKE_INVALID_PAYLOAD", "invoke requires payload.method");
-      }
-    }
-    if (!ensureReal(payload)) {
-      return {
-        requestId: command.requestId,
-        success: true,
-        data: { driver: "harmony", platform: "harmony", command: command.command, mode: "mock", message: "Mock harmony command executed" }
-      };
-    }
-    try {
-      const driver = await getOrCreateDriver(session, payload);
-      if (command.command === "click") {
-        if (isOptionalUiPayload(payload)) {
-          return withSuppressedHypiumProbeLogs(async () => {
-            try {
-              const point = asPoint2(payload.point);
-              if (!point) {
-                const element = await resolveElement(driver, payload);
-                if (!element) {
-                  const label = payload.locator?.text ?? payload.locator?.id ?? "locator";
-                  return buildOptionalUiMissResult(command, `optional click: ${label} not found`, {
-                    driver: "harmony",
-                    mode: "real",
-                    locator: payload.locator
-                  });
-                }
-              }
-              await clickWithPayload(driver, payload);
-            } catch (error) {
-              const label = payload.locator?.text ?? payload.locator?.id ?? payload.point ?? "locator";
-              return buildOptionalUiMissResult(
-                command,
-                `optional click: ${label} failed: ${error instanceof Error ? error.message : String(error)}`,
-                {
-                  driver: "harmony",
-                  mode: "real",
-                  locator: payload.locator,
-                  point: payload.point
-                }
-              );
-            }
-            return {
-              requestId: command.requestId,
-              success: true,
-              data: { driver: "harmony", mode: "real", command: "click" }
-            };
-          });
-        }
-        try {
-          await clickWithPayload(driver, payload);
-        } catch (error) {
-          return failResult(
-            command,
-            "HARMONY_CLICK_FAILED",
-            error instanceof Error ? error.message : String(error)
-          );
-        }
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "click" } };
-      }
-      if (command.command === "type") {
-        try {
-          await typeWithPayload(driver, payload);
-        } catch (error) {
-          return failResult(
-            command,
-            "HARMONY_TYPE_FAILED",
-            error instanceof Error ? error.message : String(error)
-          );
-        }
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "type" } };
-      }
-      if (command.command === "swipe") {
-        await swipeWithPayload(driver, payload);
-        const durationMs = resolveSwipeDurationMs(payload, {
-          envDefaultMs: Number(process.env.ADA_HARMONY_SWIPE_SPEED_MS),
-          fallbackMs: 300
-        });
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: { driver: "harmony", mode: "real", command: "swipe", durationMs, from: payload.from, to: payload.to }
-        };
-      }
-      if (command.command === "deviceAdmin") {
-        return executeHarmonyDeviceAdmin(command, driver, payload);
-      }
-      if (command.command === "pinch") {
-        const { mode: pinchMode } = await pinchWithPayload(driver, payload);
-        const durationMs = resolveSwipeDurationMs(payload, {
-          envDefaultMs: Number(process.env.ADA_HARMONY_SWIPE_SPEED_MS),
-          fallbackMs: 400
-        });
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: {
-            driver: "harmony",
-            mode: "real",
-            command: "pinch",
-            durationMs,
-            pinchIn: payload.pinchIn,
-            pinchMode
-          }
-        };
-      }
-      if (command.command === "screenshot") {
-        const screenshot = await screenshotWithPayload(command, driver, payload);
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "screenshot", screenshot } };
-      }
-      if (command.command === "wait") {
-        const timeoutMs = numberOr4(payload.timeoutMs, 300);
-        await new Promise((resolve) => setTimeout(resolve, timeoutMs));
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "wait", timeoutMs } };
-      }
-      if (command.command === "back") {
-        await driver.pressBack();
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "back" } };
-      }
-      if (command.command === "pressHome" || command.command === "home") {
-        await driver.pressHome();
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: { driver: "harmony", mode: "real", command: "pressHome" }
-        };
-      }
-      if (command.command === "launchApp") {
-        const bundleName = String(payload.appId ?? payload.bundleId ?? "");
-        if (!bundleName) {
-          return failResult(command, "HARMONY_LAUNCH_APP_MISSING_BUNDLE", "launchApp requires payload.appId or payload.bundleId");
-        }
-        const abilityId = String(payload.abilityId ?? payload.ability ?? "").trim() || "EntryAbility";
-        await raceCommandTimeout(
-          driver.startApp(bundleName, abilityId),
-          opTimeoutMs2(payload, 6e4),
-          "harmony.startApp"
-        );
-        return {
-          requestId: command.requestId,
-          success: true,
-          data: { driver: "harmony", mode: "real", command: "launchApp", bundleName, abilityId }
-        };
-      }
-      if (command.command === "exitApp") {
-        const bundleName = String(payload.appId ?? payload.bundleId ?? "");
-        if (!bundleName) {
-          return failResult(command, "HARMONY_EXIT_APP_MISSING_BUNDLE", "exitApp requires payload.appId or payload.bundleId");
-        }
-        await raceCommandTimeout(driver.stopApp(bundleName), opTimeoutMs2(payload, 2e4), "harmony.stopApp");
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "exitApp", bundleName } };
-      }
-      if (command.command === "getText") {
-        const text = await getTextFromPayload(driver, payload);
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "getText", text } };
-      }
-      if (command.command === "assertText") {
-        const text = await getTextFromPayload(driver, payload);
-        const expected = String(payload.expectedText ?? payload.text ?? "");
-        if (!expected) {
-          return failResult(command, "HARMONY_ASSERT_TEXT_MISSING_EXPECTED", "assertText requires payload.expectedText or payload.text");
-        }
-        if (!text.includes(expected)) {
-          return failResult(command, "HARMONY_ASSERT_TEXT_FAILED", `Expected text "${expected}" not found in "${text}"`);
-        }
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "assertText", text, expected } };
-      }
-      if (command.command === "assertVisible") {
-        const label = payload.locator?.text?.trim();
-        if (label && isSearchLabel(label)) {
-          const visible = await isSearchLabelVisibleViaUiDump(driver, payload, label);
-          if (!visible) {
-            return failResult(command, "HARMONY_ASSERT_VISIBLE_FAILED", `Element not found: text="${label}"`);
-          }
-          return {
-            requestId: command.requestId,
-            success: true,
-            data: { driver: "harmony", mode: "real", command: "assertVisible", via: "uiDump" }
-          };
-        }
-        const element = await withSuppressedHypiumProbeLogs(() => resolveElement(driver, payload));
-        if (!element) {
-          return failResult(command, "HARMONY_ASSERT_VISIBLE_FAILED", "Element not found");
-        }
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "assertVisible" } };
-      }
-      if (command.command === "custom") {
-        return await executeCustom(command, driver, payload, session.id);
-      }
-      if (command.command === "invoke") {
-        const value = await invokeWithPayload(driver, payload);
-        return { requestId: command.requestId, success: true, data: { driver: "harmony", mode: "real", command: "invoke", value } };
-      }
-      return failResult(command, "HARMONY_REAL_UNSUPPORTED_COMMAND", `Real mode does not support command: ${command.command}`);
-    } catch (error) {
-      return failResult(command, "HARMONY_EXECUTION_FAILED", error instanceof Error ? error.message : String(error));
-    }
+    return executeHarmonyCommand(session, command);
   },
   async destroySession(session) {
-    const state = sessions.get(session.id);
-    if (!state) return;
-    sessions.delete(session.id);
-    await Promise.race([
-      state.driver.disconnect(),
-      new Promise((resolve) => setTimeout(resolve, 8e3))
-    ]).catch(() => void 0);
+    await destroyHarmonySession(session);
   },
   async dispose() {
-    const all = Array.from(sessions.values());
-    sessions.clear();
-    await Promise.allSettled(
-      all.map(
-        (item) => Promise.race([
-          item.driver.disconnect(),
-          new Promise((resolve) => setTimeout(resolve, 8e3))
-        ]).catch(() => void 0)
-      )
-    );
+    await disposeHarmonyRuntime();
   },
   forceDispose() {
-    const all = Array.from(sessions.values());
-    sessions.clear();
-    for (const item of all) {
-      void item.driver.disconnect().catch(() => void 0);
-    }
+    forceDisposeHarmonyRuntime();
   }
 };
 var index_default = harmonyPlugin;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   buildHarmonyPinchPointerMatrix,
+  executeHarmonyCommand,
   executeHarmonyPinch
 });

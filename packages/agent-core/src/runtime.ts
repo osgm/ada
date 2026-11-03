@@ -1,10 +1,9 @@
-import { TaskExecutor } from "@ada/core-kernel";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
-import { buildPluginHost } from "./plugin-registry.js";
 import { log } from "./logger.js";
 import type { RuntimeTransport } from "./transport-client.js";
 import type { AgentConfig } from "./types.js";
 import { captureOperationMonitor } from "./monitoring.js";
+import { getSharedTaskExecutor } from "./shared-runtime.js";
 
 export interface RunTasksetOptions {
   transport?: RuntimeTransport | null;
@@ -12,7 +11,7 @@ export interface RunTasksetOptions {
 }
 
 export async function runTaskset(commands: CommandEnvelope[], options: RunTasksetOptions = {}): Promise<CommandResult[]> {
-  const executor = new TaskExecutor(buildPluginHost());
+  const executor = getSharedTaskExecutor();
   const results: CommandResult[] = [];
   const monitorJobs: Promise<void>[] = [];
   for (const cmd of commands) {

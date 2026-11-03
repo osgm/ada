@@ -86,17 +86,20 @@ function wireAdaMcpProtocolServer(mcp: Server): void {
     const args = asRecord(request.params.arguments);
     return dispatchAdaMcpTool(tool, args, {
       loadAgentConfig,
-      getHealthSnapshot: (options) => getHealthSnapshot(options),
-      getDoctorSnapshot: (scope) => getDoctorSnapshot(scope),
+      getHealthSnapshot: (options) => getHealthSnapshot(options) as Promise<Record<string, unknown>>,
+      getDoctorSnapshot: (scope) =>
+        getDoctorSnapshot(scope as "web" | "mobile" | "all") as Promise<Record<string, unknown>>,
       getBuiltInPlugins,
       buildHealthBlockers,
       buildSessionPolicy,
       healthStatusFromBlockers,
       mcpTextResult,
       invalidateRuntimeCaches,
-      scanMobileDevicesAndPersist,
-      scanDevicesAndListForDisplay,
-      getDeviceRegistrySnapshot,
+      scanMobileDevicesAndPersist: (options) =>
+        scanMobileDevicesAndPersist(options) as Promise<Record<string, unknown>>,
+      scanDevicesAndListForDisplay: () =>
+        scanDevicesAndListForDisplay() as Promise<Record<string, unknown>>,
+      getDeviceRegistrySnapshot: () => getDeviceRegistrySnapshot() as Promise<Record<string, unknown>>,
       parseInstallScope,
       installDependencies,
       runStartFlow,

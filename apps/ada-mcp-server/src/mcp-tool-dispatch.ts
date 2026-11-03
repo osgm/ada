@@ -1,7 +1,8 @@
 import path from "node:path";
-import type { CommandEnvelope, CommandResult } from "@ada/contracts";
-import type { InstallScope } from "@ada/install-deps";
+import type { CommandEnvelope, CommandResult, PluginManifest, WebEngine } from "@ada/contracts";
+import type { InstallScope, InstallSummary } from "@ada/install-deps";
 import { handleMobileAction, handleMobileRecipe, handleWebAction } from "./mcp-actions.js";
+import type { ActionRunOptions } from "./mcp-action-runner.js";
 import {
   handleCloseAllSessions,
   handleCloseSession,
@@ -16,52 +17,123 @@ import { handleBatchActions } from "./mcp-batch-actions.js";
 import { handleInvoke, handleRunTaskFile } from "./mcp-execution.js";
 import { handleMobileExtract, handleWebExtract } from "./mcp-extract.js";
 import { handleDiagnosticsTool, handleHealthTool } from "./mcp-health-diagnostics.js";
+import type { HealthBlocker, SessionPolicy } from "./mcp-health-enrich.js";
 import { handleDevices, handleInstallDeps, handleStartOnce } from "./mcp-runtime-admin.js";
 import { handleMobileDismissPopups, handleWebDismissPopups } from "./mcp-dismiss-popups.js";
 import { handleWebRecipe } from "./mcp-web-recipe.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
+import type { McpErrorKind } from "./mcp-recovery.js";
+import type { McpResultOptions } from "./mcp-result.js";
+import type { MonitorOptions } from "./monitoring.js";
 
-export interface McpToolDispatchDeps {
+type MobilePlatform = Exclude<AdaPlatform, "web">;
+
+/** 公共：配置 / 返回 / 风险 / 计时 */
+export interface McpDispatchCoreDeps {
   loadAgentConfig: () => Promise<Record<string, unknown>>;
-  getHealthSnapshot: (options: {
-    config?: Record<string, unknown>;
-    includeHarmony?: boolean;
-    fresh?: boolean;
-  }) => Promise<Record<string, unknown>>;
-  getDoctorSnapshot: (scope: string) => Promise<Record<string, unknown>>;
-  getBuiltInPlugins: () => unknown;
-  buildHealthBlockers: (...args: any[]) => any;
-  buildSessionPolicy: (...args: any[]) => any;
-  healthStatusFromBlockers: (...args: any[]) => any;
-  mcpTextResult: (data: Record<string, unknown>, options?: any) => any;
+  mcpTextResult: (data: unknown, options?: McpResultOptions) => unknown;
+  asRecord: (value: unknown) => Record<string, unknown>;
+  withTiming: <T>(label: string, fn: () => Promise<T>) => Promise<T>;
+  normalizePlatform: (value: unknown, options?: { allowDefaultWeb?: boolean }) => AdaPlatform;
+  normalizeCommand: (value: unknown) => string;
+  allowMock: (args: Record<string, unknown>) => boolean;
+  ensureRiskAllowed: (command: string, args: Record<string, unknown>) => void;
+  toCommandEnvelope: (input: Record<string, unknown>, allowMock?: boolean) => CommandEnvelope;
+  assertRealResult: (result: CommandResult, context: string, allowMockMode: boolean) => void;
+  buildRecoveryFields: (input: {
+    tool: string;
+    envelope?: CommandEnvelope;
+    result?: CommandResult;
+    errorKind: McpErrorKind;
+    sessionId?: string;
+    platform?: AdaPlatform;
+  }) => { recoveryPlan: unknown; recoveryHint: string };
+  wrapCommandToolResult: (input: {
+    tool: string;
+    envelope: CommandEnvelope;
+    result: CommandResult;
+    attempts?: number;
+  }) => unknown;
+  wrapAssertionResult: (input: {
+    tool: string;
+    sessionId: string;
+    platform?: AdaPlatform;
+    type: string;
+    pass: boolean;
+    details: Record<string, unknown>;
+    result?: CommandResult;
+  }) => unknown;
+  parseMonitorOptions: (args: Record<string, unknown>) => MonitorOptions;
+  runMonitorCapture: (
+    command: CommandEnvelope,
+    result: CommandResult,
+    options: MonitorOptions
+  ) => Promise<void> | void;
+  parseActionRunOptions: (args: Record<string, unknown>) => ActionRunOptions;
+  runCommandWithRetry: (
+    command: CommandEnvelope,
+    options: ActionRunOptions
+  ) => Promise<{ result: CommandResult; attempts: number }>;
+  executeWithTimeout: (command: CommandEnvelope, timeoutMs?: number) => Promise<CommandResult>;
+  runCommand: (command: CommandEnvelope) => Promise<CommandResult>;
+}
+
+/** Health / diagnostics / plugins / config */
+export interface McpDispatchAdminDeps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getHealthSnapshot: (options: any) => Promise<Record<string, unknown>>;
+  getDoctorSnapshot: (scope: "web" | "mobile" | "all" | string) => Promise<Record<string, unknown>>;
+  getBuiltInPlugins: () => PluginManifest[] | unknown[];
+  buildHealthBlockers: (
+    snapshot: Record<string, unknown>,
+    scope: "web" | "mobile" | "all",
+    config?: Record<string, unknown>
+  ) => Promise<HealthBlocker[]>;
+  buildSessionPolicy: () => SessionPolicy;
+  healthStatusFromBlockers: (blockers: HealthBlocker[]) => "ok" | "degraded";
   invalidateRuntimeCaches: () => void;
-  scanMobileDevicesAndPersist: () => Promise<unknown>;
-  scanDevicesAndListForDisplay: () => Promise<unknown>;
+  scanMobileDevicesAndPersist: (options: { deviceTags: string[] }) => Promise<Record<string, unknown>>;
+  scanDevicesAndListForDisplay: () => Promise<Record<string, unknown>>;
   getDeviceRegistrySnapshot: () => Promise<Record<string, unknown>>;
   parseInstallScope: (v: unknown) => InstallScope;
-  installDependencies: (...args: any[]) => Promise<unknown>;
-  runStartFlow: (...args: any[]) => Promise<unknown>;
-  listActiveSessions: () => Array<{ sessionId: string }>;
-  normalizePlatform: (...args: any[]) => AdaPlatform;
+  installDependencies: (
+    only: InstallScope,
+    force: boolean,
+    onLogLine: (line: string) => void
+  ) => Promise<InstallSummary | unknown>;
+  runStartFlow: (options: {
+    runOnce: boolean;
+    localDev: boolean;
+    skipDeps: boolean;
+    runWatch: boolean;
+  }) => Promise<void>;
+  listActiveSessions: () => Array<{
+    platform: string;
+    sessionId: string;
+    engine?: WebEngine;
+    driverSessionId: string;
+  }>;
   mergeWebEngineIntoPayload: (args: Record<string, unknown>) => Record<string, unknown>;
-  closeSession: (...args: any[]) => Promise<unknown>;
-  closeAllSessions: () => Promise<unknown>;
+  closeSession: (
+    platform: CommandEnvelope["platform"],
+    sessionId: string,
+    options?: { engine?: WebEngine; payload?: Record<string, unknown> }
+  ) => Promise<boolean>;
+  closeAllSessions: () => Promise<number>;
   riskyCommandAllowlist: Set<string>;
   riskyCommandDefaults: string[];
   buildPerfSummary: () => Record<string, unknown>;
   perfStats: Map<string, number[]>;
-  requireMobilePlatform: (value: unknown) => AdaPlatform;
+}
+
+/** Web / mobile action runtime */
+export interface McpDispatchRuntimeDeps {
+  requireMobilePlatform: (value: unknown) => MobilePlatform;
   mobilePreflight: (platform: AdaPlatform) => Promise<void>;
-  withTiming: <T>(label: string, fn: () => Promise<T>) => Promise<T>;
-  asRecord: (value: unknown) => Record<string, unknown>;
-  normalizeCommand: (value: unknown) => string;
-  ensureRiskAllowed: (command: string, args: Record<string, unknown>) => void;
-  toCommandEnvelope: (input: Record<string, unknown>, allowMock?: boolean) => CommandEnvelope;
-  allowMock: (args: Record<string, unknown>) => boolean;
-  executeWithTimeout: (...args: any[]) => Promise<CommandResult>;
-  assertRealResult: (result: CommandResult, context: string, allowMockMode: boolean) => void;
-  buildRecoveryFields: (...args: any[]) => Record<string, unknown>;
-  runCommand: (command: CommandEnvelope) => Promise<CommandResult>;
+  ensureWebRuntimeReady: () => Promise<void>;
+  ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
+  ensureWebPageReadyForTool: (sessionId: string, command: string) => Promise<void>;
+  ensureMobileSessionReadyForTool: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
   toExtractResponse: (input: {
     source: "web" | "mobile";
     mode: string;
@@ -69,31 +141,25 @@ export interface McpToolDispatchDeps {
     result: CommandResult;
     maxItems?: number;
   }) => Record<string, unknown>;
-  ensureSessionActive: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
-  ensureWebPageReadyForTool: (sessionId: string, command: string) => Promise<void>;
-  ensureMobileSessionReadyForTool: (platform: AdaPlatform, sessionId: string, command: string) => Promise<void>;
-  wrapAssertionResult: (...args: any[]) => any;
   resolveTaskPath: (file: string) => string;
   loadTaskFile: (taskFilePath: string) => Promise<CommandEnvelope[]>;
-  parseMonitorOptions: (args: Record<string, unknown>) => Record<string, unknown>;
-  runMonitorCapture: (...args: any[]) => Promise<void> | void;
   ensureRealPayloadForPlatform: (
     platform: AdaPlatform,
     payload: Record<string, unknown>,
     allowMock?: boolean
   ) => Record<string, unknown>;
   buildInvokeCommandPayload: (args: Record<string, unknown>) => Record<string, unknown>;
-  ensureWebRuntimeReady: (...args: any[]) => Promise<void>;
-  parseActionRunOptions: (...args: any[]) => any;
-  runCommandWithRetry: (...args: any[]) => Promise<{ result: CommandResult; attempts: number }>;
-  wrapCommandToolResult: (...args: any[]) => any;
 }
+
+export type McpToolDispatchDeps = McpDispatchCoreDeps & McpDispatchAdminDeps & McpDispatchRuntimeDeps;
 
 export async function dispatchAdaMcpTool(
   tool: string,
   args: Record<string, unknown>,
   deps: McpToolDispatchDeps
-): Promise<unknown> {
+  // MCP SDK ServerResult is a wide structural type; keep runtime flexible.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
   switch (tool) {
     case "ada_health":
       return handleHealthTool(args, {

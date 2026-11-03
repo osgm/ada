@@ -25,6 +25,10 @@
       "types": "./src/plugin-registry.ts",
       "default": "./src/plugin-registry.ts"
     },
+    "./shared-runtime": {
+      "types": "./src/shared-runtime.ts",
+      "default": "./src/shared-runtime.ts"
+    },
     "./setup-cli": {
       "types": "./src/setup-cli.ts",
       "default": "./src/setup-cli.ts"

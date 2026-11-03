@@ -9,7 +9,9 @@
 | `ADA_MCP_HIDE_ADVANCED` | `ADA_MCP_TOOL_VISIBILITY`（`hide` / `1` / `primary-only`） | 隐藏 T3：`ada_invoke`、`ada_risk_policy` |
 | `ADA_MCP_VERBOSE_RESULT` | — | `1` 时 MCP 返回完整 `CommandResult` |
 | `ADA_MCP_SLIM_RESULT` | — | `0` 等同 verbose（显式关闭 slim） |
-| `ADA_MCP_DESC_MODE` | — | 默认 **advanced**（未设等同 advanced/full 长描述）；显式 `compact` / `short` 为短描述，并 **精简 inputSchema**（去掉字段 description/examples；`title` 在两种模式下都会去掉以省 ListTools token） |
+| `ADA_MCP_DESC_MODE` | — | 默认 **advanced**（正确性/路由优先）；显式 `compact` / `short` 才短描述（省 token） |
+| `ADA_MCP_MAX_PAYLOAD_CHARS` | `12000` | 返回 JSON 软上限；超限先裁臃肿字段，保留 `summary`/`recoveryHint`/`errorCode` |
+| `ADA_BATCH_TIMEOUT_MS` | — | `ada_batch_actions` / inbound 未传顶层 `timeoutMs` 时的整批墙钟预算 |
 
 ## 启动 / 握手
 

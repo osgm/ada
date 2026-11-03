@@ -228,6 +228,33 @@ checkPlaywrightPinAlignment();
 checkVendorMirrorSync();
 checkScriptsLibSync();
 
+function checkDocsRecommendedVersion(version) {
+  const docFiles = [
+    "docs/ADA-MCP-接入手册.md",
+    "docs/ADA-MCP-插件配置说明.md",
+    "docs/ADA-MCP-环境变量.md"
+  ];
+  const pinRe = /@ada-mcp\/(?:mcp-server|launcher)@(\d+\.\d+\.\d+)/g;
+  for (const rel of docFiles) {
+    const file = path.join(root, rel);
+    if (!fs.existsSync(file)) continue;
+    const text = fs.readFileSync(file, "utf8");
+    const found = new Set();
+    for (const match of text.matchAll(pinRe)) {
+      found.add(match[1]);
+    }
+    const drift = [...found].filter((v) => v !== version);
+    if (drift.length > 0) {
+      console.error(
+        `[check-mcp-publish-versions] docs version drift in ${rel}: found ${drift.join(",")} (expected ${version})`
+      );
+      process.exit(1);
+    }
+  }
+}
+
+checkDocsRecommendedVersion(serverVer);
+
 console.log(
-  `[check-mcp-publish-versions] ok: both @${serverVer}, Apache-2.0 (Kalami), playwright pin aligned, vendor + scripts/lib synced`
+  `[check-mcp-publish-versions] ok: both @${serverVer}, Apache-2.0 (Kalami), playwright pin aligned, vendor + scripts/lib synced, docs versions aligned`
 );

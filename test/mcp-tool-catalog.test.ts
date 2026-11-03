@@ -123,6 +123,7 @@ describe("mcp-tool-catalog", () => {
     const props = ((tool as { inputSchema: { properties?: Record<string, unknown> } }).inputSchema.properties ?? {});
     assert.ok("dryRun" in props, "dryRun should be part of inputSchema.properties");
     assert.ok("retryDelayMs" in props, "retryDelayMs should be part of inputSchema.properties");
+    assert.ok("timeoutMs" in props, "batch wall-budget timeoutMs should be part of inputSchema.properties");
     assert.match(tool!.description, /dryRun/);
   });
 

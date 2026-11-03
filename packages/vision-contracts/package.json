@@ -2,6 +2,8 @@
   "name": "@ada/vision-contracts",
   "version": "0.1.0",
   "private": true,
+  "description": "EXPERIMENTAL stub — vision contracts placeholder; do not use in production paths",
+  "keywords": ["ada", "experimental", "stub"],
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

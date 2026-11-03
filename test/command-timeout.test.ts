@@ -4,6 +4,8 @@ import {
   CommandTimeoutError,
   DEFAULT_COMMAND_TIMEOUT_MS,
   raceCommandTimeout,
+  resolveBatchBudgetMs,
+  resolveBatchStepTimeoutMs,
   resolveCommandTimeoutMs,
   resolveLocatorTimeoutMs,
   resolveSubOperationTimeoutMs
@@ -35,4 +37,24 @@ test("raceCommandTimeout: rejects with CommandTimeoutError", async () => {
     () => raceCommandTimeout(new Promise(() => undefined), 50, "t"),
     CommandTimeoutError
   );
+});
+
+test("resolveBatchBudgetMs: explicit timeout and scaled default", () => {
+  const prev = process.env.ADA_BATCH_TIMEOUT_MS;
+  delete process.env.ADA_BATCH_TIMEOUT_MS;
+  assert.equal(resolveBatchBudgetMs({ timeoutMs: 10_000, actionCount: 3, overheadMs: 500 }), 9_500);
+  assert.equal(resolveBatchBudgetMs({ timeoutMs: 1_200, actionCount: 3, overheadMs: 500 }), 1_000);
+  const scaled = resolveBatchBudgetMs({ actionCount: 2, overheadMs: 500 });
+  assert.ok(scaled >= 44_500 && scaled <= 180_000);
+  if (prev === undefined) delete process.env.ADA_BATCH_TIMEOUT_MS;
+  else process.env.ADA_BATCH_TIMEOUT_MS = prev;
+});
+
+test("resolveBatchStepTimeoutMs: remaining + explicit min", () => {
+  assert.equal(
+    resolveBatchStepTimeoutMs({ remainingMs: 20_000, totalSteps: 4, explicitTimeoutMs: 8_000 }),
+    8_000
+  );
+  assert.equal(resolveBatchStepTimeoutMs({ remainingMs: 2_000, totalSteps: 4, explicitTimeoutMs: 8_000 }), 2_000);
+  assert.equal(resolveBatchStepTimeoutMs({ remainingMs: 40_000, totalSteps: 1 }), 40_000);
 });

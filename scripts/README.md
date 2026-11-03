@@ -63,7 +63,8 @@ scripts/
 
 | 命令 | 说明 |
 |------|------|
-| `npm run mcp:check:versions` | 校验 mcp-server / launcher 版本号、Playwright pin、内联 mirror 副本一致 |
+| `npm run mcp:check:versions` | 校验 mcp-server / launcher 版本号、Playwright pin、内联 mirror 副本一致、文档钉版本 |
+| GitHub Actions `publish-mcp.yml` | 打 `v*` tag 或手动触发：`mcp:preflight` → pack → `npm publish`（需 `NPM_TOKEN` secret） |
 | `npm run sync:download-probe` | 改 `packages/download-probe` 后同步 launcher / mcp-server 内联脚本 |
 | `npm run sync:log-locale` | 改 `log-locale.ts` 后同步 launcher / mcp-server 内联脚本 |
 | `npm run sync:scripts-lib` | 改 driver-rpc swipe/fillSearch 后同步 `scripts/lib/*.mjs` |

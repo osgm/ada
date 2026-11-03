@@ -1237,6 +1237,15 @@ var init_ios_idevice_bootstrap = __esm({
   }
 });
 
+// ../../packages/install-deps/src/install-mobile-runtimes.ts
+var init_install_mobile_runtimes = __esm({
+  "../../packages/install-deps/src/install-mobile-runtimes.ts"() {
+    "use strict";
+    init_src();
+    init_platform_support();
+  }
+});
+
 // ../../packages/install-deps/src/dependency-installer.ts
 var HEALTH_CACHE_OK_MS, PLAYWRIGHT_LAUNCH_OK_MS;
 var init_dependency_installer = __esm({
@@ -1261,6 +1270,7 @@ var init_dependency_installer = __esm({
     init_ios_wda_bootstrap();
     init_ios_libimobiledevice_install();
     init_ios_idevice_bootstrap();
+    init_install_mobile_runtimes();
     init_platform_support();
     init_pinned_playwright_version();
     init_deps_install_paths();

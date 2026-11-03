@@ -71,5 +71,44 @@ describe("mcp-batch-actions", () => {
     assert.equal(ran, true);
     assert.equal(result.data.status, "ok");
     assert.equal(result.data.executed, 1);
+    assert.equal(typeof result.data.budgetMs, "number");
+  });
+
+  it("stops remaining steps when batch wall budget is exhausted", async () => {
+    const timeouts: number[] = [];
+    const result = (await handleBatchActions(
+      {
+        platform: "web",
+        sessionId: "s1",
+        timeoutMs: 1_200,
+        onFailure: "stop",
+        actions: [
+          { command: "wait", timeoutMs: 800 },
+          { command: "click", timeoutMs: 800 },
+          { command: "type", timeoutMs: 800 }
+        ]
+      },
+      baseDeps({
+        ensureWebRuntimeReady: async () => undefined,
+        ensureSessionActive: async () => undefined,
+        ensureWebPageReady: async () => undefined,
+        runCommandWithRetry: async (_command, options) => {
+          timeouts.push(options.timeoutMs ?? 0);
+          await new Promise((resolve) => setTimeout(resolve, 450));
+          return {
+            result: { requestId: "r", success: true, data: {} },
+            attempts: 1
+          };
+        }
+      })
+    )) as { data: Record<string, unknown> };
+
+    // budget ≈ 700ms；每步睡 450ms → 第 2 步前应耗尽
+    assert.ok((result.data.executed as number) < 3, `executed=${result.data.executed}`);
+    const summary = result.data.summary as Record<string, unknown>;
+    assert.equal(summary.budgetExhausted, true);
+    assert.equal(result.data.status, "failed");
+    assert.ok(timeouts.length >= 1);
+    assert.ok(timeouts.every((ms) => ms > 0 && ms <= 1_200));
   });
 });

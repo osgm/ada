@@ -152,7 +152,7 @@ export async function handleWebExtract(
 export async function handleMobileExtract(
   args: Record<string, unknown>,
   deps: {
-    requireMobilePlatform: (value: unknown) => AdaPlatform;
+    requireMobilePlatform: (value: unknown) => Exclude<AdaPlatform, "web">;
     mobilePreflight: (platform: AdaPlatform) => Promise<void>;
     runCommand: (command: CommandEnvelope) => Promise<CommandResult>;
     toCommandEnvelope: (input: Record<string, unknown>, allowMock?: boolean) => CommandEnvelope;

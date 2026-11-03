@@ -1,4 +1,5 @@
-import type { CommandEnvelope, CommandResult } from "@ada/contracts";
+import type { CommandEnvelope, CommandResult, CommandType } from "@ada/contracts";
+import { resolveBatchBudgetMs, resolveBatchStepTimeoutMs } from "@ada/driver-rpc";
 import {
   guardMobileCommandIfNeeded,
   guardWebCommandIfNeeded,
@@ -181,12 +182,54 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
     await ensureBatchSessionReadyOnce(platform, sessionId, firstActionCommand(actions, deps), deps);
   }
 
+  const batchTimeoutMs =
+    typeof args.timeoutMs === "number" && args.timeoutMs > 0 ? Math.floor(args.timeoutMs) : undefined;
+  const budgetMs = resolveBatchBudgetMs({
+    timeoutMs: batchTimeoutMs,
+    actionCount: actions.length
+  });
+  const deadline = Date.now() + budgetMs;
+  let budgetExhausted = false;
+
   const results: Array<{ index: number; command: string; attempts: number; result: CommandResult }> = [];
   for (let i = 0; i < actions.length; i += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining < 1_000) {
+      budgetExhausted = true;
+      const requestId = String(deps.asRecord(actions[i]).requestId ?? `batch-${Date.now()}-${i}`);
+      results.push({
+        index: i,
+        command: (() => {
+          try {
+            return deps.normalizeCommand(deps.asRecord(actions[i]).command ?? deps.asRecord(actions[i]).action);
+          } catch {
+            return "unknown";
+          }
+        })(),
+        attempts: 0,
+        result: {
+          requestId,
+          success: false,
+          errorCode: "BATCH_BUDGET_EXHAUSTED",
+          errorMessage: `batch budget exhausted before step ${i + 1}/${actions.length} (budgetMs=${budgetMs})`
+        }
+      });
+      if (onFailure === "stop") {
+        break;
+      }
+      continue;
+    }
+
     const item = deps.asRecord(actions[i]);
     const command = deps.normalizeCommand(item.command ?? item.action);
     deps.ensureRiskAllowed(command, args);
-    const timeoutMs = typeof item.timeoutMs === "number" ? Math.max(0, Math.floor(item.timeoutMs)) : 0;
+    const explicitTimeout =
+      typeof item.timeoutMs === "number" && item.timeoutMs > 0 ? Math.floor(item.timeoutMs) : 0;
+    const timeoutMs = resolveBatchStepTimeoutMs({
+      remainingMs: remaining,
+      totalSteps: actions.length,
+      explicitTimeoutMs: explicitTimeout > 0 ? explicitTimeout : undefined
+    });
     const retry = typeof item.retry === "number" ? Math.max(0, Math.floor(item.retry)) : 0;
     const retryDelayMs =
       typeof item.retryDelayMs === "number" ? Math.max(0, Math.floor(item.retryDelayMs)) : defaultRetryDelayMs;
@@ -222,9 +265,18 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
 
   const successCount = results.filter((item) => item.result.success).length;
   const failureCount = results.length - successCount;
-  const timeoutCount = results.filter((item) => item.result.errorCode === "MCP_ACTION_TIMEOUT").length;
+  const timeoutCount = results.filter((item) => {
+    const code = String(item.result.errorCode ?? "").toUpperCase();
+    return (
+      code.includes("TIMEOUT") ||
+      code === "MCP_ACTION_TIMEOUT" ||
+      code === "COMMAND_TIMEOUT" ||
+      code === "BATCH_BUDGET_EXHAUSTED"
+    );
+  }).length;
   const failedStep = results.find((item) => !item.result.success);
-  const errorKind = timeoutCount > 0 ? "timeout" : "command_failed";
+  const errorKind =
+    budgetExhausted || timeoutCount > 0 ? ("timeout" as const) : ("command_failed" as const);
   const slimResults = slimBatchStepResults(results);
   const recoveryInput = {
     tool: "ada_batch_actions",
@@ -237,7 +289,7 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
           requestId: failedStep.result.requestId,
           sessionId,
           platform,
-          command: failedStep.command,
+          command: failedStep.command as CommandType,
           payload: {}
         }
       : undefined
@@ -250,12 +302,14 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
       continueOnError,
       onFailure,
       executed: results.length,
+      budgetMs,
       summary: {
         total: actions.length,
         executed: results.length,
         successCount,
         failureCount,
         timeoutCount,
+        budgetExhausted,
         stoppedOnFailure: failureCount > 0 && onFailure === "stop"
       },
       ...slimResults
@@ -264,7 +318,7 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
       ? {
           isError: true,
           errorKind,
-          recoverable: onFailure === "continue",
+          recoverable: onFailure === "continue" || budgetExhausted,
           suggestedNextTool:
             (failedStep && suggestRecoveryTool(failedStep.result, platform)) ??
             (platform === "web" ? "ada_extract" : "ada_mobile_extract"),

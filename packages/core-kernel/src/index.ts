@@ -203,6 +203,8 @@ export class TaskExecutor {
 
   private readonly resultAssembler = new ResultAssembler();
   private readonly featureNegotiator = new FeatureNegotiator();
+  /** 同一驱动会话串行：避免 MCP 并发工具调用与 inbound 交错导致串单。 */
+  private readonly sessionTails = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly pluginHost: PluginHost,
@@ -213,6 +215,10 @@ export class TaskExecutor {
       this.maxAttempts,
       new Set(options.retryableErrorCodes ?? MOBILE_TRANSIENT_ERROR_CODES)
     );
+  }
+
+  private sessionQueueKey(command: CommandEnvelope): string {
+    return buildKernelSessionKey(command.platform, command.sessionId, command.payload);
   }
 
   private shouldRetryCommand(result: CommandResult, attempt: number, platform: CommandEnvelope["platform"]): boolean {
@@ -264,6 +270,32 @@ export class TaskExecutor {
   }
 
   async execute(command: CommandEnvelope): Promise<CommandResult> {
+    const key = this.sessionQueueKey(command);
+    const previous = this.sessionTails.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(
+      () => held,
+      () => held
+    );
+    this.sessionTails.set(key, tail);
+    await previous.then(
+      () => undefined,
+      () => undefined
+    );
+    try {
+      return await this.executeExclusive(command);
+    } finally {
+      release();
+      if (this.sessionTails.get(key) === tail) {
+        this.sessionTails.delete(key);
+      }
+    }
+  }
+
+  private async executeExclusive(command: CommandEnvelope): Promise<CommandResult> {
     let attempt = 0;
     let lastFailure = this.resultAssembler.failure(command.requestId, "KERNEL_EXECUTION_FAILED", "unknown error");
     while (attempt < this.maxAttempts) {

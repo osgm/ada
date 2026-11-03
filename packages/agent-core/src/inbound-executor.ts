@@ -1,16 +1,14 @@
-import { TaskExecutor } from "@ada/core-kernel";
 import type { StreamRequest, StreamResponse } from "@ada/transport-stream";
-import { buildPluginHost } from "./plugin-registry.js";
 import { executeInboundPlan, planInboundCommands, type InboundPlan } from "./inbound-command.js";
 import { log } from "./logger.js";
+import { getSharedTaskExecutor } from "./shared-runtime.js";
 
 /**
  * 控制端指令在本进程执行。
- * 依赖只在插件首次 ensureInitialized 时加载，之后复用同一个 TaskExecutor 和会话。
- * UI 指令串行，避免同一浏览器/设备并发；heartbeat/ping 等 meta 旁路队列，避免被长任务堵住。
+ * 与 MCP 共用 getSharedTaskExecutor()；UI 指令串行，heartbeat/ping 等 meta 旁路队列。
  */
 export function createInboundHandler(): (request: StreamRequest) => Promise<StreamResponse> {
-  const executor = new TaskExecutor(buildPluginHost());
+  const executor = getSharedTaskExecutor();
   let tail: Promise<unknown> = Promise.resolve();
   return (request) => {
     const plan = planInboundCommands(request);

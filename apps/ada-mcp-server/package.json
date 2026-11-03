@@ -1,13 +1,17 @@
 {
   "name": "@ada-mcp/mcp-server",
-  "version": "0.1.88",
+  "version": "0.1.89",
   "description": "ADA MCP server for web/mobile automation (stdio + remote HTTP)",
   "license": "Apache-2.0",
   "author": "Kalami (卡拉米)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/osgm/ada.git",
+    "url": "git+https://github.com/osgm/ada.git",
     "directory": "apps/ada-mcp-server"
+  },
+  "homepage": "https://github.com/osgm/ada/tree/main/apps/ada-mcp-server",
+  "bugs": {
+    "url": "https://github.com/osgm/ada/issues"
   },
   "private": false,
   "type": "commonjs",

@@ -1,13 +1,17 @@
 {
   "name": "@ada-mcp/launcher",
-  "version": "0.1.88",
+  "version": "0.1.89",
   "description": "Probe fastest npm registry then pnpm dlx @ada-mcp/mcp-server (zero deps)",
   "license": "Apache-2.0",
   "author": "Kalami (卡拉米)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/osgm/ada.git",
+    "url": "git+https://github.com/osgm/ada.git",
     "directory": "apps/ada-mcp-launcher"
+  },
+  "homepage": "https://github.com/osgm/ada/tree/main/apps/ada-mcp-launcher",
+  "bugs": {
+    "url": "https://github.com/osgm/ada/issues"
   },
   "private": false,
   "type": "module",

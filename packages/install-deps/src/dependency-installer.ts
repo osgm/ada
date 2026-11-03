@@ -39,17 +39,12 @@ import { DEFAULT_NPM_REGISTRY_CANDIDATES } from "@ada/download-probe";
 import { DEFAULT_PLAYWRIGHT_HOST_CANDIDATES } from "@ada/download-probe";
 import { detectBestPlaywrightDownloadHost, installPlaywrightBrowsers } from "./playwright-browser-install.js";
 import { playwrightBrowsersDirHasChromium } from "./playwright-browsers-discovery.js";
-import {
-  probeAndroidRuntime,
-  probeIosRuntime,
-  probeAndroidUia2Runtime,
-  probeIosIdeviceRuntime,
-  probeIosWdaRuntime
-} from "@ada/runtime-probe";
+import { probeAndroidRuntime } from "@ada/runtime-probe";
 import { ensureAndroidUia2Bootstrap } from "./android-uia2-bootstrap.js";
 import { ensureIosWdaBootstrap } from "./ios-wda-bootstrap.js";
 import { ensureIosLibimobiledeviceForConfig } from "./ios-libimobiledevice-install.js";
 import { ensureIosIdeviceBootstrap } from "./ios-idevice-bootstrap.js";
+import { probeMobileRuntimes } from "./install-mobile-runtimes.js";
 import { isIosFullInstallScope, isIosHostSupported, isIosWdaBootstrapSupported } from "./platform-support.js";
 import { PINNED_PLAYWRIGHT_VERSION } from "./pinned-playwright-version.js";
 
@@ -167,84 +162,6 @@ async function runCommand(command: string, args: string[], cwd: string): Promise
     child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${command} exit=${code}`))));
     child.on("error", reject);
   });
-}
-
-async function probeMobileRuntimes(
-  only: InstallScope,
-  tracker: InstallDriverTracker,
-  onLogLine?: (line: string) => void
-): Promise<void> {
-  const checkAndroid = only === "all" || only === "mobile" || only === "android" || only === "drivers";
-  const checkIos =
-    isIosHostSupported() &&
-    (only === "all" || only === "mobile" || only === "ios" || only === "drivers");
-  if (checkAndroid) {
-    const android = await probeAndroidRuntime();
-    tracker.record({
-      id: "android-adb",
-      status: android.adbOnPath && android.deviceConnected ? "skipped" : "missing",
-      detail: android.detail
-    });
-    onLogLine?.(
-      android.adbOnPath && android.deviceConnected
-        ? `[mobile] ${android.detail}`
-        : `[mobile][warn] ${android.detail}`
-    );
-    if (!android.adbOnPath) {
-      tracker.record({
-        id: "android-uia2",
-        status: "missing",
-        detail: "adb not on PATH"
-      });
-    } else if (!android.deviceConnected) {
-      tracker.record({
-        id: "android-uia2",
-        status: "skipped",
-        detail: "no adb device; UIA2 deferred until device connected"
-      });
-      onLogLine?.("[mobile] UIA2 probe skipped (no adb device)");
-    } else {
-      const uia2 = await probeAndroidUia2Runtime({ ensureForward: true });
-      tracker.record({
-        id: "android-uia2",
-        status: uia2.reachable ? "skipped" : "missing",
-        detail: uia2.detail
-      });
-      onLogLine?.(uia2.reachable ? `[mobile] ${uia2.detail}` : `[mobile][warn] ${uia2.detail}`);
-    }
-  }
-  if (checkIos) {
-    const wda = await probeIosWdaRuntime({ ensureForward: true });
-    const ready = wda.ready || (wda.reachable && wda.forwarded);
-    tracker.record({
-      id: "ios-xcrun",
-      status:
-        process.platform === "darwin" || process.platform === "win32"
-          ? "skipped"
-          : "missing",
-      detail:
-        process.platform === "darwin"
-          ? "macOS host"
-          : process.platform === "win32"
-            ? "Windows USB host (no xcrun; WDA must be preinstalled on device)"
-            : "iOS requires macOS or Windows host"
-    });
-    tracker.record({
-      id: "ios-wda",
-      status: wda.ready ? "skipped" : "missing",
-      detail: wda.detail
-    });
-    const idevice = await probeIosIdeviceRuntime();
-    tracker.record({
-      id: "ios-idevice",
-      status: idevice.ideviceinstallerOk && idevice.afcclientOk ? "skipped" : "missing",
-      detail: idevice.detail
-    });
-    onLogLine?.(ready ? `[mobile] ${wda.detail}` : `[mobile][warn] ${wda.detail}`);
-    if ((!idevice.ideviceinstallerOk || !idevice.afcclientOk) && idevice.installHint) {
-      onLogLine?.(`[ios][hint] ${idevice.installHint}`);
-    }
-  }
 }
 
 async function loadInstallState(): Promise<InstallState> {
