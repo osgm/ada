@@ -1,5 +1,9 @@
 import type { CommandEnvelope, CommandResult, CommandType } from "@ada/contracts";
-import { resolveBatchBudgetMs, resolveBatchStepTimeoutMs } from "@ada/driver-rpc";
+import {
+  isSessionReadOnlyCommand,
+  resolveBatchBudgetMs,
+  resolveBatchStepTimeoutMs
+} from "@ada/driver-rpc";
 import {
   guardMobileCommandIfNeeded,
   guardWebCommandIfNeeded,
@@ -7,9 +11,11 @@ import {
   recordWebCommandIfNeeded
 } from "./mcp-action-ledger.js";
 import type { ActionRunOptions } from "./mcp-action-runner.js";
+import { invalidateMobileDumpAfterCommand } from "./mcp-mobile-dump-cache.js";
 import { isMobilePlatform, type AdaPlatform } from "./mcp-normalize.js";
 import { resolveRecoveryFields, slimBatchStepResults } from "./mcp-payload-slim.js";
 import { suggestRecoveryTool } from "./mcp-recovery.js";
+import { clearWebViewTreeCache } from "./mcp-view-tree-cache.js";
 
 type McpResult = ReturnType<
   (
@@ -235,10 +241,18 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
       typeof item.retryDelayMs === "number" ? Math.max(0, Math.floor(item.retryDelayMs)) : defaultRetryDelayMs;
     const isLastAction = i === actions.length - 1;
     const rawPayload = deps.asRecord(item.payload);
-    const payload =
-      platform === "android" || platform === "ios" || platform === "harmony"
-        ? { ...rawPayload, keepSession: !isLastAction }
-        : rawPayload;
+    const readOnly = isSessionReadOnlyCommand({
+      command: command as CommandType,
+      payload: rawPayload
+    });
+    const payload = {
+      ...rawPayload,
+      adaBatch: true,
+      ...(readOnly ? { preferCachedDump: true, shareObserveCache: true } : {}),
+      ...(platform === "android" || platform === "ios" || platform === "harmony"
+        ? { keepSession: !isLastAction }
+        : {})
+    };
     guardWebCommandIfNeeded(platform, sessionId, command, payload);
     guardMobileCommandIfNeeded(platform, sessionId, command, payload);
     const envelope = deps.toCommandEnvelope(
@@ -256,6 +270,13 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
     );
     recordWebCommandIfNeeded(platform, sessionId, command, payload, result);
     recordMobileCommandIfNeeded(platform, sessionId, command, payload, result);
+    if (result.success && !readOnly) {
+      if (isMobilePlatform(platform)) {
+        invalidateMobileDumpAfterCommand(platform, sessionId, command);
+      } else if (platform === "web") {
+        clearWebViewTreeCache(sessionId);
+      }
+    }
     deps.assertRealResult(result, "ada_batch_actions", deps.allowMock(args));
     results.push({ index: i, command, attempts, result });
     if (!result.success && onFailure === "stop") {

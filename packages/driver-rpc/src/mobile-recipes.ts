@@ -62,7 +62,7 @@ export interface RecipeResult {
 async function dumpWithRetry(ctx: MobileRecipeContext, retries = 1): Promise<UiNode[]> {
   let nodes = await safeDumpUi(ctx);
   if (nodes.length === 0 && retries > 0) {
-    await recipeSettleDelay(ctx, undefined, 800);
+    await recipeSettleDelay(ctx, undefined, 500);
     nodes = await safeDumpUi(ctx);
   }
   return nodes;
@@ -308,7 +308,7 @@ export async function recipeTapSearch(ctx: MobileRecipeContext, options?: Recipe
 
   ctx.invalidateDumpCache?.();
   await clickUiPick(ctx, entry);
-  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
+  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 500);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;
   return {

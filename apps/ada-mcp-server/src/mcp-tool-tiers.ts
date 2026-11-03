@@ -4,17 +4,17 @@ export { buildRecoveryHint } from "./mcp-recovery.js";
 
 /** Full policy copy — advanced mode or ada://guide/routing resource. */
 export const MCP_GLOBAL_POLICY =
-  "Policy: riskApproved=true for invoke/custom/launchApp/destructive deviceAdmin; allowMock=false unless offline demo; reuse sessionId; mobile: ada_devices(scan) then deviceParams.recommended; on failure read recoveryHint then retry=1 then extract/pageSource then invoke.";
+  "Policy: riskApproved=true for invoke/custom/launchApp/destructive deviceAdmin; allowMock=false unless offline demo; reuse sessionId; prefer ada_batch_actions for multi-step; observe(extract) once then act; default retry=0 (retry=1 only on transient); avoid concurrent writes on same sessionId (reads may parallel); mobile: ada_devices(scan) then deviceParams.recommended; on failure read recoveryHint then extract/pageSource then invoke.";
 
 /** Compact policy — single ada_health anchor; keeps trial-reduction essentials. */
 export const MCP_GLOBAL_POLICY_COMPACT =
-  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId; mobile: ada_devices(scan) first; on fail read recoveryHint (then recoveryPlan)→retry→extract→invoke.";
+  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId; batch multi-step; observe once then act; retry=0 default; no concurrent writes same session; mobile: ada_devices(scan) first; on fail recoveryHint→extract→invoke.";
 
 export const MCP_WORKFLOW_L0_L4 =
-  "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy.";
+  "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy. Speed: reuse sessionId + batch + one observe.";
 
 export const MCP_WORKFLOW_COMPACT =
-  "START ada_health(scope=web|mobile|all) once per session → L1 action → L2 recipe/batch → L3 invoke. ada://guide/routing.";
+  "START ada_health once → reuse sessionId → L2 batch when multi-step → L1 action → L3 invoke. ada://guide/routing.";
 
 export const UPGRADE_L2_L3_WEB =
   "Escalate: Playwright page.* or CDP → ada_invoke; multi-step → ada_batch_actions or ada_run_task_file.";

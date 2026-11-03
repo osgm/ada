@@ -8,8 +8,8 @@ const pageProbeCache = new Map<string, { at: number; url: string }>();
 
 function pageProbeTtlMs(): number {
   const raw = process.env.ADA_WEB_PAGE_PROBE_TTL_MS?.trim();
-  const n = raw ? Number(raw) : 2000;
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2000;
+  const n = raw ? Number(raw) : 5000;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5000;
 }
 
 export function clearWebPageProbeCache(sessionId?: string): void {

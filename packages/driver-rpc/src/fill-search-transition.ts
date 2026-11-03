@@ -1,11 +1,11 @@
 import type { ScreenSize, UiPickResult } from "@ada/mobile-ui";
 
 /** 首页「搜索栏」点按后跳转搜索页时的默认等待（毫秒） */
-export const FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
+export const FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 500;
 /** 检测到页面切换后的追加等待（毫秒） */
-export const FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 500;
+export const FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 350;
 /** 常规 tap 后等待（毫秒） */
-export const FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
+export const FILL_SEARCH_DEFAULT_SETTLE_MS = 280;
 
 function resourceIdFromLabel(label: string): string {
   const m = label.match(/([\w.]+:id\/\w+)/i);

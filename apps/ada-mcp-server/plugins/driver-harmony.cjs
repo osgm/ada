@@ -64,7 +64,7 @@ function resolveCommandTimeoutMs(payload) {
 }
 function resolveLocatorTimeoutMs(payload, options) {
   const p = payload ?? {};
-  const defaultMs = options?.defaultMs ?? 4e3;
+  const defaultMs = options?.defaultMs ?? 2500;
   const maxMs = options?.maxMs ?? 8e3;
   const explicit = typeof p.locatorTimeoutMs === "number" ? p.locatorTimeoutMs : typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : defaultMs;
   return Math.min(Math.max(500, explicit), maxMs);
@@ -173,7 +173,7 @@ function firstEnv(...names) {
   }
   return void 0;
 }
-function uiDumpCacheTtlMsFromEnv(defaultMs = 2e3) {
+function uiDumpCacheTtlMsFromEnv(defaultMs = 4e3) {
   const raw = firstEnv("ADA_UI_DUMP_CACHE_MS", "ADA_ANDROID_HIERARCHY_CACHE_MS") ?? String(defaultMs);
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : defaultMs;
@@ -237,9 +237,9 @@ function parseFillSearchPayload(payload) {
 }
 
 // ../../packages/driver-rpc/src/fill-search-transition.ts
-var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
-var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 500;
-var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
+var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 500;
+var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 350;
+var FILL_SEARCH_DEFAULT_SETTLE_MS = 280;
 function resourceIdFromLabel(label) {
   const m = label.match(/([\w.]+:id\/\w+)/i);
   return (m?.[1] ?? label).toLowerCase();
@@ -669,10 +669,22 @@ async function runSmartWait(reader, options) {
     await new Promise((r) => setTimeout(r, pollMs));
   }
 }
-async function recipeSettleDelay(reader, payload, fallbackMs = 600) {
+function settleSmartEnabled(env = process.env) {
+  const raw = (env.ADA_SETTLE_SMART ?? "1").trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off" && raw !== "no";
+}
+async function recipeSettleDelay(reader, payload, fallbackMs = 400) {
   const fromPayload = parseSmartWaitFromPayload(payload);
   const fromEnv = smartWaitFromEnv();
-  const opts = mergeSmartWait({ until: "timeout", timeoutMs: fallbackMs }, fromEnv, fromPayload);
+  const useSmart = Boolean(reader) && settleSmartEnabled() && !fromPayload?.until && !fromEnv.until;
+  const base = useSmart ? {
+    until: "ui_stable",
+    timeoutMs: fallbackMs,
+    stableMs: Math.min(120, Math.max(40, Math.floor(fallbackMs / 3))),
+    pollMs: Math.min(100, Math.max(40, Math.floor(fallbackMs / 4))),
+    stablePolls: 2
+  } : { until: "timeout", timeoutMs: fallbackMs };
+  const opts = mergeSmartWait(base, fromEnv, fromPayload);
   await runSmartWait(reader, opts);
 }
 
@@ -680,7 +692,7 @@ async function recipeSettleDelay(reader, payload, fallbackMs = 600) {
 async function dumpWithRetry(ctx, retries = 1) {
   let nodes = await safeDumpUi(ctx);
   if (nodes.length === 0 && retries > 0) {
-    await recipeSettleDelay(ctx, void 0, 800);
+    await recipeSettleDelay(ctx, void 0, 500);
     nodes = await safeDumpUi(ctx);
   }
   return nodes;
@@ -882,7 +894,7 @@ async function recipeTapSearch(ctx, options) {
   }
   ctx.invalidateDumpCache?.();
   await clickUiPick(ctx, entry);
-  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
+  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 500);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;
   return {
@@ -1315,7 +1327,7 @@ function deviceAdminFail(command, code, message) {
 
 // ../../packages/driver-rpc/src/ui-dump-cache.ts
 function readUiDumpCacheTtlMs() {
-  return uiDumpCacheTtlMsFromEnv(2e3);
+  return uiDumpCacheTtlMsFromEnv(4e3);
 }
 var UiDumpCache = class {
   constructor(ttlMs = readUiDumpCacheTtlMs()) {

@@ -6,7 +6,7 @@
 
 | 环境变量 | 默认 | 说明 |
 |----------|------|------|
-| `ADA_UI_DUMP_CACHE_MS` | `2000` | hierarchy/layout 缓存 TTL（毫秒） |
+| `ADA_UI_DUMP_CACHE_MS` | `4000` | hierarchy/layout 缓存 TTL（毫秒） |
 | `ADA_ANDROID_HIERARCHY_CACHE_MS` | 同上别名 | Android adapter |
 | `ADA_UI_DUMP_CACHE_INVALIDATE_ON_ACTION` | `true` | click/swipe/launch 后失效 |
 

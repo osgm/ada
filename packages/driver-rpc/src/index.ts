@@ -228,6 +228,7 @@ export {
   resolveLocatorTimeoutMs,
   resolveSubOperationTimeoutMs
 } from "./command-timeout.js";
+export { isSessionReadOnlyCommand } from "./session-command-class.js";
 export {
   UI_ELEMENT_NOT_FOUND,
   buildOptionalUiMissResult,

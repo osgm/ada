@@ -105,14 +105,33 @@ export async function runSmartWait(reader: UiDumpReader | undefined, options: Sm
   }
 }
 
+function settleSmartEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.ADA_SETTLE_SMART ?? "1").trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off" && raw !== "no";
+}
+
+/**
+ * Recipe 间隔等待：有 dump reader 且未显式指定 wait.until 时，默认 ui_stable 早退；
+ * `ADA_SETTLE_SMART=0` 可退回纯 timeout。
+ */
 export async function recipeSettleDelay(
   reader: UiDumpReader | undefined,
   payload?: Record<string, unknown>,
-  fallbackMs = 600
+  fallbackMs = 400
 ): Promise<void> {
   const fromPayload = parseSmartWaitFromPayload(payload);
   const fromEnv = smartWaitFromEnv();
-  const opts = mergeSmartWait({ until: "timeout", timeoutMs: fallbackMs }, fromEnv, fromPayload);
+  const useSmart = Boolean(reader) && settleSmartEnabled() && !fromPayload?.until && !fromEnv.until;
+  const base: SmartWaitOptions = useSmart
+    ? {
+        until: "ui_stable",
+        timeoutMs: fallbackMs,
+        stableMs: Math.min(120, Math.max(40, Math.floor(fallbackMs / 3))),
+        pollMs: Math.min(100, Math.max(40, Math.floor(fallbackMs / 4))),
+        stablePolls: 2
+      }
+    : { until: "timeout", timeoutMs: fallbackMs };
+  const opts = mergeSmartWait(base, fromEnv, fromPayload);
   await runSmartWait(reader, opts);
 }
 

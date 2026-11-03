@@ -79,7 +79,7 @@ function firstEnv(...names) {
   }
   return void 0;
 }
-function uiDumpCacheTtlMsFromEnv(defaultMs = 2e3) {
+function uiDumpCacheTtlMsFromEnv(defaultMs = 4e3) {
   const raw = firstEnv("ADA_UI_DUMP_CACHE_MS", "ADA_ANDROID_HIERARCHY_CACHE_MS") ?? String(defaultMs);
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : defaultMs;
@@ -415,7 +415,7 @@ var init_download_probe_persist = __esm({
     "use strict";
     init_src2();
     init_log_locale();
-    DEFAULT_MIRROR_PROBE_TTL_MS = 5 * 60 * 1e3;
+    DEFAULT_MIRROR_PROBE_TTL_MS = 60 * 60 * 1e3;
   }
 });
 
@@ -1007,9 +1007,9 @@ function parseFillSearchPayload(payload) {
 }
 
 // ../../packages/driver-rpc/src/fill-search-transition.ts
-var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
-var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 500;
-var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
+var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 500;
+var FILL_SEARCH_PAGE_TRANSITION_SETTLE_MS = 350;
+var FILL_SEARCH_DEFAULT_SETTLE_MS = 280;
 function resourceIdFromLabel(label) {
   const m = label.match(/([\w.]+:id\/\w+)/i);
   return (m?.[1] ?? label).toLowerCase();
@@ -1444,10 +1444,22 @@ async function runSmartWait(reader, options) {
     await new Promise((r) => setTimeout(r, pollMs));
   }
 }
-async function recipeSettleDelay(reader, payload, fallbackMs = 600) {
+function settleSmartEnabled(env = process.env) {
+  const raw = (env.ADA_SETTLE_SMART ?? "1").trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off" && raw !== "no";
+}
+async function recipeSettleDelay(reader, payload, fallbackMs = 400) {
   const fromPayload = parseSmartWaitFromPayload(payload);
   const fromEnv = smartWaitFromEnv();
-  const opts = mergeSmartWait({ until: "timeout", timeoutMs: fallbackMs }, fromEnv, fromPayload);
+  const useSmart = Boolean(reader) && settleSmartEnabled() && !fromPayload?.until && !fromEnv.until;
+  const base = useSmart ? {
+    until: "ui_stable",
+    timeoutMs: fallbackMs,
+    stableMs: Math.min(120, Math.max(40, Math.floor(fallbackMs / 3))),
+    pollMs: Math.min(100, Math.max(40, Math.floor(fallbackMs / 4))),
+    stablePolls: 2
+  } : { until: "timeout", timeoutMs: fallbackMs };
+  const opts = mergeSmartWait(base, fromEnv, fromPayload);
   await runSmartWait(reader, opts);
 }
 
@@ -1455,7 +1467,7 @@ async function recipeSettleDelay(reader, payload, fallbackMs = 600) {
 async function dumpWithRetry(ctx, retries = 1) {
   let nodes = await safeDumpUi(ctx);
   if (nodes.length === 0 && retries > 0) {
-    await recipeSettleDelay(ctx, void 0, 800);
+    await recipeSettleDelay(ctx, void 0, 500);
     nodes = await safeDumpUi(ctx);
   }
   return nodes;
@@ -1657,7 +1669,7 @@ async function recipeTapSearch(ctx, options) {
   }
   ctx.invalidateDumpCache?.();
   await clickUiPick(ctx, entry);
-  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 800);
+  await recipeSettleDelay(ctx, options?.payload, options?.settleMs ?? 500);
   const after = await ctx.dumpUi();
   input = findRole(after, ctx, "searchInput", h) ?? entry;
   return {
@@ -2117,7 +2129,7 @@ function parseAndroidCurrentApp(stdout) {
 // ../../packages/driver-rpc/src/ui-dump-cache.ts
 init_src();
 function readUiDumpCacheTtlMs() {
-  return uiDumpCacheTtlMsFromEnv(2e3);
+  return uiDumpCacheTtlMsFromEnv(4e3);
 }
 var UiDumpCache = class {
   constructor(ttlMs = readUiDumpCacheTtlMs()) {
@@ -5577,7 +5589,7 @@ function customShellSuccess(command, value) {
     data: { driver: "android", mode: "real", command: "custom", action: "shell", value }
   };
 }
-var HIERARCHY_CACHE_MS = Number(process.env.ADA_ANDROID_HIERARCHY_CACHE_MS ?? 2e3);
+var HIERARCHY_CACHE_MS = Number(process.env.ADA_ANDROID_HIERARCHY_CACHE_MS ?? 4e3);
 function ensureElementCache(session) {
   if (!session.elementCache) {
     session.elementCache = new ElementIdCache();
@@ -5590,7 +5602,7 @@ function invalidateUiCaches(session) {
 }
 function hierarchyCacheTtlMs() {
   const n = HIERARCHY_CACHE_MS;
-  return Number.isFinite(n) && n > 0 ? n : 2e3;
+  return Number.isFinite(n) && n > 0 ? n : 4e3;
 }
 function ensurePoint2(v) {
   if (!v || v.length !== 2) return null;

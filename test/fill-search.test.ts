@@ -48,8 +48,8 @@ test("pickNodeByTextHints: finds input by substring", () => {
 });
 
 test("resolveFillSearchSettleMs: direct input tap uses longer default", () => {
-  assert.equal(resolveFillSearchSettleMs("direct input @ 720,393"), 800);
-  assert.equal(resolveFillSearchSettleMs("tap entry @ 100,200"), 400);
+  assert.equal(resolveFillSearchSettleMs("direct input @ 720,393"), 500);
+  assert.equal(resolveFillSearchSettleMs("tap entry @ 100,200"), 280);
   assert.equal(resolveFillSearchSettleMs("direct input @ 1,2", 1500), 1500);
 });
 

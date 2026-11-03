@@ -237,7 +237,7 @@ Cursor / JoyCode 等 MCP Host 的 **`mcp.json` 字段注解**（含可选参数�
 | `env.ADA_MCP_INSTALL_DEPS` | 同 `--install-deps=` 的 `<scope>` 集合 | **env 等价写法**；已在 `args` 写了 `--install-deps` 时不必再设 |
 | `env.ADA_MCP_SKIP_INSTALL_DEPS` | `"1"` | 跳过启动安装（优先于 install-deps） |
 | `env.ADA_MCP_ALLOW_BOOTSTRAP_ALL` | `"1"` | 允许启动时装 `all`；默认会把 `all` 降为 `playwright` 以优先握手 |
-| `env.ADA_MCP_SERVER_VERSION` | 合法 semver，如 `0.1.89` | 仅覆盖内层 mcp-server 版本；launcher 仍跟 latest 时慎用 |
+| `env.ADA_MCP_SERVER_VERSION` | 合法 semver，如 `0.1.90` | 仅覆盖内层 mcp-server 版本；launcher 仍跟 latest 时慎用 |
 | `env.ADA_MCP_SLOW_START` | `"1"` | 关闭默认快速握手，完整 registry 测速 / latest 查询 |
 | `env.ADA_MCP_LOG_LEVEL` | `info` / `error` 等 | 日志详细度；静默可用 `ADA_MCP_QUIET=1` |
 
@@ -261,7 +261,7 @@ Cursor / JoyCode 等 MCP Host 的 **`mcp.json` 字段注解**（含可选参数�
 > 注意：
 > - `pnpm dlx --registry URL ...` **无效**；要用镜像时设 `ADA_MCP_REGISTRY`（或本机 npmrc）。
 > - `@latest` 以 **当前 registry 上的 latest** 为准；镜像落后时请改 `https://registry.npmjs.org/`。
-> - 需要可复现构建时改为钉版本，例如 `"@ada-mcp/launcher@0.1.89"`。
+> - 需要可复现构建时改为钉版本，例如 `"@ada-mcp/launcher@0.1.90"`。
 > - `--install-deps` 与 `ADA_MCP_INSTALL_DEPS` 只保留一处，避免互相覆盖难排查。
 > - 未写 `HIDE_ADVANCED` / `DESC_MODE` / `HEADLESS` 时，运行时按 **`0` / `advanced` / `false`** 处理。
 

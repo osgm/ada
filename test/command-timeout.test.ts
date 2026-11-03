@@ -25,7 +25,7 @@ test("resolveCommandTimeoutMs: payload, env, default", () => {
 test("resolveLocatorTimeoutMs: caps and payload.timeoutMs", () => {
   assert.equal(resolveLocatorTimeoutMs({ locatorTimeoutMs: 2000 }), 2000);
   assert.equal(resolveLocatorTimeoutMs({ timeoutMs: 12_000 }), 8000);
-  assert.equal(resolveLocatorTimeoutMs({}), 4000);
+  assert.equal(resolveLocatorTimeoutMs({}), 2500);
 });
 
 test("resolveSubOperationTimeoutMs", () => {

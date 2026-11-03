@@ -40,7 +40,7 @@ export function resolveLocatorTimeoutMs(
   options?: { defaultMs?: number; maxMs?: number }
 ): number {
   const p = payload ?? {};
-  const defaultMs = options?.defaultMs ?? 4_000;
+  const defaultMs = options?.defaultMs ?? 2_500;
   const maxMs = options?.maxMs ?? 8_000;
   const explicit =
     typeof p.locatorTimeoutMs === "number"

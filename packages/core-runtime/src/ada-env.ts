@@ -43,7 +43,7 @@ export function mcpVerboseResultFromEnv(): boolean {
 }
 
 /** UI dump cache TTL — prefer `ADA_UI_DUMP_CACHE_MS`, alias `ADA_ANDROID_HIERARCHY_CACHE_MS`. */
-export function uiDumpCacheTtlMsFromEnv(defaultMs = 2000): number {
+export function uiDumpCacheTtlMsFromEnv(defaultMs = 4000): number {
   const raw = firstEnv("ADA_UI_DUMP_CACHE_MS", "ADA_ANDROID_HIERARCHY_CACHE_MS") ?? String(defaultMs);
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : defaultMs;

@@ -4,8 +4,8 @@ import { depsLogLine } from "./log-locale.js";
 
 const DEFAULT_PLAYWRIGHT_HOST = "https://cdn.playwright.dev";
 const CHINA_PLAYWRIGHT_HOST = "https://cdn.npmmirror.com/binaries/playwright";
-/** 测速结果默认 5 分钟过期（可用 ADA_MCP_REGISTRY_PROBE_TTL_MS / ADA_DEPS_MIRROR_PROBE_TTL_MS 覆盖） */
-const DEFAULT_MIRROR_PROBE_TTL_MS = 5 * 60 * 1000;
+/** 测速结果默认 1 小时过期（可用 ADA_MCP_REGISTRY_PROBE_TTL_MS / ADA_DEPS_MIRROR_PROBE_TTL_MS 覆盖） */
+const DEFAULT_MIRROR_PROBE_TTL_MS = 60 * 60 * 1000;
 
 export type MirrorProbeSource = "measured" | "heuristic" | "explicit" | "launcher" | "config";
 

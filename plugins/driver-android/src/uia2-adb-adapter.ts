@@ -61,7 +61,7 @@ function customShellSuccess(command: CommandEnvelope, value: string): CommandRes
   };
 }
 
-const HIERARCHY_CACHE_MS = Number(process.env.ADA_ANDROID_HIERARCHY_CACHE_MS ?? 2000);
+const HIERARCHY_CACHE_MS = Number(process.env.ADA_ANDROID_HIERARCHY_CACHE_MS ?? 4000);
 
 function ensureElementCache(session: AndroidAdapterSession): ElementIdCache {
   if (!session.elementCache) {
@@ -77,7 +77,7 @@ function invalidateUiCaches(session: AndroidAdapterSession): void {
 
 function hierarchyCacheTtlMs(): number {
   const n = HIERARCHY_CACHE_MS;
-  return Number.isFinite(n) && n > 0 ? n : 2000;
+  return Number.isFinite(n) && n > 0 ? n : 4000;
 }
 
 function ensurePoint(v?: [number, number]): [number, number] | null {

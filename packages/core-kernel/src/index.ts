@@ -2,6 +2,7 @@ import type { CommandEnvelope, CommandResult, WebEngine } from "@ada/contracts";
 import {
   buildKernelSessionKey,
   CommandTimeoutError,
+  isSessionReadOnlyCommand,
   isTransientMobileErrorCode,
   MOBILE_TRANSIENT_ERROR_CODES,
   parseKernelSessionKey,
@@ -11,6 +12,7 @@ import {
 } from "@ada/driver-rpc";
 import { PluginHost } from "@ada/plugin-host";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
+import { SessionGate } from "./session-gate.js";
 
 export interface TaskExecutorOptions {
   maxAttempts?: number;
@@ -203,8 +205,11 @@ export class TaskExecutor {
 
   private readonly resultAssembler = new ResultAssembler();
   private readonly featureNegotiator = new FeatureNegotiator();
-  /** 同一驱动会话串行：避免 MCP 并发工具调用与 inbound 交错导致串单。 */
-  private readonly sessionTails = new Map<string, Promise<unknown>>();
+  /**
+   * 同 session：只读可并行，写操作互斥（避免串单）。
+   * 设 ADA_SESSION_SERIALIZE_ALL=1 时退回全串行。
+   */
+  private readonly sessionGates = new Map<string, SessionGate>();
 
   constructor(
     private readonly pluginHost: PluginHost,
@@ -219,6 +224,20 @@ export class TaskExecutor {
 
   private sessionQueueKey(command: CommandEnvelope): string {
     return buildKernelSessionKey(command.platform, command.sessionId, command.payload);
+  }
+
+  private forceSerializeAll(): boolean {
+    const v = process.env.ADA_SESSION_SERIALIZE_ALL?.trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes";
+  }
+
+  private gateFor(key: string): SessionGate {
+    let gate = this.sessionGates.get(key);
+    if (!gate) {
+      gate = new SessionGate();
+      this.sessionGates.set(key, gate);
+    }
+    return gate;
   }
 
   private shouldRetryCommand(result: CommandResult, attempt: number, platform: CommandEnvelope["platform"]): boolean {
@@ -271,27 +290,12 @@ export class TaskExecutor {
 
   async execute(command: CommandEnvelope): Promise<CommandResult> {
     const key = this.sessionQueueKey(command);
-    const previous = this.sessionTails.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.then(
-      () => held,
-      () => held
-    );
-    this.sessionTails.set(key, tail);
-    await previous.then(
-      () => undefined,
-      () => undefined
-    );
+    const readOnly = !this.forceSerializeAll() && isSessionReadOnlyCommand(command);
+    const release = await this.gateFor(key).acquire(readOnly);
     try {
       return await this.executeExclusive(command);
     } finally {
       release();
-      if (this.sessionTails.get(key) === tail) {
-        this.sessionTails.delete(key);
-      }
     }
   }
 

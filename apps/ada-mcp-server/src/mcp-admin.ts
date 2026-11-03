@@ -2,6 +2,7 @@ import { resolveIosDeviceUdid, stopAllIosIproxyForwards, stopIosIproxyForUdid } 
 import type { AdaPlatform } from "./mcp-normalize.js";
 import { clearActionLedger, clearAllActionLedgers } from "./mcp-action-ledger.js";
 import { invalidateMobilePageSourceCache } from "./mcp-mobile-dump-cache.js";
+import { clearLocatorHintCache } from "./mcp-locator-cache.js";
 import { clearMobileSessionProbeCache } from "./mcp-mobile-session-liveness.js";
 import { clearAllWebSessionTracks, clearWebSessionTrack } from "./mcp-session-liveness.js";
 import { asRecord } from "./mcp-utils.js";
@@ -65,10 +66,12 @@ export async function handleCloseSession(
   if (closed && platform === "web") {
     clearWebSessionTrack(sessionId);
     clearActionLedger(sessionId);
+    clearLocatorHintCache(sessionId);
   }
   if (closed && platform !== "web") {
     invalidateMobilePageSourceCache(platform, sessionId);
     clearMobileSessionProbeCache(platform, sessionId);
+    clearLocatorHintCache(sessionId);
   }
   if (closed && platform === "ios") {
     let udid = resolveIosUdidFromPayload(payload);
@@ -93,6 +96,7 @@ export async function handleCloseAllSessions(
   clearAllActionLedgers();
   invalidateMobilePageSourceCache();
   clearMobileSessionProbeCache();
+  clearLocatorHintCache();
   const iproxyStopped = stopAllIosIproxyForwards();
   return deps.mcpTextResult({ status: "ok", closed, iproxyStopped });
 }

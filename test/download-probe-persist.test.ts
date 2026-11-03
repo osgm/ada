@@ -38,10 +38,10 @@ try {
     "https://cdn.playwright.dev"
   );
 
-  assert.ok(mirrorProbeTtlMs() === 5 * 60 * 1000);
+  assert.ok(mirrorProbeTtlMs() === 60 * 60 * 1000);
 
   const freshIso = new Date().toISOString();
-  const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const staleIso = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
   assert.equal(isMirrorProbeFresh(freshIso), true);
   assert.equal(isMirrorProbeFresh(staleIso), false);
   assert.equal(isMirrorProbeFresh(undefined), false);

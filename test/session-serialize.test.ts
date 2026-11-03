@@ -5,7 +5,18 @@ import { TaskExecutor } from "@ada/core-kernel";
 import type { PluginHost } from "@ada/plugin-host";
 import type { DriverPlugin, DriverSession } from "@ada/plugin-sdk";
 
-test("TaskExecutor serializes concurrent commands on the same session", async () => {
+function makeHost(plugin: DriverPlugin): PluginHost {
+  return {
+    resolve() {
+      return plugin;
+    },
+    async ensureInitialized() {
+      return undefined;
+    }
+  } as unknown as PluginHost;
+}
+
+test("TaskExecutor serializes concurrent writes on the same session", async () => {
   const order: string[] = [];
   let active = 0;
   let maxActive = 0;
@@ -15,7 +26,7 @@ test("TaskExecutor serializes concurrent commands on the same session", async ()
     id: "test-web",
     version: "0.0.0",
     platforms: ["web"],
-    capabilities: ["wait"],
+    capabilities: ["click"],
     engine: "playwright"
   };
   const plugin: DriverPlugin = {
@@ -34,21 +45,12 @@ test("TaskExecutor serializes concurrent commands on the same session", async ()
     }
   };
 
-  const host = {
-    resolve() {
-      return plugin;
-    },
-    async ensureInitialized() {
-      return undefined;
-    }
-  } as unknown as PluginHost;
-
-  const executor = new TaskExecutor(host, { maxAttempts: 1 });
+  const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
   const base: Omit<CommandEnvelope, "requestId"> = {
     sessionId: "shared",
     platform: "web",
-    command: "wait",
-    payload: { ms: 1 }
+    command: "click",
+    payload: { locator: { text: "ok" } }
   };
 
   const results = await Promise.all([
@@ -64,5 +66,66 @@ test("TaskExecutor serializes concurrent commands on the same session", async ()
     assert.match(order[i]!, /^start:/);
     assert.match(order[i + 1]!, /^end:/);
     assert.equal(order[i]!.slice("start:".length), order[i + 1]!.slice("end:".length));
+  }
+});
+
+test("TaskExecutor allows concurrent read-only commands on the same session", async () => {
+  let active = 0;
+  let maxActive = 0;
+
+  const session: DriverSession = { id: "drv-2", platform: "web" };
+  const manifest: PluginManifest = {
+    id: "test-web-ro",
+    version: "0.0.0",
+    platforms: ["web"],
+    capabilities: ["wait", "screenshot"],
+    engine: "playwright"
+  };
+  const plugin: DriverPlugin = {
+    manifest,
+    async createSession() {
+      return session;
+    },
+    async execute(_session, command) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      active -= 1;
+      return { requestId: command.requestId, success: true, data: {} } satisfies CommandResult;
+    }
+  };
+
+  const prev = process.env.ADA_SESSION_SERIALIZE_ALL;
+  delete process.env.ADA_SESSION_SERIALIZE_ALL;
+  try {
+    const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
+    const results = await Promise.all([
+      executor.execute({
+        requestId: "r1",
+        sessionId: "shared-ro",
+        platform: "web",
+        command: "wait",
+        payload: { ms: 1 }
+      }),
+      executor.execute({
+        requestId: "r2",
+        sessionId: "shared-ro",
+        platform: "web",
+        command: "screenshot",
+        payload: {}
+      }),
+      executor.execute({
+        requestId: "r3",
+        sessionId: "shared-ro",
+        platform: "web",
+        command: "wait",
+        payload: { ms: 1 }
+      })
+    ]);
+    assert.ok(results.every((item) => item.success));
+    assert.ok(maxActive >= 2, `expected parallel reads, maxActive=${maxActive}`);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_SESSION_SERIALIZE_ALL;
+    else process.env.ADA_SESSION_SERIALIZE_ALL = prev;
   }
 });

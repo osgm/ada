@@ -1,5 +1,6 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { runCommand } from "./executor.js";
+import { applyLocatorWarmHint, rememberLocatorSuccess } from "./mcp-locator-cache.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 
 export { ensureWebRuntimeReady } from "./mcp-runtime-preflight.js";
@@ -90,8 +91,10 @@ export async function runCommandWithRetry(
             ...command,
             requestId: `${command.requestId}-r${attempt}`
           };
-    last = await executeWithTimeout(attemptCommand, options.timeoutMs);
+    const warmed = applyLocatorWarmHint(attemptCommand);
+    last = await executeWithTimeout(warmed, options.timeoutMs);
     if (last.success) {
+      rememberLocatorSuccess(warmed, last);
       return { result: last, attempts: attempt };
     }
     if (attempt < maxAttempts && !isTransientCommandFailure(last)) {

@@ -31,7 +31,7 @@
 
 | Canonical | 说明 |
 |-----------|------|
-| `ADA_MCP_REGISTRY_PROBE_TTL_MS` / `ADA_DEPS_MIRROR_PROBE_TTL_MS` | registry / Playwright CDN 测速结果 TTL，默认 **5 分钟**（300000） |
+| `ADA_MCP_REGISTRY_PROBE_TTL_MS` / `ADA_DEPS_MIRROR_PROBE_TTL_MS` | registry / Playwright CDN 测速结果 TTL，默认 **1 小时**（3600000） |
 | `ADA_MCP_FORCE_REGISTRY_PROBE` | `1` 强制重测 npm registry |
 | `ADA_MCP_FORCE_PLAYWRIGHT_PROBE` | `1` 强制重测 Playwright CDN（忽略启发式/缓存） |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | 显式钉死 CDN 时跳过 Playwright 测速 |
@@ -41,10 +41,16 @@
 
 | Canonical | 别名 | 说明 |
 |-----------|------|------|
-| `ADA_UI_DUMP_CACHE_MS` | `ADA_ANDROID_HIERARCHY_CACHE_MS` | 移动 UI dump 缓存 TTL（默认 2000） |
+| `ADA_UI_DUMP_CACHE_MS` | `ADA_ANDROID_HIERARCHY_CACHE_MS` | 移动 UI dump 缓存 TTL（默认 4000） |
 | `ADA_MCP_PREFLIGHT_CACHE_MS` | — | 移动 runtime preflight 成功缓存（默认 60000） |
 | `ADA_MCP_PROBE_CACHE_MS` | — | 移动 probe 缓存（默认 45000） |
-| `ADA_WEB_PAGE_PROBE_TTL_MS` | — | Web `ensureWebPageReady` 探活缓存（默认 2000） |
+| `ADA_WEB_PAGE_PROBE_TTL_MS` | — | Web `ensureWebPageReady` 探活缓存（默认 5000） |
+| `ADA_MOBILE_SESSION_PROBE_TTL_MS` | — | 移动会话探活缓存（默认 5000；可回落到 WEB_PAGE_PROBE） |
+| `ADA_SETTLE_SMART` | — | recipe settle 智能早退（默认开；`0` 退回固定 sleep） |
+| `ADA_SESSION_SERIALIZE_ALL` | — | `1` 时同 session 全串行（关闭只读并行） |
+| `ADA_LOCATOR_HINT_TTL_MS` | — | 成功 locator 温缓存 TTL（默认 12000）；`0` 禁用 |
+| `ADA_LOCATOR_WARM_TIMEOUT_MS` | — | 温 locator 的 locatorTimeoutMs 上限（默认 1200） |
+| `ADA_WEB_EXPAND_SETTLE_MS` | — | Web expand 后固定 settle（默认 50） |
 
 ## 动作熔断（Web clickPath / Mobile tap_path）
 

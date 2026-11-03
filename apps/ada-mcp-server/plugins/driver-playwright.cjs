@@ -142,8 +142,8 @@ function parseFillSearchPayload(payload) {
 }
 
 // ../../packages/driver-rpc/src/fill-search-transition.ts
-var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 800;
-var FILL_SEARCH_DEFAULT_SETTLE_MS = 400;
+var FILL_SEARCH_DIRECT_INPUT_SETTLE_MS = 500;
+var FILL_SEARCH_DEFAULT_SETTLE_MS = 280;
 function isDirectInputTapDetail(detail) {
   return typeof detail === "string" && detail.includes("direct input");
 }
@@ -449,7 +449,7 @@ function truncateViewTreeValue(value, maxItems) {
   }
   return { value: out, truncated };
 }
-var DEFAULT_WEB_EXPAND_SETTLE_MS = 100;
+var DEFAULT_WEB_EXPAND_SETTLE_MS = 50;
 function resolveWebExpandSettleMs(payload) {
   const p = payload ?? {};
   if (typeof p.expandSettleMs === "number" && p.expandSettleMs >= 0) {

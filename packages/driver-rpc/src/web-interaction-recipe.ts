@@ -410,7 +410,7 @@ export function truncateViewTreeValue(
 }
 
 /** Fixed pause after expanding a menu/popup segment (ms); override via payload.expandSettleMs or ADA_WEB_EXPAND_SETTLE_MS */
-export const DEFAULT_WEB_EXPAND_SETTLE_MS = 100;
+export const DEFAULT_WEB_EXPAND_SETTLE_MS = 50;
 
 export function resolveWebExpandSettleMs(payload?: Record<string, unknown>): number {
   const p = payload ?? {};

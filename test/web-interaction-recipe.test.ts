@@ -102,8 +102,8 @@ describe("web-interaction-recipe helpers", () => {
     assert.equal(resolveClickPathWaitNavigation({ requireNavigation: true }, null), true);
   });
 
-  it("resolveWebExpandSettleMs defaults to 100ms", () => {
-    assert.equal(resolveWebExpandSettleMs(), 100);
+  it("resolveWebExpandSettleMs defaults to 50ms", () => {
+    assert.equal(resolveWebExpandSettleMs(), 50);
     assert.equal(resolveWebExpandSettleMs({ expandSettleMs: 0 }), 0);
     assert.equal(resolveWebExpandSettleMs({ expandSettleMs: 50 }), 50);
   });

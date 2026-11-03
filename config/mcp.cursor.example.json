@@ -11,7 +11,12 @@
       "env": {
         "ADA_MCP_SKIP_INSTALL_DEPS": "1",
         "ADA_PLUGIN_DIR": "D:/WORKSPACE/PLAN/ada/apps/ada-mcp-server/plugins",
-        "ADA_MCP_DESC_MODE": "compact"
+        "ADA_MCP_DESC_MODE": "compact",
+        "ADA_UI_DUMP_CACHE_MS": "4000",
+        "ADA_WEB_PAGE_PROBE_TTL_MS": "5000",
+        "ADA_MOBILE_SESSION_PROBE_TTL_MS": "5000",
+        "ADA_MCP_REGISTRY_PROBE_TTL_MS": "3600000",
+        "ADA_SETTLE_SMART": "1"
       }
     }
   }

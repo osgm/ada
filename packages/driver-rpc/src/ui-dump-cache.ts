@@ -3,7 +3,7 @@ import { uiDumpCacheTtlMsFromEnv } from "@ada/core-runtime";
 /** UI hierarchy / layout dump 缓存（recipe 与 adapter 共用） */
 
 export function readUiDumpCacheTtlMs(): number {
-  return uiDumpCacheTtlMsFromEnv(2000);
+  return uiDumpCacheTtlMsFromEnv(4000);
 }
 
 export function shouldInvalidateDumpOnAction(): boolean {
