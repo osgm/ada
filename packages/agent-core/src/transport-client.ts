@@ -3,6 +3,12 @@ import { StreamTransport } from "@ada/transport-stream";
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import type { AgentConfig, SecretRecord, TransportMode } from "./types.js";
 import { log } from "./logger.js";
+import {
+  registerAndSyncControlPlane,
+  startControlPlaneHeartbeat,
+  stopControlPlaneHeartbeat
+} from "./control-plane-sync.js";
+import { createInboundHandler } from "./inbound-executor.js";
 
 function joinUrl(base: string, suffix: string): string {
   const normalizedBase = base.replace(/\/$/, "");
@@ -10,6 +16,21 @@ function joinUrl(base: string, suffix: string): string {
     return `${normalizedBase}/${suffix}`;
   }
   return `${normalizedBase}${suffix}`;
+}
+
+async function registerAgentOnControlPlane(
+  transport: Pick<ITransport, "sendRequest">,
+  secret: SecretRecord
+): Promise<void> {
+  try {
+    await registerAndSyncControlPlane(transport, secret);
+    startControlPlaneHeartbeat(transport);
+  } catch (error) {
+    log("warn", {
+      event: "control_plane.register.failed",
+      details: { reason: error instanceof Error ? error.message : String(error) }
+    });
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -49,6 +70,8 @@ function toCommandResult(command: CommandEnvelope, response: TransportResponse):
 export interface RuntimeTransport {
   execute(command: CommandEnvelope): Promise<CommandResult>;
   close(): Promise<void>;
+  /** 长连接可以接收控制端下发的指令；HTTP 降级只能主动上报。 */
+  acceptsInbound: boolean;
 }
 
 function remoteToolAction(command: CommandEnvelope): string {
@@ -92,7 +115,11 @@ function remoteToolPayload(command: CommandEnvelope): Record<string, unknown> {
 }
 
 class TransportExecutor implements RuntimeTransport {
-  constructor(private readonly transport: ITransport, private readonly mode: TransportMode) {}
+  constructor(
+    private readonly transport: ITransport,
+    private readonly mode: TransportMode,
+    readonly acceptsInbound: boolean
+  ) {}
 
   async execute(command: CommandEnvelope): Promise<CommandResult> {
     const action = remoteToolAction(command);
@@ -119,6 +146,7 @@ class TransportExecutor implements RuntimeTransport {
   }
 
   async close(): Promise<void> {
+    stopControlPlaneHeartbeat();
     await this.transport.close();
   }
 }
@@ -128,7 +156,8 @@ async function tryCreateHttpTransport(config: AgentConfig, secret: SecretRecord)
     baseUrl: secret.serverUrl,
     requestPath: config.transport.requestPath,
     healthPath: config.transport.healthPath,
-    defaultTimeoutMs: config.transport.requestTimeoutMs
+    defaultTimeoutMs: config.transport.requestTimeoutMs,
+    apiToken: secret.token
   });
   await transport.connect();
   const health = await transport.health();
@@ -137,7 +166,8 @@ async function tryCreateHttpTransport(config: AgentConfig, secret: SecretRecord)
     throw new Error(`http transport unavailable: ${health.detail}`);
   }
   log("info", { event: "transport.selected", details: { mode: "http", detail: health.detail } });
-  return new TransportExecutor(transport, "http");
+  await registerAgentOnControlPlane(transport, secret);
+  return new TransportExecutor(transport, "http", false);
 }
 
 async function tryCreateStreamTransport(config: AgentConfig, secret: SecretRecord): Promise<RuntimeTransport> {
@@ -151,7 +181,9 @@ async function tryCreateStreamTransport(config: AgentConfig, secret: SecretRecor
       : joinUrl(secret.serverUrl.replace(/^http:\/\//, "ws://"), config.transport.streamPath ?? "/ws");
   const transport = new StreamTransport({
     url: streamUrl,
-    defaultTimeoutMs: config.transport.requestTimeoutMs
+    defaultTimeoutMs: config.transport.requestTimeoutMs,
+    apiToken: secret.token,
+    onInbound: createInboundHandler()
   });
   await transport.connect();
   const health = await transport.health();
@@ -160,7 +192,8 @@ async function tryCreateStreamTransport(config: AgentConfig, secret: SecretRecor
     throw new Error(`stream transport unavailable: ${health.detail}`);
   }
   log("info", { event: "transport.selected", details: { mode: "stream", detail: health.detail, streamUrl } });
-  return new TransportExecutor(transport as unknown as ITransport, "stream");
+  await registerAgentOnControlPlane(transport as unknown as ITransport, secret);
+  return new TransportExecutor(transport as unknown as ITransport, "stream", true);
 }
 
 export async function createRuntimeTransport(

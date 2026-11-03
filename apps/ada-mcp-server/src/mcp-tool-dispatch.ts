@@ -157,13 +157,17 @@ export async function dispatchAdaMcpTool(
       return handleBatchActions(args, {
         normalizePlatform: deps.normalizePlatform,
         mobilePreflight: deps.mobilePreflight,
+        ensureWebRuntimeReady: deps.ensureWebRuntimeReady,
+        ensureSessionActive: deps.ensureSessionActive,
+        ensureWebPageReady: deps.ensureWebPageReadyForTool,
+        ensureMobileSessionReady: deps.ensureMobileSessionReadyForTool,
         withTiming: deps.withTiming,
         asRecord: deps.asRecord,
         normalizeCommand: deps.normalizeCommand,
         ensureRiskAllowed: deps.ensureRiskAllowed,
         toCommandEnvelope: deps.toCommandEnvelope,
         allowMock: deps.allowMock,
-        executeWithTimeout: deps.executeWithTimeout,
+        runCommandWithRetry: deps.runCommandWithRetry,
         assertRealResult: deps.assertRealResult,
         mcpTextResult: deps.mcpTextResult,
         buildRecoveryFields: deps.buildRecoveryFields

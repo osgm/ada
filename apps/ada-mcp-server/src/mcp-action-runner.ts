@@ -14,24 +14,59 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** 不可恢复/已等满的错误不再重试，避免空转拖慢批处理。 */
+export function isTransientCommandFailure(result: CommandResult): boolean {
+  const code = String(result.errorCode ?? "").toUpperCase();
+  const message = String(result.errorMessage ?? "").toLowerCase();
+  if (!code && !message) return true;
+  if (
+    code.includes("TIMEOUT") ||
+    code.includes("TIMED_OUT") ||
+    code === "MCP_ACTION_TIMEOUT" ||
+    code === "INBOUND_BUDGET_EXHAUSTED"
+  ) {
+    return false;
+  }
+  if (
+    code.includes("RISK") ||
+    code.includes("DENIED") ||
+    code.includes("VALIDATION") ||
+    code.includes("NOT_ALLOWED") ||
+    code.includes("UNSUPPORTED") ||
+    code.includes("NOT_READY")
+  ) {
+    return false;
+  }
+  if (/risk.?denied|not allowed|unsupported command|validation/.test(message)) {
+    return false;
+  }
+  return true;
+}
+
 export async function executeWithTimeout(command: CommandEnvelope, timeoutMs?: number): Promise<CommandResult> {
   const effectiveTimeout = typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 0;
   if (effectiveTimeout <= 0) {
     return runCommand(command);
   }
-  return Promise.race([
-    runCommand(command),
-    new Promise<CommandResult>((resolve) => {
-      setTimeout(() => {
-        resolve({
-          requestId: command.requestId,
-          success: false,
-          errorCode: "MCP_ACTION_TIMEOUT",
-          errorMessage: `action timeout after ${effectiveTimeout}ms`
-        });
-      }, effectiveTimeout);
-    })
-  ]);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      runCommand(command),
+      new Promise<CommandResult>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            requestId: command.requestId,
+            success: false,
+            errorCode: "MCP_ACTION_TIMEOUT",
+            errorMessage: `action timeout after ${effectiveTimeout}ms`
+          });
+        }, effectiveTimeout);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function runCommandWithRetry(
@@ -57,6 +92,9 @@ export async function runCommandWithRetry(
           };
     last = await executeWithTimeout(attemptCommand, options.timeoutMs);
     if (last.success) {
+      return { result: last, attempts: attempt };
+    }
+    if (attempt < maxAttempts && !isTransientCommandFailure(last)) {
       return { result: last, attempts: attempt };
     }
     if (attempt < maxAttempts && delayMs > 0) {

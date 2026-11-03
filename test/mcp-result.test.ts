@@ -135,7 +135,8 @@ describe("mcp-result", () => {
     assert.equal(parsed.sessionId, "sess-1");
     assert.equal(parsed.errorKind, "timeout");
     assert.ok(Array.isArray(parsed.recoveryPlan) && parsed.recoveryPlan.length > 0);
-    assert.equal(parsed.recoveryHint, undefined);
+    assert.ok(typeof parsed.recoveryHint === "string" && parsed.recoveryHint.includes("Recovery"));
+    assert.ok(parsed.recoveryPlan.length <= 2);
     assert.equal(parsed.ok, false);
   });
 

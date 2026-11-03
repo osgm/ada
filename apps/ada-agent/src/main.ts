@@ -158,7 +158,8 @@ async function main(): Promise<void> {
     if (action === "patch-remote") {
       const serverUrl = readArg(process.argv, "server-url") ?? "";
       const token = readArg(process.argv, "token");
-      await applyRemoteCredentials(serverUrl, token);
+      const deviceName = readArg(process.argv, "device-name");
+      await applyRemoteCredentials(serverUrl, token, deviceName);
       console.log(JSON.stringify({ ok: true, event: "remote.patched" }, null, 2));
       return;
     }

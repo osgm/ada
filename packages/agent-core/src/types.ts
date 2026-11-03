@@ -118,6 +118,8 @@ export interface BootstrapDependencyFields {
 
 export interface BootstrapInput {
   serverUrl: string;
+  /** 控制端创建设备时的设备名称（与 Agent 本地标识对齐） */
+  deviceName?: string;
   tenant: string;
   environment: string;
   authType: "token" | "device_code";
@@ -130,6 +132,8 @@ export interface BootstrapInput {
 
 export interface SecretRecord {
   serverUrl: string;
+  /** 控制端注册的设备名称 */
+  deviceName?: string;
   tenant: string;
   environment: string;
   authType: "token" | "device_code";

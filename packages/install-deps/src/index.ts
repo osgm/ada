@@ -29,6 +29,14 @@ export {
   type InstallSummary,
   type EnsureInstallOptions
 } from "./dependency-installer.js";
+export {
+  assertPluginDependenciesReady,
+  onPluginStopped,
+  resolvePluginInstallScope,
+  shouldAutoRepairPluginDeps,
+  type AssertPluginDepsOptions,
+  type PluginDepsGateResult
+} from "./plugin-deps-gate.js";
 export { readEffectiveAgentConfigYaml } from "./agent-effective-config.js";
 export { DEFAULT_INSTALL_DEPS_CONFIG } from "./default-install-deps-config.js";
 export { loadInstallDepsConfig } from "./load-install-deps-config.js";
@@ -100,7 +108,13 @@ export { detectBestRegistry, registryCandidateList } from "./registry-probe.js";
 export {
   resolveDefaultPlaywrightDownloadHost,
   shouldProbeNpmRegistry,
-  shouldProbePlaywrightCdn
+  shouldProbePlaywrightCdn,
+  isMirrorProbeFresh,
+  mirrorProbeTtlMs,
+  isExplicitPlaywrightHostPinned,
+  markNpmRegistryMeasured,
+  markPlaywrightHostMeasured,
+  type MirrorProbeSource
 } from "./download-probe-persist.js";
 export {
   InstallDriverTracker,

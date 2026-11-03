@@ -385,11 +385,12 @@ fn apply_patch_remote(
     agent_path: Option<String>,
     server_url: String,
     api_key: Option<String>,
+    device_name: Option<String>,
 ) -> Result<String, String> {
     let resolved = resolve_agent_path(agent_path)?;
     let url = server_url.trim();
     if url.is_empty() {
-        return Err("远程管理平台地址不能为空".to_string());
+        return Err("控制端注册地址不能为空".to_string());
     }
     let url_arg = format!("--server-url={}", url);
     let mut parts = vec![
@@ -397,6 +398,12 @@ fn apply_patch_remote(
         "--action=patch-remote".to_string(),
         url_arg,
     ];
+    if let Some(ref dn) = device_name {
+        let dn = dn.trim();
+        if !dn.is_empty() {
+            parts.push(format!("--device-name={}", dn));
+        }
+    }
     if let Some(ref t) = api_key {
         let tt = t.trim();
         if !tt.is_empty() {

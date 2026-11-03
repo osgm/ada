@@ -1,5 +1,6 @@
 import {
   DEFAULT_NPM_REGISTRY_CANDIDATES,
+  formatDownloadProbeLine,
   pickBestDownloadProbe,
   probeDownloadSample
 } from "@ada/download-probe";
@@ -62,15 +63,25 @@ function registryTarballUrl(registry: string, packageName: string, version: stri
 
 export async function detectBestRegistry(
   candidates = registryCandidateList(),
-  samplePackage = "playwright"
-): Promise<{ best: string }> {
+  samplePackage = "playwright",
+  onLogLine?: (line: string) => void
+): Promise<{ best: string; probeResults: Array<{ candidate: string; speedKBps: number | null }> }> {
   const pkg = samplePackage.trim() || "playwright";
-  const probeResults: Array<{ candidate: string; probe: Awaited<ReturnType<typeof probeDownloadSample>> }> = [];
-  for (const candidate of candidates) {
-    const probe = await probeDownloadSample(registryTarballUrl(candidate, pkg, PINNED_PLAYWRIGHT_VERSION));
-    probeResults.push({ candidate, probe });
-  }
+  onLogLine?.(`[deps] npm registry probe parallel candidates=${candidates.length}`);
+  const probeResults = await Promise.all(
+    candidates.map(async (candidate) => {
+      const probe = await probeDownloadSample(registryTarballUrl(candidate, pkg, PINNED_PLAYWRIGHT_VERSION));
+      onLogLine?.(formatDownloadProbeLine("[deps]", candidate, probe));
+      return { candidate, probe };
+    })
+  );
   const bestRow = pickBestDownloadProbe(probeResults, (c) => candidates.indexOf(c));
   const best = bestRow?.candidate ?? candidates[0] ?? DEFAULT_NPM_REGISTRY_CANDIDATES[0];
-  return { best: normalizeRegistryUrl(best) };
+  return {
+    best: normalizeRegistryUrl(best),
+    probeResults: probeResults.map(({ candidate, probe }) => ({
+      candidate,
+      speedKBps: probe?.speedKBps ?? null
+    }))
+  };
 }

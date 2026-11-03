@@ -23,6 +23,7 @@ export async function runSetupCli(): Promise<{ payload: BootstrapInput }> {
     const serverUrl = ensureServerUrl(
       (await rl.question("Server URL (e.g. https://ada-control.example.com): ")).trim()
     );
+    const deviceName = (await rl.question("Device name (控制端设备名称): ")).trim();
     const tenant = (await rl.question("Tenant [default]: ")).trim() || "default";
     const environment = (await rl.question("Environment [prod]: ")).trim() || "prod";
     const authTypeInput = (await rl.question("Auth type [token/device_code] (default token): ")).trim();
@@ -38,6 +39,7 @@ export async function runSetupCli(): Promise<{ payload: BootstrapInput }> {
     return {
       payload: {
         serverUrl,
+        deviceName: deviceName || undefined,
         tenant,
         environment,
         authType,

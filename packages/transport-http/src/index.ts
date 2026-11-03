@@ -30,6 +30,8 @@ export interface HttpTransportOptions {
   requestPath?: string;
   healthPath?: string;
   defaultTimeoutMs?: number;
+  /** 控制端颁发的 Agent API Token */
+  apiToken?: string;
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -45,17 +47,30 @@ function withTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: ()
   };
 }
 
+function authHeaders(apiToken?: string): Record<string, string> {
+  const token = apiToken?.trim();
+  if (!token) {
+    return {};
+  }
+  return {
+    Authorization: `Bearer ${token}`,
+    "X-Api-Key": token
+  };
+}
+
 export class HttpTransport implements ITransport {
   private readonly baseUrl: string;
   private readonly requestPath: string;
   private readonly healthPath: string;
   private readonly defaultTimeoutMs: number;
+  private readonly apiToken?: string;
 
   constructor(options: HttpTransportOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl);
     this.requestPath = options.requestPath ?? "/api/v1/execute";
     this.healthPath = options.healthPath ?? "/health";
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 8000;
+    this.apiToken = options.apiToken;
   }
 
   async connect(): Promise<void> {
@@ -72,7 +87,7 @@ export class HttpTransport implements ITransport {
     try {
       const res = await fetch(`${this.baseUrl}${this.requestPath}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders(this.apiToken) },
         body: JSON.stringify(request),
         signal: timeout.signal
       });

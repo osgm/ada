@@ -7,6 +7,8 @@
 | [`ADA-架构设计方案.md`](ADA-架构设计方案.md) | 架构 / 研发负责人 | 分层边界、模块职责、演进路线 |
 | [`ADA-部署手册.md`](ADA-部署手册.md) | 运维 / 实施 | 安装、启动、依赖、排障与发布验证 |
 | [`ADA-MCP-接入手册.md`](ADA-MCP-接入手册.md) | MCP 集成方 | 工具列表、Host 配置、镜像与环境变量 |
+| [`ADA-MCP-插件配置说明.md`](ADA-MCP-插件配置说明.md) | MCP Host 配置方 | `mcp.json` 全字段注解、可选参数取值范围、`ada-mcp` 示例 |
+| [`ADA-MCP-环境变量.md`](ADA-MCP-环境变量.md) | MCP / 运维 | 环境变量 canonical 与别名 |
 | [`ADA-开发手册.md`](ADA-开发手册.md) | 研发 / 测试 | 本地开发、测试门禁、驱动规范 |
 | [`ADA-语义命令对照.md`](ADA-语义命令对照.md) | 脚本 / MCP 集成 | L0 流利 API ↔ MCP 工具 ↔ 语义命令 |
 | [`ADA-GUI-操作手册.md`](ADA-GUI-操作手册.md) | 终端用户（Windows 发布包） | 四个 `.exe` 的用途与配置 |

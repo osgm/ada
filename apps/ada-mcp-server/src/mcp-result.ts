@@ -219,6 +219,12 @@ export function wrapCommandToolResult(input: {
   payload.businessCode =
     typeof data.businessCode === "string" ? data.businessCode : "COMMAND_OK";
   payload.message = typeof data.message === "string" ? data.message : "ok";
+  // One-line semantic summary for the model (avoid re-parsing nested result).
+  const url =
+    typeof sessionContext.activeUrl === "string" ? String(sessionContext.activeUrl) : undefined;
+  payload.summary = url
+    ? `${envelope.command} ok · reuse sessionId=${envelope.sessionId} · ${url}`
+    : `${envelope.command} ok · reuse sessionId=${envelope.sessionId}`;
 
   return mcpTextResult(payload);
 }

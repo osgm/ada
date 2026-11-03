@@ -4,8 +4,12 @@ import { isDeviceAutoScanEnabled, scanAndPersistDevices } from "./device-store.j
 import { loadSecret, saveSecret } from "./secrets.js";
 import { log } from "./logger.js";
 
-/** 仅更新远程管理平台地址与 API Key，其余密钥字段尽量保留 */
-export async function patchRemoteCredentials(serverUrl: string, token?: string): Promise<void> {
+/** 仅更新远程管理平台地址、设备名与 API Token，其余密钥字段尽量保留 */
+export async function patchRemoteCredentials(
+  serverUrl: string,
+  token?: string,
+  deviceName?: string
+): Promise<void> {
   const config = await loadConfig();
   const existing = await loadSecret(config.bootstrapUI.secretsProvider);
   const url = serverUrl.trim();
@@ -14,6 +18,10 @@ export async function patchRemoteCredentials(serverUrl: string, token?: string):
   }
   const secret: SecretRecord = {
     serverUrl: url,
+    deviceName:
+      deviceName !== undefined && String(deviceName).trim().length > 0
+        ? String(deviceName).trim()
+        : existing?.deviceName,
     tenant: existing?.tenant ?? "default",
     environment: existing?.environment ?? "default",
     authType: "token",
@@ -22,6 +30,13 @@ export async function patchRemoteCredentials(serverUrl: string, token?: string):
     updatedAt: new Date().toISOString()
   };
   await saveSecret(secret, config.bootstrapUI.secretsProvider);
+  const dn = secret.deviceName?.trim();
+  if (dn) {
+    await saveEffectiveConfig({
+      ...config,
+      agent: { ...config.agent, id: dn }
+    });
+  }
 }
 
 const PW_TARGET = new Set([
@@ -66,6 +81,9 @@ export function mergeBootstrapIntoConfig(base: AgentConfig, input: BootstrapInpu
 
   return {
     ...base,
+    ...(input.deviceName?.trim()
+      ? { agent: { ...base.agent, id: input.deviceName.trim() } }
+      : {}),
     transport: {
       ...base.transport,
       mode: input.transportMode,
@@ -107,6 +125,7 @@ export function mergeBootstrapIntoConfig(base: AgentConfig, input: BootstrapInpu
 export async function persistAgentSetup(config: AgentConfig, input: BootstrapInput): Promise<AgentConfig> {
   const secret: SecretRecord = {
     serverUrl: input.serverUrl,
+    deviceName: input.deviceName?.trim() || undefined,
     tenant: input.tenant,
     environment: input.environment,
     authType: input.authType,

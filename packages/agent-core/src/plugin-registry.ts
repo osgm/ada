@@ -1,5 +1,7 @@
 import { PluginHost, registerRuntimePlugins, resolvePackagePluginDir } from "@ada/plugin-host";
 import type { PluginManifest } from "@ada/contracts";
+import { assertPluginDependenciesReady, onPluginStopped } from "@ada/install-deps";
+import { log } from "./logger.js";
 
 const DEFAULT_DRIVER_MODULE_IDS = [
   "@ada/driver-playwright",
@@ -26,7 +28,25 @@ export function buildPluginHost(): PluginHost {
   if (cachedPluginHost) {
     return cachedPluginHost;
   }
-  const host = new PluginHost();
+  const host = new PluginHost({
+    depsGate: async (plugin) => {
+      const result = await assertPluginDependenciesReady({
+        pluginId: plugin.manifest.id,
+        engine: plugin.manifest.engine,
+        onLogLine: (line) => log("info", { event: "plugin.deps", details: { line } })
+      });
+      if (result.repaired) {
+        log("info", {
+          event: "plugin.deps.repaired",
+          details: { pluginId: result.pluginId, scope: result.scope, message: result.message }
+        });
+      }
+    },
+    onStopped: (pluginId) => {
+      onPluginStopped(pluginId);
+      log("info", { event: "plugin.stopped", details: { pluginId } });
+    }
+  });
   const pluginDir = resolvePackagePluginDir();
   registerRuntimePlugins(host, {
     ...(pluginDir ? { pluginDir } : {}),

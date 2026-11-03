@@ -44,14 +44,16 @@ export function getConsoleHtml(port: number): string {
     <p class="subtitle">本地 WEB 模式 · <span id="baseUrl">http://127.0.0.1:${port}</span> · </p>
 
     <section class="card">
-      <h2>远程管理平台（可选）</h2>
-      <p class="hint">写入本机密钥文件，供 Agent 连接控制面使用；仅本地保存，不会上传到浏览器服务端。</p>
-      <label class="lbl" for="remoteUrl">接入地址</label>
-      <input type="text" id="remoteUrl" placeholder="https://ada-control.example.com" autocomplete="off" />
-      <label class="lbl" for="apiKey">API Key</label>
-      <input type="password" id="apiKey" placeholder="留空则保留已保存的密钥" autocomplete="off" />
+      <h2>控制端注册</h2>
+      <p class="hint">请先在管理端创建设备并复制 Token，填写以下三项以建立安全长连接。</p>
+      <label class="lbl" for="remoteUrl">控制端注册地址</label>
+      <input type="text" id="remoteUrl" placeholder="http://localhost:48080" autocomplete="off" />
+      <label class="lbl" for="deviceName">设备名称</label>
+      <input type="text" id="deviceName" placeholder="与控制端创建设备时的名称一致" autocomplete="off" />
+      <label class="lbl" for="apiKey">认证秘钥（apiToken）</label>
+      <input type="password" id="apiKey" placeholder="控制端生成的 ada_xxx Token" autocomplete="off" />
       <div class="row">
-        <button type="button" id="btnSaveRemote">保存到本机密钥</button>
+        <button type="button" id="btnSaveRemote">保存并写入本机密钥</button>
       </div>
     </section>
 
@@ -144,6 +146,7 @@ export function getConsoleHtml(port: number): string {
   <script>
     const LS = {
       remoteUrl: "ada.console.remoteUrl",
+      deviceName: "ada.console.deviceName",
       apiKey: "ada.console.apiKey",
       mcpRemoteHost: "ada.console.mcpRemoteHost",
       mcpRemotePort: "ada.console.mcpRemotePort",
@@ -161,8 +164,10 @@ export function getConsoleHtml(port: number): string {
     function loadStore() {
       try {
         const u = localStorage.getItem(LS.remoteUrl);
+        const n = localStorage.getItem(LS.deviceName);
         const k = localStorage.getItem(LS.apiKey);
         if (u) document.getElementById("remoteUrl").value = u;
+        if (n) document.getElementById("deviceName").value = n;
         if (k) document.getElementById("apiKey").value = k;
         const mrh = localStorage.getItem(LS.mcpRemoteHost);
         const mrp = localStorage.getItem(LS.mcpRemotePort);
@@ -181,6 +186,7 @@ export function getConsoleHtml(port: number): string {
     function saveStore() {
       try {
         localStorage.setItem(LS.remoteUrl, document.getElementById("remoteUrl").value.trim());
+        localStorage.setItem(LS.deviceName, document.getElementById("deviceName").value.trim());
         localStorage.setItem(LS.apiKey, document.getElementById("apiKey").value);
         localStorage.setItem(LS.mcpRemoteHost, document.getElementById("mcpRemoteHost").value.trim());
         localStorage.setItem(LS.mcpRemotePort, document.getElementById("mcpRemotePort").value.trim());
@@ -236,9 +242,12 @@ export function getConsoleHtml(port: number): string {
     document.getElementById("btnSaveRemote").addEventListener("click", async function () {
       saveStore();
       const url = document.getElementById("remoteUrl").value.trim();
-      const key = document.getElementById("apiKey").value;
-      if (!url) { add("保存失败：请先填写接入地址"); return; }
-      const res = await post("/api/patch-remote", { serverUrl: url, apiKey: key || undefined });
+      const deviceName = document.getElementById("deviceName").value.trim();
+      const key = document.getElementById("apiKey").value.trim();
+      if (!url) { add("保存失败：请先填写控制端注册地址"); return; }
+      if (!deviceName) { add("保存失败：请先填写设备名称"); return; }
+      if (!key) { add("保存失败：请先填写认证秘钥"); return; }
+      const res = await post("/api/patch-remote", { serverUrl: url, deviceName, apiKey: key });
       add("/api/patch-remote\\n" + res.text);
     });
     document.getElementById("btnHealth").addEventListener("click", async function () {

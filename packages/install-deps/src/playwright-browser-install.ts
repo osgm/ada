@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import {
   DEFAULT_PLAYWRIGHT_HOST_CANDIDATES,
+  formatDownloadProbeLine,
   pickBestDownloadProbe,
   probeDownloadSample,
   type DownloadProbeResult
@@ -114,14 +115,20 @@ async function probePlaywrightHostDownload(host: string, browserVersion: string)
 }
 
 export async function detectBestPlaywrightDownloadHost(
-  candidates: string[]
+  candidates: string[],
+  onLogLine?: (line: string) => void
 ): Promise<{ best: string; probeResults: Array<{ candidate: string; speedKBps: number | null }> }> {
   const browserVersion = await resolveChromiumBrowserVersionForProbe();
-  const probeResults: Array<{ candidate: string; probe: DownloadProbeResult | null }> = [];
-  for (const candidate of candidates) {
-    const probe = await probePlaywrightHostDownload(candidate, browserVersion);
-    probeResults.push({ candidate, probe });
-  }
+  onLogLine?.(
+    `[deps] Playwright CDN probe parallel candidates=${candidates.length} browserVersion=${browserVersion || "(unknown)"}`
+  );
+  const probeResults = await Promise.all(
+    candidates.map(async (candidate) => {
+      const probe = await probePlaywrightHostDownload(candidate, browserVersion);
+      onLogLine?.(formatDownloadProbeLine("[deps]", candidate, probe));
+      return { candidate, probe };
+    })
+  );
   const bestRow = pickBestDownloadProbe(probeResults, (c) => candidates.indexOf(c));
   const best = bestRow?.candidate ?? candidates[0] ?? DEFAULT_PLAYWRIGHT_HOST_CANDIDATES[0];
   return {

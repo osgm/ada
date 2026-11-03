@@ -1,10 +1,13 @@
 import type { CommandEnvelope, CommandType } from "@ada/contracts";
 
-/** 对外推荐名 → 内部 canonical 命令 */
+/** 对外推荐名 / 语义动词 → 内部 canonical 命令（MCP、inbound、task 共用） */
 const COMMAND_ALIASES: Record<string, CommandType> = {
   terminateApp: "exitApp",
   fill: "type",
+  input: "type",
   tap: "click",
+  goto: "navigate",
+  open: "navigate",
   /** 系统 Home 键（勿与 phone.goto 页面跳转混淆） */
   home: "pressHome"
 };

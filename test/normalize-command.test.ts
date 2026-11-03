@@ -10,7 +10,10 @@ import {
 test("normalizeCommandName: aliases", () => {
   assert.equal(normalizeCommandName("terminateApp"), "exitApp");
   assert.equal(normalizeCommandName("fill"), "type");
+  assert.equal(normalizeCommandName("input"), "type");
   assert.equal(normalizeCommandName("tap"), "click");
+  assert.equal(normalizeCommandName("goto"), "navigate");
+  assert.equal(normalizeCommandName("open"), "navigate");
   assert.equal(normalizeCommandName("home"), "pressHome");
 });
 

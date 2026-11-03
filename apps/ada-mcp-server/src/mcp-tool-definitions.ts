@@ -19,6 +19,7 @@ import {
   webCommandField,
   webEngineField
 } from "./mcp-schemas.js";
+import { slimInputSchemaForListTools } from "./mcp-schema-slim.js";
 import {
   DEVICE_ADMIN_COMPACT,
   DEVICE_ADMIN_HINT,
@@ -35,6 +36,7 @@ import {
   formatTieredDescription,
   getToolTier,
   isAdvancedDescriptionMode,
+  isCompactDescriptionMode,
   shouldHideAdvancedTools,
   sortToolsByTier
 } from "./mcp-tool-tiers.js";
@@ -529,7 +531,7 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_batch_actions",
       description:
-        "L2 multi-step semantic batch (shared sessionId). ARGS: platform, sessionId, actions[], onFailure=stop|continue, dryRun=true (validate only).",
+        "L2 multi-step batch (shared sessionId). ARGS: platform, sessionId, actions[{command,payload,retry,retryDelayMs,timeoutMs}], onFailure=stop|continue, retryDelayMs, dryRun=true (validate only, no runtime probe).",
       inputSchema: {
         type: "object",
         properties: {
@@ -553,7 +555,11 @@ function buildAllAdaMcpToolDefinitions(): Array<{
           },
           dryRun: {
             type: "boolean",
-            description: "Validate and preview batch plan without executing commands"
+            description: "Validate and preview batch plan without executing commands or runtime probes"
+          },
+          retryDelayMs: {
+            type: "number",
+            description: "Default delay between step retries (ms). Step-level retryDelayMs overrides."
           },
           allowMock: allowMockField(),
           riskApproved: riskApprovedField(),
@@ -567,7 +573,11 @@ function buildAllAdaMcpToolDefinitions(): Array<{
                 command: batchCommandField(),
                 payload: { type: "object" },
                 timeoutMs: { type: "number" },
-                retry: { type: "number", description: "Retry count on transient failure" }
+                retry: { type: "number", description: "Retry count on transient failure" },
+                retryDelayMs: {
+                  type: "number",
+                  description: "Delay before retrying this step (ms)"
+                }
               },
               required: ["command"],
               additionalProperties: false
@@ -751,10 +761,13 @@ export function buildAdaMcpToolDefinitions(): Array<{
   if (hideAdvanced) {
     tools = tools.filter((tool) => getToolTier(tool.name) !== "T3");
   }
+  const schemaMode = isCompactDescriptionMode() ? "compact" : "advanced";
   cachedAdaMcpToolDefinitions = sortToolsByTier(
     tools.map((tool) => ({
       ...tool,
-      description: formatTieredDescription(tool.name, tool.description)
+      description: formatTieredDescription(tool.name, tool.description),
+      // title 恒删；compact 再删字段 description/examples，显著降低 ListTools token
+      inputSchema: slimInputSchemaForListTools(tool.inputSchema, schemaMode)
     }))
   );
   cachedHideAdvanced = hideAdvanced;

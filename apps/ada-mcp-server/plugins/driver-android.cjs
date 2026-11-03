@@ -409,11 +409,13 @@ var init_src2 = __esm({
 });
 
 // ../../packages/install-deps/src/download-probe-persist.ts
+var DEFAULT_MIRROR_PROBE_TTL_MS;
 var init_download_probe_persist = __esm({
   "../../packages/install-deps/src/download-probe-persist.ts"() {
     "use strict";
     init_src2();
     init_log_locale();
+    DEFAULT_MIRROR_PROBE_TTL_MS = 5 * 60 * 1e3;
   }
 });
 
@@ -2650,22 +2652,9 @@ init_log_locale();
 init_install_progress();
 init_dependency_installer();
 
-// ../../packages/install-deps/src/agent-effective-config.ts
-init_deps_install_paths();
-
-// ../../packages/install-deps/src/default-install-deps-config.ts
-init_src2();
-var DEFAULT_INSTALL_DEPS_CONFIG = {
-  dependencies: {
-    autoInstallOnStart: true,
-    playwrightBrowser: "chromium",
-    playwrightInstallTargets: ["chromium"],
-    playwrightDownloadHost: DEFAULT_PLAYWRIGHT_HOST_CANDIDATES[0],
-    npmRegistryCandidates: [...DEFAULT_NPM_REGISTRY_CANDIDATES],
-    playwrightHostCandidates: [...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES],
-    toolsDir: "tools"
-  }
-};
+// ../../packages/install-deps/src/plugin-deps-gate.ts
+init_dependency_installer();
+init_deps_resolution();
 
 // ../../node_modules/js-yaml/dist/js-yaml.mjs
 function isNothing(subject) {
@@ -5252,6 +5241,26 @@ var dump = dumper.dump;
 var safeLoad = renamed("safeLoad", "load");
 var safeLoadAll = renamed("safeLoadAll", "loadAll");
 var safeDump = renamed("safeDump", "dump");
+
+// ../../packages/install-deps/src/agent-effective-config.ts
+init_deps_install_paths();
+
+// ../../packages/install-deps/src/default-install-deps-config.ts
+init_src2();
+var DEFAULT_INSTALL_DEPS_CONFIG = {
+  dependencies: {
+    autoInstallOnStart: true,
+    playwrightBrowser: "chromium",
+    playwrightInstallTargets: ["chromium"],
+    playwrightDownloadHost: DEFAULT_PLAYWRIGHT_HOST_CANDIDATES[0],
+    npmRegistryCandidates: [...DEFAULT_NPM_REGISTRY_CANDIDATES],
+    playwrightHostCandidates: [...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES],
+    toolsDir: "tools"
+  }
+};
+
+// ../../packages/install-deps/src/plugin-deps-gate.ts
+init_log_locale();
 
 // ../../packages/install-deps/src/mcp-bootstrap-deps.ts
 init_src2();

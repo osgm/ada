@@ -40,8 +40,8 @@ ${MCP_GLOBAL_POLICY}
 Tools are grouped: env → web (action, recipe, invoke) → mobile → orchestrate → session → risk_policy.
 
 ## Env
-- ADA_MCP_HIDE_ADVANCED: keep unset/false to expose ada_invoke / ada_risk_policy (T3)
-- ADA_MCP_DESC_MODE: default compact (short ListTools); advanced/full for longer L3 + repeated policy copy
+- ADA_MCP_HIDE_ADVANCED: keep unset/false/"0" to expose ada_invoke / ada_risk_policy (T3)
+- ADA_MCP_DESC_MODE: default advanced (longer ListTools); set compact for short descriptions
 - ADA_HARMONY_APP_ID / ADA_HARMONY_ABILITY_ID: optional defaults for deviceParams.harmonyLaunchApp template
 
 ## Anti-patterns

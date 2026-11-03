@@ -14,15 +14,17 @@
         原生桌面控制台。
       </p>
 
-      <details class="card">
-        <summary>远程管理平台（可选）</summary>
-        <p class="hint">写入本机密钥文件；API Key 留空则保留已保存值。</p>
-        <label class="lbl" for="remoteUrl">接入地址</label>
-        <input type="text" id="remoteUrl" placeholder="https://ada-control.example.com" autocomplete="off" />
-        <label class="lbl" for="apiKey">API Key</label>
-        <input type="password" id="apiKey" placeholder="留空则保留已保存的密钥" autocomplete="off" />
+      <details class="card" open>
+        <summary>控制端注册</summary>
+        <p class="hint">请先在管理端「ADA 远程控制 → 设备管理」创建设备并复制 Token，再填写以下三项以建立安全长连接。</p>
+        <label class="lbl" for="remoteUrl">控制端注册地址</label>
+        <input type="text" id="remoteUrl" placeholder="http://localhost:48080" autocomplete="off" />
+        <label class="lbl" for="deviceName">设备名称</label>
+        <input type="text" id="deviceName" placeholder="与控制端创建设备时的名称一致" autocomplete="off" />
+        <label class="lbl" for="apiKey">认证秘钥（apiToken）</label>
+        <input type="password" id="apiKey" placeholder="控制端生成的 ada_xxx Token" autocomplete="off" />
         <div class="row">
-          <button type="button" id="btnSaveRemote">保存到本机密钥</button>
+          <button type="button" id="btnSaveRemote">保存并写入本机密钥</button>
         </div>
         <hr />
         <p class="hint">Android SDK 路径（用于 adb 等移动端环境变量）</p>

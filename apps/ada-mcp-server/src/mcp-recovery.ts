@@ -73,27 +73,17 @@ export function buildUiCandidatesHint(input: {
     return {
       suggestTools: hasPreview ? ["ada_extract", "ada_web_action"] : ["ada_extract", "ada_web_action", "ada_web_recipe"],
       note: hasPreview
-        ? "Locator miss — pageTextPreview is in the error payload; retry with payload.locator (css/role) or within+nth (do not call ada_close_all_sessions)."
-        : "Locator miss — ada_extract mode=viewTree (tree+flat controls), then ada_web_recipe clickPath/fill_search or scoped locator.",
-      acceptedLocatorFormats: [
-        "payload.locator.css",
-        "payload.selector",
-        'locator: { kind: "css", value: "#id" }',
-        'locator: { kind: "role", role: "menuitem", name: "File", within: { kind: "role", role: "menubar" }, nth: 0 }',
-        'locator: { strategy: "css", value: "#id", nth: 1 }'
-      ],
-      retryPayloadHints: [
-        "payload.locator.css",
-        "payload.selector",
-        "payload.locator.within + payload.locator.nth",
-        "payload.waitTimeoutMs: 8000"
-      ]
+        ? "Locator miss — use pageTextPreview; retry payload.locator (css/role/within+nth). Do not close sessions."
+        : "Locator miss — ada_extract mode=viewTree, then ada_web_recipe clickPath or scoped locator.",
+      // Keep short: models overfit long format lists.
+      locatorHint: 'payload.locator.css | {kind:"role",role,name,within?,nth?} | selector',
+      retryPayloadHints: ["payload.locator", "payload.waitTimeoutMs"]
     };
   }
   return {
     suggestTools: ["ada_mobile_extract", "ada_mobile_recipe"],
-    note: "Locator miss — ada_mobile_extract type=viewTree, then ada_mobile_recipe tap_path or adjust locator strategy/value.",
-    retryPayloadHints: ["payload.locator.strategy+xpath", "payload.locator.strategy=text"]
+    note: "Locator miss — ada_mobile_extract type=viewTree, then ada_mobile_recipe tap_path.",
+    retryPayloadHints: ["payload.locator.strategy+xpath|text"]
   };
 }
 
@@ -217,4 +207,75 @@ export function suggestRecoveryTool(result: CommandResult, platform: AdaPlatform
   }
   if (/session|closed|invalid/i.test(String(result.errorMessage ?? ""))) return "ada_sessions";
   return undefined;
+}
+
+/** LLM-facing one-line recovery guidance (always useful; keep short in slim mode). */
+export function buildRecoveryHint(input: {
+  tool: string;
+  envelope?: CommandEnvelope;
+  result?: CommandResult;
+  errorKind?: McpErrorKind;
+  sessionId?: string;
+  platform?: string;
+  maxSteps?: number;
+}): string {
+  const sessionId = input.sessionId ?? input.envelope?.sessionId ?? "same-session";
+  const platform = (input.platform ?? input.envelope?.platform ?? "web") as AdaPlatform;
+  const command = input.envelope?.command;
+  const message = String(input.result?.errorMessage ?? "");
+  const resultData =
+    input.result?.data && typeof input.result.data === "object"
+      ? (input.result.data as Record<string, unknown>)
+      : undefined;
+  const assertionDiff =
+    resultData?.assertionDiff && typeof resultData.assertionDiff === "object"
+      ? (resultData.assertionDiff as Record<string, unknown>)
+      : undefined;
+  const locatorUsed =
+    (typeof resultData?.locatorUsed === "string" && resultData.locatorUsed.trim().length > 0
+      ? resultData.locatorUsed.trim()
+      : undefined) ??
+    (typeof assertionDiff?.locatorUsed === "string" && assertionDiff.locatorUsed.trim().length > 0
+      ? assertionDiff.locatorUsed.trim()
+      : undefined);
+  const locatorHint = locatorUsed ? ` Current locator="${locatorUsed}".` : "";
+  const errorKind =
+    input.errorKind ??
+    (input.result && input.envelope ? classifyErrorKind(input.result, input.envelope.platform) : "unknown");
+
+  const maxSteps = Math.max(1, input.maxSteps ?? 4);
+  const plan = buildRecoveryPlan({
+    tool: input.tool,
+    envelope: input.envelope,
+    result: input.result,
+    errorKind,
+    sessionId,
+    platform
+  });
+  const cmd = command ? ` command=${command}` : "";
+  const head = `Recovery for ${input.tool}${cmd} sessionId="${sessionId}".${locatorHint}`.trim();
+  const steps = plan
+    .slice(0, maxSteps)
+    .map((step, idx) => `${idx + 1}) ${step.tool}: ${step.note}`)
+    .join(" ");
+  if (steps.length > 0) {
+    return `${head} ${steps}`;
+  }
+  if (errorKind === "environment" || /not ready|runtime not ready|adb|wda|hdc|playwright/i.test(message)) {
+    return `${head} Run ada_diagnostics or ada_install_deps, then retry.`;
+  }
+  return `${head} Retry once; if still failing, inspect with ada_extract/ada_mobile_extract before ada_invoke.`;
+}
+
+/** Slim plan for MCP JSON: drop bulky args, keep first N steps. */
+export function slimRecoveryPlan(
+  plan: RecoveryPlanStep[],
+  maxSteps = 2
+): Array<Pick<RecoveryPlanStep, "kind" | "tool" | "note"> & { requires?: string[] }> {
+  return plan.slice(0, Math.max(1, maxSteps)).map((step) => ({
+    kind: step.kind,
+    tool: step.tool,
+    note: step.note,
+    ...(step.requires?.length ? { requires: step.requires } : {})
+  }));
 }

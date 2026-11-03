@@ -19,6 +19,7 @@ function normalizeOutput(raw: string): BootstrapInput {
     environment: parsed.environment,
     authType,
     token: parsed.token,
+    deviceName: parsed.deviceName !== undefined ? String(parsed.deviceName).trim() : undefined,
     transportMode,
     streamProtocol,
     deviceTags: Array.isArray(parsed.deviceTags) ? parsed.deviceTags.filter((x): x is string => typeof x === "string") : []

@@ -11,7 +11,7 @@
       "env": {
         "ADA_MCP_SKIP_INSTALL_DEPS": "1",
         "ADA_PLUGIN_DIR": "D:/WORKSPACE/PLAN/ada/apps/ada-mcp-server/plugins",
-        "ADA_PLAYWRIGHT_HEADLESS": "false"
+        "ADA_MCP_DESC_MODE": "compact"
       }
     }
   }

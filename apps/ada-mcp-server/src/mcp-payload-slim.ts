@@ -1,5 +1,10 @@
 import type { CommandResult } from "@ada/contracts";
-import { buildRecoveryPlan, type McpErrorKind } from "./mcp-recovery.js";
+import {
+  buildRecoveryHint,
+  buildRecoveryPlan,
+  slimRecoveryPlan,
+  type McpErrorKind
+} from "./mcp-recovery.js";
 import { isMcpVerboseResult, slimCommandResult } from "./mcp-response-mode.js";
 
 const INSTALL_LOG_TAIL_LINES = 32;
@@ -105,15 +110,19 @@ export function resolveRecoveryFields(input: {
   errorKind: McpErrorKind;
   sessionId?: string;
   platform?: string;
-}): { recoveryPlan: ReturnType<typeof buildRecoveryPlan>; recoveryHint?: string } {
+}): {
+  recoveryPlan: ReturnType<typeof slimRecoveryPlan> | ReturnType<typeof buildRecoveryPlan>;
+  recoveryHint: string;
+} {
   const recoveryPlan = buildRecoveryPlan(input);
-  if (isMcpVerboseResult()) {
-    const head = `Recovery for ${input.tool} sessionId="${input.sessionId ?? input.envelope?.sessionId ?? "same-session"}".`;
-    const steps = recoveryPlan
-      .slice(0, 4)
-      .map((step, idx) => `${idx + 1}) ${step.tool}: ${step.note}`)
-      .join(" ");
-    return { recoveryPlan, recoveryHint: steps.length > 0 ? `${head} ${steps}` : head };
+  const verbose = isMcpVerboseResult();
+  // Policy tells the model to read recoveryHint — always include it (compact in slim).
+  const recoveryHint = buildRecoveryHint({
+    ...input,
+    maxSteps: verbose ? 4 : 2
+  });
+  if (verbose) {
+    return { recoveryPlan, recoveryHint };
   }
-  return { recoveryPlan };
+  return { recoveryPlan: slimRecoveryPlan(recoveryPlan, 2), recoveryHint };
 }

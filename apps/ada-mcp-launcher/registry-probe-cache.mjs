@@ -1,12 +1,12 @@
 /**
- * launcher npm registry 测速结果缓存（默认 ~/.ada/launcher-registry-probe.json，TTL 1h）
+ * launcher npm registry 测速结果缓存（默认 ~/.ada/launcher-registry-probe.json，TTL 5m）
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { normalizeRegistryUrl } from "./registry-probe.mjs";
 
-const DEFAULT_TTL_MS = 60 * 60 * 1000;
+const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
 function resolveGlobalAdaHome() {
   const override = process.env.ADA_HOME?.trim();

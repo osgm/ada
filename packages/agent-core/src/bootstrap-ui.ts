@@ -83,8 +83,10 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
       <input type="hidden" id="csrf" value="${csrfToken}" />
       <section>
         <h2>控制面连接</h2>
-        <label class="field">服务端地址 <span class="hint">（https:// 或 http://）</span>
-          <input type="text" name="serverUrl" id="serverUrl" required placeholder="https://ada-control.example.com" autocomplete="off" /></label>
+        <label class="field">控制端注册地址 <span class="hint">（https:// 或 http://）</span>
+          <input type="text" name="serverUrl" id="serverUrl" required placeholder="http://localhost:48080" autocomplete="off" /></label>
+        <label class="field">设备名称 <span class="hint">（须与控制端「设备管理」中创建的名称一致）</span>
+          <input type="text" name="deviceName" id="deviceName" required placeholder="例如：测试机-01" autocomplete="off" /></label>
         <label class="field">租户 Tenant
           <input type="text" name="tenant" id="tenant" required placeholder="default" value="default" /></label>
         <label class="field">环境 Environment
@@ -99,8 +101,8 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
             <option value="token">API Token（密钥）</option>
             <option value="device_code">Device Code</option>
           </select></label>
-        <label class="field">Token / 密钥 <span class="hint">（选 Token 时必填）</span>
-          <input type="password" name="token" id="token" placeholder="粘贴控制台颁发的 Token" autocomplete="off" /></label>
+        <label class="field">Token / 密钥 <span class="hint">（控制端创建设备后复制 apiToken）</span>
+          <input type="password" name="token" id="token" required placeholder="ada_xxxxxxxx" autocomplete="off" /></label>
       </section>
       <section>
         <h2>传输</h2>
@@ -191,6 +193,7 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
       return {
         csrf: document.getElementById("csrf").value,
         serverUrl: document.getElementById("serverUrl").value.trim(),
+        deviceName: document.getElementById("deviceName").value.trim(),
         tenant: document.getElementById("tenant").value.trim(),
         environment: document.getElementById("environment").value.trim(),
         authType: auth,
@@ -208,6 +211,9 @@ function htmlPage(csrfToken: string, port: number, host: string): string {
       var p = gatherPayload();
       if (p.authType === "token" && !p.token) {
         msg.textContent = "请填写 Token（API 密钥）。"; msg.style.display = "block"; return;
+      }
+      if (!p.deviceName) {
+        msg.textContent = "请填写设备名称（须与控制端创建设备时一致）。"; msg.style.display = "block"; return;
       }
       btn.disabled = true;
       logBox.value = "";
@@ -269,6 +275,7 @@ function parseFormUrlEncoded(body: string): BootstrapInput {
   const rt = rtRaw ? parseInt(rtRaw, 10) : undefined;
   return buildBootstrapFromParts({
     serverUrl: form.get("serverUrl") ?? "",
+    deviceName: form.get("deviceName") ?? "",
     tenant: form.get("tenant") ?? "",
     environment: form.get("environment") ?? "",
     authType: (form.get("authType") as BootstrapInput["authType"]) ?? "token",
@@ -289,6 +296,7 @@ function parseFormUrlEncoded(body: string): BootstrapInput {
 
 function buildBootstrapFromParts(parts: {
   serverUrl: string;
+  deviceName?: string;
   tenant: string;
   environment: string;
   authType: BootstrapInput["authType"];
@@ -323,6 +331,7 @@ function buildBootstrapFromParts(parts: {
   }
   return {
     serverUrl: parts.serverUrl,
+    deviceName: parts.deviceName?.trim() || undefined,
     tenant: parts.tenant,
     environment: parts.environment,
     authType: parts.authType,
@@ -343,6 +352,9 @@ function validateInput(input: BootstrapInput): string | null {
   }
   if (input.authType === "token" && !input.token) {
     return "当前为 Token 认证，请填写 Token（密钥）。";
+  }
+  if (!input.deviceName?.trim()) {
+    return "请填写设备名称（须与控制端创建设备时一致）。";
   }
   return null;
 }
@@ -398,6 +410,7 @@ export async function runSetupUi(config: AgentConfig): Promise<SetupUiResult> {
               const transportMode = (tm === "http" || tm === "auto" || tm === "stream" ? tm : "stream") as BootstrapInput["transportMode"];
               payload = buildBootstrapFromParts({
                 serverUrl: String(parsed.serverUrl ?? ""),
+                deviceName: parsed.deviceName !== undefined ? String(parsed.deviceName) : "",
                 tenant: String(parsed.tenant ?? ""),
                 environment: String(parsed.environment ?? ""),
                 authType: (parsed.authType === "device_code" ? "device_code" : "token") as BootstrapInput["authType"],

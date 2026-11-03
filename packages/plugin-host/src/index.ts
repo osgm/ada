@@ -11,6 +11,15 @@ interface PluginHealthItem {
   message: string;
 }
 
+/** 插件启动前门禁（由上层注入 install-deps，避免 plugin-host 循环依赖）。 */
+export type PluginDepsGate = (plugin: DriverPlugin) => Promise<void>;
+
+export interface PluginHostOptions {
+  depsGate?: PluginDepsGate;
+  /** 插件停止后回调（清依赖缓存等）。 */
+  onStopped?: (pluginId: string) => void;
+}
+
 function assertManifest(plugin: DriverPlugin): void {
   const m = plugin.manifest;
   if (!m.id || !m.version) {
@@ -33,6 +42,21 @@ export class PluginHost {
   private readonly manifests = new Map<string, DriverPlugin["manifest"]>();
   private readonly pluginById = new Map<string, DriverPlugin>();
   private readonly initializedPluginIds = new Set<string>();
+  private depsGate?: PluginDepsGate;
+  private onStopped?: (pluginId: string) => void;
+
+  constructor(options?: PluginHostOptions) {
+    this.depsGate = options?.depsGate;
+    this.onStopped = options?.onStopped;
+  }
+
+  setDepsGate(gate: PluginDepsGate | undefined): void {
+    this.depsGate = gate;
+  }
+
+  setOnStopped(handler: ((pluginId: string) => void) | undefined): void {
+    this.onStopped = handler;
+  }
 
   register(plugin: DriverPlugin): void {
     assertManifest(plugin);
@@ -101,6 +125,10 @@ export class PluginHost {
     return Array.from(this.manifests.values());
   }
 
+  isInitialized(pluginId: string): boolean {
+    return this.initializedPluginIds.has(pluginId);
+  }
+
   async ensureInitialized(pluginId: string, timeoutMs = 15000): Promise<void> {
     if (this.initializedPluginIds.has(pluginId)) {
       return;
@@ -108,6 +136,9 @@ export class PluginHost {
     const plugin = this.pluginById.get(pluginId);
     if (!plugin) {
       throw new Error(`Plugin not registered: ${pluginId}`);
+    }
+    if (this.depsGate) {
+      await this.depsGate(plugin);
     }
     await Promise.race([
       plugin.init(),
@@ -135,9 +166,32 @@ export class PluginHost {
     return items;
   }
 
+  /** 停止单个插件：dispose + 清初始化标记，下次 ensureInitialized 会重新做依赖检查。 */
+  async disposePlugin(pluginId: string, timeoutMs = 12_000, force = false): Promise<void> {
+    const plugin = this.pluginById.get(pluginId);
+    if (!plugin) {
+      throw new Error(`Plugin not registered: ${pluginId}`);
+    }
+    if (force) {
+      try {
+        plugin.forceDispose?.();
+      } catch {
+        // ignore
+      }
+    } else {
+      await Promise.race([
+        plugin.dispose(),
+        new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
+      ]);
+    }
+    this.initializedPluginIds.delete(pluginId);
+    this.onStopped?.(pluginId);
+  }
+
   /** 释放所有已注册驱动插件（E2E/脚本退出前调用，避免 hypium/playwright 句柄拖住进程） */
   async disposeAll(timeoutMs = 12_000, force = false): Promise<void> {
     const plugins = Array.from(this.pluginById.values());
+    const ids = Array.from(this.pluginById.keys());
     if (force) {
       for (const plugin of plugins) {
         try {
@@ -147,6 +201,9 @@ export class PluginHost {
         }
       }
       this.initializedPluginIds.clear();
+      for (const id of ids) {
+        this.onStopped?.(id);
+      }
       return;
     }
     await Promise.allSettled(
@@ -158,6 +215,9 @@ export class PluginHost {
       )
     );
     this.initializedPluginIds.clear();
+    for (const id of ids) {
+      this.onStopped?.(id);
+    }
   }
 }
 

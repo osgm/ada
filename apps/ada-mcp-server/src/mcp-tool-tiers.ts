@@ -1,6 +1,6 @@
-import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { hideAdvancedToolsFromEnv } from "@ada/core-runtime";
-import { buildRecoveryPlan, classifyErrorKind } from "./mcp-recovery.js";
+
+export { buildRecoveryHint } from "./mcp-recovery.js";
 
 /** Full policy copy — advanced mode or ada://guide/routing resource. */
 export const MCP_GLOBAL_POLICY =
@@ -8,7 +8,7 @@ export const MCP_GLOBAL_POLICY =
 
 /** Compact policy — single ada_health anchor; keeps trial-reduction essentials. */
 export const MCP_GLOBAL_POLICY_COMPACT =
-  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId; mobile: ada_devices(scan) first; on fail: recoveryHint→retry→extract→invoke.";
+  "Policy: riskApproved for invoke/launchApp/deviceAdmin; reuse sessionId; mobile: ada_devices(scan) first; on fail read recoveryHint (then recoveryPlan)→retry→extract→invoke.";
 
 export const MCP_WORKFLOW_L0_L4 =
   "Workflow L0 health→install_deps→devices(scan) | L1 ada_web_action/ada_mobile_action | L2 batch_actions/run_task_file/mobile_recipe | L3 ada_invoke | L4 deviceAdmin/risk_policy.";
@@ -186,10 +186,14 @@ export function shouldHideAdvancedTools(): boolean {
   return hideAdvancedToolsFromEnv();
 }
 
-/** advanced/full = longer copy; compact (default) = shorter ListTools with routing in ada_health + resource. */
+/**
+ * ListTools 描述详略。
+ * 未设 / advanced / full → 长描述（Host 默认）；显式 compact / short → 短描述。
+ */
 export function isAdvancedDescriptionMode(): boolean {
   const raw = String(process.env.ADA_MCP_DESC_MODE ?? "").trim().toLowerCase();
-  return raw === "advanced" || raw === "full";
+  if (raw === "compact" || raw === "short") return false;
+  return true;
 }
 
 export function isCompactDescriptionMode(): boolean {
@@ -220,59 +224,3 @@ export function sortToolsByTier<T extends { name: string }>(tools: T[]): T[] {
   });
 }
 
-export function buildRecoveryHint(input: {
-  tool: string;
-  envelope?: CommandEnvelope;
-  result?: CommandResult;
-  errorKind?: "validation" | "environment" | "assertion_failed" | "command_failed" | "timeout" | "risk_denied" | "unknown";
-  sessionId?: string;
-  platform?: string;
-}): string {
-  const sessionId = input.sessionId ?? input.envelope?.sessionId ?? "same-session";
-  const platform = input.platform ?? input.envelope?.platform ?? "web";
-  const command = input.envelope?.command;
-  const message = String(input.result?.errorMessage ?? "");
-  const resultData =
-    input.result?.data && typeof input.result.data === "object"
-      ? (input.result.data as Record<string, unknown>)
-      : undefined;
-  const assertionDiff =
-    resultData?.assertionDiff && typeof resultData.assertionDiff === "object"
-      ? (resultData.assertionDiff as Record<string, unknown>)
-      : undefined;
-  const locatorUsed =
-    (typeof resultData?.locatorUsed === "string" && resultData.locatorUsed.trim().length > 0
-      ? resultData.locatorUsed.trim()
-      : undefined) ??
-    (typeof assertionDiff?.locatorUsed === "string" && assertionDiff.locatorUsed.trim().length > 0
-      ? assertionDiff.locatorUsed.trim()
-      : undefined);
-  const locatorHint = locatorUsed ? ` Current locator="${locatorUsed}".` : "";
-  const errorKind =
-    input.errorKind ??
-    (input.result && input.envelope
-      ? classifyErrorKind(input.result, input.envelope.platform)
-      : "unknown");
-
-  const plan = buildRecoveryPlan({
-    tool: input.tool,
-    envelope: input.envelope,
-    result: input.result,
-    errorKind,
-    sessionId,
-    platform: platform as "web" | "android" | "ios" | "harmony"
-  });
-  const cmd = command ? ` command=${command}` : "";
-  const head = `Recovery for ${input.tool}${cmd} sessionId="${sessionId}".${locatorHint}`.trim();
-  const steps = plan
-    .slice(0, 4)
-    .map((step, idx) => `${idx + 1}) ${step.tool}: ${step.note}`)
-    .join(" ");
-  if (steps.length > 0) {
-    return `${head} ${steps}`;
-  }
-  if (errorKind === "environment" || /not ready|runtime not ready|adb|wda|hdc|playwright/i.test(message)) {
-    return `${head} Run ada_diagnostics or ada_install_deps, then retry.`;
-  }
-  return `${head} Retry once; if still failing, inspect with ada_extract/ada_mobile_extract before ada_invoke.`;
-}

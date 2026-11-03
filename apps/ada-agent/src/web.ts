@@ -194,10 +194,15 @@ export async function runWeb(config: AgentConfig): Promise<void> {
       jsonPost("/api/patch-remote", async (body) => {
         const serverUrl = String(body.serverUrl ?? "").trim();
         const apiKey = body.apiKey !== undefined ? String(body.apiKey) : undefined;
+        const deviceName = body.deviceName !== undefined ? String(body.deviceName) : undefined;
         if (!serverUrl) {
           return { status: 400, body: "missing serverUrl" };
         }
-        await applyRemoteCredentials(serverUrl, apiKey && apiKey.trim() ? apiKey : undefined);
+        await applyRemoteCredentials(
+          serverUrl,
+          apiKey && apiKey.trim() ? apiKey : undefined,
+          deviceName && deviceName.trim() ? deviceName.trim() : undefined
+        );
         return { body: JSON.stringify({ ok: true, event: "remote.patched" }, null, 2) };
       })
     ) {

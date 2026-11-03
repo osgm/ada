@@ -47,7 +47,7 @@ describe("mcp-payload-slim", () => {
     assert.equal(slim.results, undefined);
   });
 
-  it("resolveRecoveryFields omits recoveryHint in slim mode", () => {
+  it("resolveRecoveryFields always includes compact recoveryHint in slim mode", () => {
     const prev = process.env.ADA_MCP_VERBOSE_RESULT;
     delete process.env.ADA_MCP_VERBOSE_RESULT;
     try {
@@ -58,7 +58,9 @@ describe("mcp-payload-slim", () => {
         platform: "web"
       });
       assert.ok(Array.isArray(fields.recoveryPlan) && fields.recoveryPlan.length > 0);
-      assert.equal(fields.recoveryHint, undefined);
+      assert.ok(fields.recoveryPlan.length <= 2);
+      assert.ok(typeof fields.recoveryHint === "string" && fields.recoveryHint.includes("sessionId=\"s1\""));
+      assert.equal((fields.recoveryPlan[0] as { args?: unknown }).args, undefined);
     } finally {
       if (prev === undefined) delete process.env.ADA_MCP_VERBOSE_RESULT;
       else process.env.ADA_MCP_VERBOSE_RESULT = prev;

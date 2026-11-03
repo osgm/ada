@@ -40,13 +40,22 @@ export function seedDepsInstallProbeState(payload) {
   } catch {
     // new
   }
+  const now = new Date().toISOString();
   state.bestNpmRegistry = reg;
+  state.npmRegistrySource = "launcher";
+  state.npmRegistryProbedAt = now;
   state.bestPlaywrightDownloadHost = pwHost;
+  // launcher 未实测 CDN 时记为 heuristic，子进程装浏览器前仍可测速
+  const pwMeasured = payload?.playwrightHostMeasured === true;
+  state.playwrightHostSource = pwMeasured ? "measured" : "heuristic";
+  if (pwMeasured) {
+    state.playwrightHostProbedAt = now;
+  }
   state.seededByLauncher = true;
   if (payload?.launcherVersion) {
     state.seededByLauncherVersion = String(payload.launcherVersion);
   }
-  state.updatedAt = new Date().toISOString();
+  state.updatedAt = now;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }

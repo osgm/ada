@@ -25,9 +25,14 @@ import { emitInstallProgress } from "./install-progress.js";
 import { depsLogLine, wrapInstallDepsLogEmitter } from "./log-locale.js";
 import {
   ensurePlaywrightDownloadHostSeeded,
+  isExplicitPlaywrightHostPinned,
+  isMirrorProbeFresh,
+  markNpmRegistryMeasured,
+  markPlaywrightHostMeasured,
   resolveDefaultPlaywrightDownloadHost,
   shouldProbeNpmRegistry,
-  shouldProbePlaywrightCdn
+  shouldProbePlaywrightCdn,
+  type MirrorProbeSource
 } from "./download-probe-persist.js";
 import { detectBestRegistry, registryCandidateList } from "./registry-probe.js";
 import { DEFAULT_NPM_REGISTRY_CANDIDATES } from "@ada/download-probe";
@@ -87,6 +92,10 @@ interface InstallState {
   installedScopes?: string[];
   bestNpmRegistry?: string;
   bestPlaywrightDownloadHost?: string;
+  npmRegistryProbedAt?: string;
+  npmRegistrySource?: MirrorProbeSource;
+  playwrightHostProbedAt?: string;
+  playwrightHostSource?: MirrorProbeSource;
   playwrightReady?: boolean;
   playwrightTargetsKey?: string;
   updatedAt?: string;
@@ -385,7 +394,9 @@ function normalizeRegistryUrl(registry: string): string {
 }
 
 /**
- * 不经 @ada-mcp/launcher 启动 mcp-server 时，写入默认 registry + Playwright CDN（跳过 bootstrap 测速）。
+ * 不经 @ada-mcp/launcher 启动 mcp-server 时：
+ * - 测速结果仍在 TTL 内 → 复用
+ * - 否则轻量并行测速 npm registry + Playwright CDN
  */
 export async function ensureStandaloneMcpProbeSeed(onLogLine?: (line: string) => void): Promise<void> {
   if (process.env.ADA_MCP_LAUNCHER_RAN === "1") {
@@ -393,32 +404,84 @@ export async function ensureStandaloneMcpProbeSeed(onLogLine?: (line: string) =>
   }
   const log = wrapInstallDepsLogEmitter(onLogLine);
   const state = await loadInstallState();
-  const envReg =
-    process.env.ADA_MCP_REGISTRY?.trim() ||
-    process.env.ADA_MCP_LAUNCHER_REGISTRY?.trim() ||
-    process.env.npm_config_registry?.trim();
-  if (
-    state.seededByLauncher &&
-    state.bestNpmRegistry?.trim() &&
-    state.bestPlaywrightDownloadHost?.trim()
-  ) {
+  const registryFresh =
+    Boolean(state.bestNpmRegistry?.trim()) &&
+    isMirrorProbeFresh(state.npmRegistryProbedAt) &&
+    (state.npmRegistrySource === "measured" ||
+      state.npmRegistrySource === "launcher" ||
+      state.npmRegistrySource === "explicit");
+  const pwFresh =
+    Boolean(state.bestPlaywrightDownloadHost?.trim()) &&
+    isMirrorProbeFresh(state.playwrightHostProbedAt) &&
+    state.playwrightHostSource === "measured";
+  if (registryFresh && (pwFresh || state.bestPlaywrightDownloadHost?.trim())) {
     await applyPersistedDownloadProbeFromState(log);
+    log?.(
+      depsLogLine(
+        `[deps] standalone reuse fresh mirror cache (ttl)`,
+        `[deps] standalone reuse fresh mirror cache (ttl)`
+      )
+    );
     return;
   }
-  const registry = normalizeRegistryUrl(
-    envReg || state.bestNpmRegistry?.trim() || DEFAULT_NPM_REGISTRY_CANDIDATES[0]
-  );
-  const pwHost = resolveDefaultPlaywrightDownloadHost(registry);
-  state.bestNpmRegistry = registry;
-  state.bestPlaywrightDownloadHost = pwHost;
+
+  try {
+    if (!registryFresh) {
+      const probed = await detectBestRegistry(registryCandidateList(), "playwright", log);
+      markNpmRegistryMeasured(state, probed.best);
+      process.env.npm_config_registry = probed.best;
+      log?.(
+        depsLogLine(
+          `[deps] standalone npm registry 测速: ${probed.best}`,
+          `[deps] standalone npm registry probe: ${probed.best}`
+        )
+      );
+    } else if (state.bestNpmRegistry?.trim()) {
+      process.env.npm_config_registry = state.bestNpmRegistry.trim();
+    }
+
+    if (!pwFresh && !isExplicitPlaywrightHostPinned()) {
+      const probedPw = await detectBestPlaywrightDownloadHost([...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES], log);
+      markPlaywrightHostMeasured(state, probedPw.best);
+      process.env.PLAYWRIGHT_DOWNLOAD_HOST = probedPw.best;
+      log?.(
+        depsLogLine(
+          `[deps] standalone Playwright CDN 测速: ${probedPw.best}`,
+          `[deps] standalone Playwright CDN probe: ${probedPw.best}`
+        )
+      );
+    } else if (state.bestPlaywrightDownloadHost?.trim()) {
+      process.env.PLAYWRIGHT_DOWNLOAD_HOST = state.bestPlaywrightDownloadHost.trim();
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    log?.(
+      depsLogLine(
+        `[deps][warn] standalone 测速失败，回退启发式: ${msg}`,
+        `[deps][warn] standalone probe failed, heuristic fallback: ${msg}`
+      )
+    );
+    const registry = normalizeRegistryUrl(
+      process.env.ADA_MCP_REGISTRY?.trim() ||
+        process.env.npm_config_registry?.trim() ||
+        state.bestNpmRegistry?.trim() ||
+        DEFAULT_NPM_REGISTRY_CANDIDATES[0]
+    );
+    const pwHost = resolveDefaultPlaywrightDownloadHost(registry);
+    state.bestNpmRegistry = registry;
+    state.npmRegistrySource = "heuristic";
+    state.bestPlaywrightDownloadHost = pwHost;
+    state.playwrightHostSource = "heuristic";
+    process.env.npm_config_registry = registry;
+    process.env.PLAYWRIGHT_DOWNLOAD_HOST = pwHost;
+  }
+
   state.seededByStandalone = true;
-  process.env.npm_config_registry = registry;
-  process.env.PLAYWRIGHT_DOWNLOAD_HOST = pwHost;
   await saveInstallState(state);
   log?.(
     depsLogLine(
-      `[deps] standalone MCP seed: registry=${registry} playwright=${pwHost}`,
-      `[deps] standalone MCP seed: registry=${registry} playwright=${pwHost}`
+      `[deps] standalone MCP seed: registry=${state.bestNpmRegistry} playwright=${state.bestPlaywrightDownloadHost}`,
+      `[deps] standalone MCP seed: registry=${state.bestNpmRegistry} playwright=${state.bestPlaywrightDownloadHost}`
     )
   );
 }
@@ -519,13 +582,21 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
   if (launcherReg) {
     state.bestNpmRegistry = launcherReg;
     process.env.npm_config_registry = launcherReg;
+    if (!state.npmRegistryProbedAt || state.npmRegistrySource !== "measured") {
+      state.npmRegistrySource = state.npmRegistrySource === "measured" ? "measured" : "launcher";
+      if (!isMirrorProbeFresh(state.npmRegistryProbedAt)) {
+        state.npmRegistryProbedAt = new Date().toISOString();
+      }
+    }
   }
   if (
     needNpmInstall &&
     shouldProbeNpmRegistry({
       launcherRegistryHint: launcherReg,
       persistedRegistry: state.bestNpmRegistry,
-      force
+      force,
+      probedAt: state.npmRegistryProbedAt,
+      source: state.npmRegistrySource
     })
   ) {
     try {
@@ -533,8 +604,8 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
         undefined,
         config.dependencies.npmRegistryCandidates
       );
-      const probed = await detectBestRegistry(regCandidates);
-      state.bestNpmRegistry = probed.best;
+      const probed = await detectBestRegistry(regCandidates, "playwright", onLogLine);
+      markNpmRegistryMeasured(state, probed.best);
       process.env.npm_config_registry = probed.best;
       onLogLine?.(
         depsLogLine(
@@ -555,8 +626,8 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
     process.env.npm_config_registry = state.bestNpmRegistry.trim();
     onLogLine?.(
       depsLogLine(
-        `[deps] 复用 launcher/state registry: ${state.bestNpmRegistry.trim()}`,
-        `[deps] reuse launcher/state registry: ${state.bestNpmRegistry.trim()}`
+        `[deps] 复用 launcher/state registry: ${state.bestNpmRegistry.trim()} (source=${state.npmRegistrySource ?? "unknown"}, fresh=${isMirrorProbeFresh(state.npmRegistryProbedAt)})`,
+        `[deps] reuse launcher/state registry: ${state.bestNpmRegistry.trim()} (source=${state.npmRegistrySource ?? "unknown"}, fresh=${isMirrorProbeFresh(state.npmRegistryProbedAt)})`
       )
     );
   }
@@ -571,11 +642,15 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
   }
 
   if (needPlaywright && isPackageAvailable("playwright")) {
-    ensurePlaywrightDownloadHostSeeded(state, config, onLogLine);
+    const seed = ensurePlaywrightDownloadHostSeeded(state, config, onLogLine);
+    const explicitHost = seed.explicit || isExplicitPlaywrightHostPinned(config);
     if (
       shouldProbePlaywrightCdn({
         force,
-        hasHost: Boolean(state.bestPlaywrightDownloadHost?.trim())
+        hasHost: Boolean(state.bestPlaywrightDownloadHost?.trim()),
+        explicitHost,
+        source: state.playwrightHostSource,
+        probedAt: state.playwrightHostProbedAt
       })
     ) {
       try {
@@ -583,12 +658,19 @@ export async function ensureDriverDependencies(config: InstallDepsConfig, option
           ...(config.dependencies.playwrightDownloadHost?.trim()
             ? [config.dependencies.playwrightDownloadHost.trim()]
             : []),
-          ...(config.dependencies.playwrightHostCandidates ?? [])
+          ...(config.dependencies.playwrightHostCandidates ?? []),
+          ...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES
         ];
-        const probed = await detectBestPlaywrightDownloadHost(
-          candidates.length > 0 ? candidates : [...DEFAULT_PLAYWRIGHT_HOST_CANDIDATES]
-        );
-        state.bestPlaywrightDownloadHost = probed.best;
+        const seen = new Set<string>();
+        const ordered = candidates
+          .map((x) => x.replace(/\/$/, ""))
+          .filter((x) => {
+            if (!x || seen.has(x)) return false;
+            seen.add(x);
+            return true;
+          });
+        const probed = await detectBestPlaywrightDownloadHost(ordered, onLogLine);
+        markPlaywrightHostMeasured(state, probed.best);
         process.env.PLAYWRIGHT_DOWNLOAD_HOST = probed.best;
         onLogLine?.(
           depsLogLine(

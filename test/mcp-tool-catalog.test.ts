@@ -122,19 +122,49 @@ describe("mcp-tool-catalog", () => {
     assert.ok(tool, "ada_batch_actions should exist");
     const props = ((tool as { inputSchema: { properties?: Record<string, unknown> } }).inputSchema.properties ?? {});
     assert.ok("dryRun" in props, "dryRun should be part of inputSchema.properties");
+    assert.ok("retryDelayMs" in props, "retryDelayMs should be part of inputSchema.properties");
     assert.match(tool!.description, /dryRun/);
+  });
+
+  it("ListTools schemas drop redundant title; compact also drops field descriptions", () => {
+    const prev = process.env.ADA_MCP_DESC_MODE;
+    try {
+      delete process.env.ADA_MCP_DESC_MODE;
+      const advanced = buildAdaMcpToolDefinitions().find((item) => item.name === "ada_web_action");
+      assert.ok(advanced);
+      assert.equal("title" in (advanced!.inputSchema as object), false);
+      const session = (advanced!.inputSchema as { properties?: Record<string, Record<string, unknown>> }).properties
+        ?.sessionId;
+      assert.ok(session && typeof session.description === "string");
+
+      process.env.ADA_MCP_DESC_MODE = "compact";
+      const compact = buildAdaMcpToolDefinitions().find((item) => item.name === "ada_web_action");
+      assert.ok(compact);
+      const compactSession = (compact!.inputSchema as { properties?: Record<string, Record<string, unknown>> })
+        .properties?.sessionId;
+      assert.ok(compactSession);
+      assert.equal("description" in compactSession!, false);
+      assert.equal("examples" in (compact!.inputSchema as object), false);
+    } finally {
+      if (prev === undefined) delete process.env.ADA_MCP_DESC_MODE;
+      else process.env.ADA_MCP_DESC_MODE = prev;
+    }
   });
 
   it("compact descriptions are shorter and anchor policy on ada_health", () => {
     const prev = process.env.ADA_MCP_DESC_MODE;
-    delete process.env.ADA_MCP_DESC_MODE;
     try {
+      process.env.ADA_MCP_DESC_MODE = "compact";
       const compact = buildAdaMcpToolDefinitions();
+      delete process.env.ADA_MCP_DESC_MODE;
+      const advancedDefault = buildAdaMcpToolDefinitions();
       process.env.ADA_MCP_DESC_MODE = "advanced";
       const advanced = buildAdaMcpToolDefinitions();
       const compactTotal = compact.reduce((n, t) => n + t.description.length, 0);
       const advancedTotal = advanced.reduce((n, t) => n + t.description.length, 0);
+      const defaultTotal = advancedDefault.reduce((n, t) => n + t.description.length, 0);
       assert.ok(compactTotal < advancedTotal, `compact ${compactTotal} should be < advanced ${advancedTotal}`);
+      assert.equal(defaultTotal, advancedTotal, "unset DESC_MODE should match advanced");
       const health = compact.find((t) => t.name === "ada_health");
       const invoke = compact.find((t) => t.name === "ada_invoke");
       assert.ok(health?.description.includes("START ada_health"));

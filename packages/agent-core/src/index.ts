@@ -217,9 +217,13 @@ export async function installDependencies(
   return ensureDriverDependencies(config, { only, force, onLogLine, ...extras });
 }
 
-/** 将远程控制面地址与 API Key 写入本地密钥文件（供 Agent / MCP 使用） */
-export async function applyRemoteCredentials(serverUrl: string, apiKey?: string): Promise<void> {
-  await patchRemoteCredentials(serverUrl, apiKey);
+/** 将远程控制面地址、设备名与 API Token 写入本地密钥文件（供 Agent / MCP 使用） */
+export async function applyRemoteCredentials(
+  serverUrl: string,
+  apiKey?: string,
+  deviceName?: string
+): Promise<void> {
+  await patchRemoteCredentials(serverUrl, apiKey, deviceName);
 }
 
 function hasPlatformTask(tasks: CommandEnvelope[], platform: "web" | "android" | "ios" | "harmony"): boolean {
@@ -376,6 +380,19 @@ export async function runSetupFlow(modeArg?: SetupMode): Promise<void> {
   console.log("[ADA-AGENT] setup completed");
 }
 
+async function holdUntilSignal(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+      log("warn", { event: "agent.stop.requested" });
+      resolve();
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+  });
+}
+
 export async function runStartFlow(options?: {
   localDev?: boolean;
   skipDeps?: boolean;
@@ -445,6 +462,7 @@ export async function runStartFlow(options?: {
       event: "agent.auth.ready",
       details: {
         serverUrl: effectiveSecret.serverUrl,
+        deviceName: effectiveSecret.deviceName,
         tenant: effectiveSecret.tenant,
         environment: effectiveSecret.environment,
         authType: effectiveSecret.authType,
@@ -493,6 +511,20 @@ export async function runStartFlow(options?: {
       process.on("SIGTERM", onStop);
       await runForegroundLoop(true, { transport: runtimeTransport, config });
       await watchQueue(config, () => stopRequested, { transport: runtimeTransport, config });
+      return;
+    }
+    if (runtimeTransport) {
+      log("info", {
+        event: "agent.control_plane.listening",
+        details: { acceptsInbound: runtimeTransport.acceptsInbound }
+      });
+      if (!runtimeTransport.acceptsInbound) {
+        log("warn", {
+          event: "agent.control_plane.inbound_unavailable",
+          details: { reason: "HTTP transport cannot receive pushed commands; WebSocket is required" }
+        });
+      }
+      await holdUntilSignal();
       return;
     }
     await runForegroundLoop(false, { transport: runtimeTransport, config });

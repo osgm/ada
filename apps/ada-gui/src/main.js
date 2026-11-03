@@ -6,6 +6,7 @@ const logsEl = document.querySelector("#logs");
 
 const LS = {
   remoteUrl: "ada.console.remoteUrl",
+  deviceName: "ada.console.deviceName",
   apiKey: "ada.console.apiKey",
   androidHome: "ada.console.androidHome",
   mcpRemoteHost: "ada.console.mcpRemoteHost",
@@ -88,6 +89,7 @@ function clearLogs() {
 function loadStore() {
   try {
     const u = localStorage.getItem(LS.remoteUrl);
+    const n = localStorage.getItem(LS.deviceName);
     const k = localStorage.getItem(LS.apiKey);
     const a = localStorage.getItem(LS.androidHome);
     const mrh = localStorage.getItem(LS.mcpRemoteHost);
@@ -97,6 +99,7 @@ function loadStore() {
     const mrm = localStorage.getItem(LS.mcpRemoteRiskyMode);
     const mrc = localStorage.getItem(LS.mcpRemoteRiskyCommands);
     if (u) document.querySelector("#remoteUrl").value = u;
+    if (n) document.querySelector("#deviceName").value = n;
     if (k) document.querySelector("#apiKey").value = k;
     if (a) document.querySelector("#androidHome").value = a;
     if (mrh) document.querySelector("#mcpRemoteHost").value = mrh;
@@ -113,6 +116,7 @@ function loadStore() {
 function saveStore() {
   try {
     localStorage.setItem(LS.remoteUrl, document.querySelector("#remoteUrl").value.trim());
+    localStorage.setItem(LS.deviceName, document.querySelector("#deviceName").value.trim());
     localStorage.setItem(LS.apiKey, document.querySelector("#apiKey").value);
     localStorage.setItem(LS.androidHome, document.querySelector("#androidHome").value.trim());
     localStorage.setItem(LS.mcpRemoteHost, document.querySelector("#mcpRemoteHost").value.trim());
@@ -494,17 +498,27 @@ document.querySelector("#btnSaveRemote").addEventListener("click", async () => {
   await withAgent(async () => {
     saveStore();
     const serverUrl = document.querySelector("#remoteUrl").value.trim();
-    const apiKey = document.querySelector("#apiKey").value;
+    const deviceName = document.querySelector("#deviceName").value.trim();
+    const apiKey = document.querySelector("#apiKey").value.trim();
     if (!serverUrl) {
-      addLog("保存失败：请先填写接入地址");
+      addLog("保存失败：请先填写控制端注册地址");
+      return;
+    }
+    if (!deviceName) {
+      addLog("保存失败：请先填写设备名称（须与控制端一致）");
+      return;
+    }
+    if (!apiKey) {
+      addLog("保存失败：请先填写认证秘钥（控制端 apiToken）");
       return;
     }
     const output = await invoke("apply_patch_remote", {
       agentPath: null,
       serverUrl,
-      apiKey: apiKey.trim() ? apiKey : null
+      deviceName,
+      apiKey
     });
-    addLog(`patch-remote:\n${output}`);
+    addLog(`控制端注册配置已保存:\n${output}`);
   });
 });
 
