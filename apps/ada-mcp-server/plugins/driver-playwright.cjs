@@ -85,6 +85,47 @@ function resolvePlaywrightBringToFront(payload) {
   }
   return true;
 }
+function resolvePlaywrightMaximize(payload) {
+  if (resolvePlaywrightHeadless(payload)) {
+    return false;
+  }
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const explicit = pickBool(p, options, "maximize");
+  if (explicit !== void 0) {
+    return explicit;
+  }
+  const state = String(p.windowState ?? options.windowState ?? "").trim().toLowerCase();
+  if (state === "maximized" || state === "maximize") {
+    return true;
+  }
+  if (state === "normal" || state === "minimized" || state === "fullscreen") {
+    return false;
+  }
+  const env = process.env.ADA_PLAYWRIGHT_MAXIMIZE?.trim().toLowerCase();
+  if (env === "false" || env === "0" || env === "off") {
+    return false;
+  }
+  return true;
+}
+function applyPlaywrightMaximizeDefaults(payload) {
+  const merged = { ...asRecord(payload) };
+  if (!resolvePlaywrightMaximize(merged)) {
+    return merged;
+  }
+  const contextOptions = { ...asRecord(merged.contextOptions) };
+  if (!Object.prototype.hasOwnProperty.call(contextOptions, "viewport")) {
+    contextOptions.viewport = null;
+  }
+  const launchOptions = { ...asRecord(merged.launchOptions) };
+  const args = Array.isArray(launchOptions.args) ? launchOptions.args.map(String) : [];
+  if (!args.some((a) => /start-maximized/i.test(a))) {
+    launchOptions.args = [...args, "--start-maximized"];
+  }
+  merged.contextOptions = contextOptions;
+  merged.launchOptions = launchOptions;
+  return merged;
+}
 
 // ../../packages/driver-rpc/src/command-timeout.ts
 var DEFAULT_NAVIGATION_TIMEOUT_MS = 75e3;
@@ -2070,16 +2111,6 @@ function asRecord6(value) {
 function parseHeadless(payload) {
   return resolvePlaywrightHeadless(payload);
 }
-function shouldForceMaximize(payload) {
-  const p = asRecord6(payload);
-  const options = asRecord6(p.options);
-  const direct = p.maximize;
-  const fromOptions = options.maximize;
-  if (typeof direct === "boolean") return direct;
-  if (typeof fromOptions === "boolean") return fromOptions;
-  const state = String(p.windowState ?? options.windowState ?? "").toLowerCase();
-  return state === "maximized";
-}
 function shouldCreateCdpContext(contextOptions, payload) {
   const p = asRecord6(payload);
   const options = asRecord6(p.options);
@@ -2097,7 +2128,7 @@ function shouldCreateCdpContext(contextOptions, payload) {
   return true;
 }
 async function forceMaximizeWindowIfNeeded(pw, payload) {
-  if (pw.headless || pw.browserKind !== "chromium" || !shouldForceMaximize(payload)) {
+  if (pw.headless || pw.browserKind !== "chromium" || !resolvePlaywrightMaximize(payload)) {
     return;
   }
   try {
@@ -2244,7 +2275,7 @@ function applyLocalLaunchOverrides(baseLaunch, local, browserKind) {
   }
 }
 async function createPlaywrightSession(playwrightModule, payload) {
-  const merged = mergeOptionsIntoPayload(payload);
+  const merged = applyPlaywrightMaximizeDefaults(mergeOptionsIntoPayload(payload));
   const local = resolveLocalBrowserFields(merged);
   const browserKind = parseBrowserKind(merged);
   const headless = parseHeadless(merged);
@@ -2386,7 +2417,7 @@ async function ensurePlaywrightSession(session, payload) {
     return existed;
   }
   assertPlaywrightBrowserLimit();
-  const merged = mergeOptionsIntoPayload(payload);
+  const merged = applyPlaywrightMaximizeDefaults(mergeOptionsIntoPayload(payload));
   const sessionKey = buildSessionKey(merged);
   const playwrightModule = await loadPlaywrightModule();
   try {

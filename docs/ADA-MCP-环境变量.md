@@ -48,11 +48,17 @@
 | `ADA_MOBILE_SESSION_PROBE_TTL_MS` | — | 移动会话探活缓存（默认 5000；可回落到 WEB_PAGE_PROBE） |
 | `ADA_SETTLE_SMART` | — | recipe settle 智能早退（默认开；`0` 退回固定 sleep） |
 | `ADA_SESSION_SERIALIZE_ALL` | — | `1` 时同 session 全串行（关闭只读并行） |
+| `ADA_MOBILE_DEVICE_SERIALIZE` | — | 默认开：移动端**同一物理设备**跨 sessionId 互斥串行（无并发，防串台）；`0`/`false`/`off` 关闭 |
+| `ADA_MCP_ARTIFACTS` | — | `1`/`true` 时把步骤写入 `.ada/artifacts/<date>/timeline.jsonl`（默认关；也可单次 `artifacts:true`） |
+| `ADA_MCP_ARTIFACT_DIR` | — | artifact 根目录（默认 `<cwd>/.ada/artifacts`） |
 | `ADA_LOCATOR_HINT_TTL_MS` | — | 成功 locator 温缓存 TTL（默认 12000）；`0` 禁用 |
 | `ADA_LOCATOR_WARM_TIMEOUT_MS` | — | 温 locator 的 locatorTimeoutMs 上限（默认 1200） |
 | `ADA_WEB_EXPAND_SETTLE_MS` | — | Web expand 后固定 settle（默认 50） |
 | `ADA_WEB_NAVIGATION_TIMEOUT_MS` | — | `navigate` / `reload` / `newTab` 打开页等待（默认 **75000**，覆盖登录墙）；也可用 payload `navigationTimeoutMs` / `timeoutMs`。超时会释放浏览器连接 |
 | `ADA_RELEASE_ON_WAIT_TIMEOUT_MS` | — | 前置条件/locator 等待达到该毫秒数即释放连接（默认 **60000**）；`0`=任意 timeout 都释放。另：navigate/wait、`COMMAND_TIMEOUT`、文案含「前置条件/无正确响应」一律释放。释放后须换新 `sessionId`（复用返回 `SESSION_RELEASED` + `suggestedSessionId`；`payload.forceReuseReleasedSession=true` 可清登记） |
+| `ADA_PLAYWRIGHT_HEADLESS` | — | `true`/`1` 无头；默认有头（可见窗口） |
+| `ADA_PLAYWRIGHT_MAXIMIZE` | — | 有头默认**最大化**（并默认 `contextOptions.viewport=null` + `--start-maximized`）；`0`/`false`/`off` 关闭。也可用 payload `maximize:false` / `windowState:"normal"` |
+| `ADA_PLAYWRIGHT_BRING_TO_FRONT` | — | 有头默认置前；`0`/`false` 关闭 |
 | `ADA_PLAYWRIGHT_CDP_SHARE_EXISTING` | — | `true` 时 CDP autoLaunch 可附着已有调试端口（默认关闭：端口空闲用计划端口，占用则换空闲端口新开） |
 | `ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT` | — | `true` 时 CDP 复用已有 BrowserContext（默认关闭：每 session `newContext` 隔离） |
 | `ADA_PLAYWRIGHT_MAX_BROWSERS` | — | 同时打开的 Playwright 浏览器上限（默认 **20**）；`0`=不限制。超限返回 `BROWSER_LIMIT_EXCEEDED` |
@@ -60,7 +66,7 @@
 | `ADA_WEB_SESSION_BUSY_WRITES` | — | 冲突拦截范围：`heavy`（默认：开页+`recipe`/`invoke`/`custom`）/ `open`（仅开页）/ `all`（全部写，含 click/type） |
 | `ADA_RELEASED_SESSION_TTL_MS` | — | 已释放 sessionId 登记 TTL（默认 **3600000**=1h）；`0`=不按时间过期 |
 | `ADA_RELEASED_SESSION_MAX` | — | 已释放登记表上限（默认 **200**），超出淘汰最旧 |
-| `ADA_RELEASED_PLACEHOLDER_MODE` | — | 占位 id（`mcp-session` 等）释放后：`warn`（默认，提示可继续）/ `block`（硬拦）/ `off` |
+| `ADA_RELEASED_PLACEHOLDER_MODE` | — | 占位 id（`mcp-session` 等）释放后：`warn`（默认，本地友好）/ `block`（硬拦，**CI 建议**）/ `off` |
 
 ## 动作熔断（Web clickPath / Mobile tap_path）
 

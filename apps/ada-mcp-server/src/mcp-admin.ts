@@ -11,7 +11,13 @@ import {
 } from "./mcp-released-sessions.js";
 import { clearAllWebSessionTracks, clearWebSessionTrack } from "./mcp-session-liveness.js";
 import { asRecord } from "./mcp-utils.js";
-import { resolvePlaywrightMaxBrowsers } from "@ada/driver-rpc";
+import { resolvePlaywrightEffectiveDefaults, resolvePlaywrightMaxBrowsers } from "@ada/driver-rpc";
+import {
+  clearAllSessionLeases,
+  clearSessionLease,
+  listSessionLeases
+} from "./mcp-session-lease.js";
+import { clearAllTasks, listRegisteredTasks } from "./mcp-task-lifecycle.js";
 
 function resolveIosUdidFromPayload(payload: Record<string, unknown>): string {
   const caps = asRecord(payload.capabilities);
@@ -54,6 +60,7 @@ export function handleSessions(
   const playwrightBrowsersSource =
     typeof fromRuntime === "number" ? ("playwright-runtime" as const) : ("kernel-fallback" as const);
   const maxBrowsers = resolvePlaywrightMaxBrowsers();
+  const playwrightDefaults = resolvePlaywrightEffectiveDefaults();
   return deps.mcpTextResult({
     count: sessions.length,
     sessions,
@@ -62,7 +69,13 @@ export function handleSessions(
     playwrightBrowsersSource,
     kernelWebSessions,
     playwrightMaxBrowsers: maxBrowsers,
-    playwrightBrowserSlotsRemaining: maxBrowsers > 0 ? Math.max(0, maxBrowsers - playwrightBrowsers) : null
+    playwrightBrowserSlotsRemaining: maxBrowsers > 0 ? Math.max(0, maxBrowsers - playwrightBrowsers) : null,
+    /** 只读观测：当前进程 Web 启动默认（本地有头最大化 vs CI 无头） */
+    playwrightDefaults,
+    /** ada_begin_task 登记的任务（可选；手写 sessionId 不会出现在此） */
+    tasks: listRegisteredTasks(),
+    /** 软占用可观测（不自动回收）：最近活动的 session */
+    leases: listSessionLeases()
   });
 }
 
@@ -90,6 +103,7 @@ export async function handleCloseSession(
   let iproxyStopped = 0;
   if (closed) {
     markSessionReleased(platform, sessionId, "ada_close_session");
+    clearSessionLease(platform, sessionId);
   }
   if (closed && platform === "web") {
     clearWebSessionTrack(sessionId);
@@ -126,6 +140,8 @@ export async function handleCloseAllSessions(
   clearMobileSessionProbeCache();
   clearLocatorHintCache();
   clearReleasedSession();
+  clearAllTasks();
+  clearAllSessionLeases();
   const iproxyStopped = stopAllIosIproxyForwards();
   return deps.mcpTextResult({ status: "ok", closed, iproxyStopped });
 }

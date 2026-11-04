@@ -621,21 +621,31 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_assertions",
       description:
-        "[Data-Web] Assert web page state: element visible, text content, or URL — fails the step if condition not met. " +
-        "USE WHEN: test verification after ada_web_action (prefer over manual getText comparison). " +
-        "KEY ARGS: sessionId (required), type=visible|text|url, payload (locator, expected text/url).",
+        "[Data-Web] Assert page state — fails step if unmet. " +
+        "USE WHEN: verify after ada_web_action (prefer over manual getText). " +
+        "KEY ARGS: sessionId, type=visible|text|url|title|count|attribute|notVisible; " +
+        "payload: locator / expectedText / expectedUrl / expectedTitle / css+expectedCount / css+attribute+expected.",
       inputSchema: {
         type: "object",
         properties: {
           sessionId: { type: "string", description: "Active web session" },
           type: {
             type: "string",
-            enum: ["visible", "text", "url"],
-            description: "Assertion kind"
+            enum: ["visible", "text", "url", "title", "count", "attribute", "notVisible"],
+            description:
+              "visible|text|url|title|count(css+expectedCount)|attribute(css+attribute)|notVisible"
           },
-          payload: { type: "object", description: "Expected values and locators" },
+          payload: {
+            type: "object",
+            description:
+              "locator / expectedText / expectedUrl / expectedTitle / css / expectedCount / op / attribute / expected"
+          },
           allowMock: allowMockField(),
-          riskApproved: riskApprovedField()
+          riskApproved: riskApprovedField(),
+          artifacts: {
+            type: "boolean",
+            description: "Optional: append step to .ada/artifacts timeline (or set ADA_MCP_ARTIFACTS=1)"
+          }
         },
         required: ["sessionId", "type"],
         additionalProperties: false
@@ -667,16 +677,20 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     {
       name: "ada_mobile_assertions",
       description:
-        "Assert mobile visible|text. ARGS: platform, sessionId, type, payload.",
+        "Assert mobile visible|text|notVisible. ARGS: platform, sessionId, type, payload.",
       inputSchema: {
         type: "object",
         properties: {
           platform: { type: "string", enum: ["android", "ios", "harmony"] },
           sessionId: { type: "string" },
-          type: { type: "string", enum: ["visible", "text"] },
+          type: { type: "string", enum: ["visible", "text", "notVisible"] },
           payload: { type: "object" },
           allowMock: allowMockField(),
-          riskApproved: riskApprovedField()
+          riskApproved: riskApprovedField(),
+          artifacts: {
+            type: "boolean",
+            description: "Optional timeline artifact (or ADA_MCP_ARTIFACTS=1)"
+          }
         },
         required: ["platform", "sessionId", "type"],
         additionalProperties: false
@@ -684,13 +698,58 @@ function buildAllAdaMcpToolDefinitions(): Array<{
     },
     {
       name: "ada_sessions",
-      description: "List active sessions (sessionId, platform). USE: debug leaks before ada_close_session. No parameters.",
+      description:
+        "List active sessions + tasks[] (begin_task) + leases[] (soft occupancy: lastActive/idleMs, no auto-reclaim). USE: debug leaks before end/close.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false }
+    },
+    {
+      name: "ada_begin_task",
+      description:
+        "OPTIONAL: allocate taskId+sessionId for one task (does not open browser). USE: local/CI to avoid inventing ids. Then navigate/launchApp with returned sessionId; finish with ada_end_task. Hand-written sessionId still OK.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          platform: {
+            type: "string",
+            enum: ["web", "android", "ios", "harmony"],
+            description: "Task platform (default web)"
+          },
+          prefix: {
+            type: "string",
+            description: "Optional sessionId/taskId prefix (e.g. ci-job-42 or web-pet)"
+          }
+        },
+        additionalProperties: false
+      }
+    },
+    {
+      name: "ada_end_task",
+      description:
+        "OPTIONAL: end a begin_task (or any sessionId): close browser/device session + clear task registry. ARGS: taskId and/or sessionId (+ platform if only sessionId).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "From ada_begin_task" },
+          sessionId: { type: "string", description: "Session to close (required if taskId omitted)" },
+          platform: {
+            type: "string",
+            enum: ["web", "android", "ios", "harmony"],
+            description: "Required when resolving by sessionId only (default web)"
+          },
+          engine: {
+            type: "string",
+            enum: ["playwright"],
+            description: "Web only"
+          },
+          payload: { type: "object", description: "Optional close payload" }
+        },
+        additionalProperties: false
+      }
     },
     {
       name: "ada_close_session",
       description:
-        "Close one session. ARGS: platform, sessionId (required); engine=playwright for web.",
+        "Close one session. ARGS: platform, sessionId (required); engine=playwright for web. Prefer ada_end_task when you used ada_begin_task.",
       inputSchema: {
         type: "object",
         properties: {

@@ -220,6 +220,111 @@ test("TaskExecutor rejects parallel web navigate on busy session with SESSION_BU
   }
 });
 
+test("TaskExecutor serializes different mobile sessionIds on the same device", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const session: DriverSession = { id: "drv-android", platform: "android" };
+  const plugin: DriverPlugin = {
+    manifest: {
+      id: "test-android-device-gate",
+      version: "0.0.0",
+      platforms: ["android"],
+      capabilities: ["click", "screenshot"],
+      engine: "appium"
+    },
+    async createSession() {
+      return session;
+    },
+    async execute(_session, command) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      active -= 1;
+      return { requestId: command.requestId, success: true, data: {} } satisfies CommandResult;
+    }
+  };
+
+  const prev = process.env.ADA_MOBILE_DEVICE_SERIALIZE;
+  delete process.env.ADA_MOBILE_DEVICE_SERIALIZE;
+  try {
+    const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
+    const payload = { capabilities: { udid: "emulator-5554" } };
+    const results = await Promise.all([
+      executor.execute({
+        requestId: "m1",
+        sessionId: "mobile-a",
+        platform: "android",
+        command: "click",
+        payload
+      }),
+      executor.execute({
+        requestId: "m2",
+        sessionId: "mobile-b",
+        platform: "android",
+        command: "screenshot",
+        payload
+      })
+    ]);
+    assert.ok(results.every((r) => r.success));
+    assert.equal(maxActive, 1);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_MOBILE_DEVICE_SERIALIZE;
+    else process.env.ADA_MOBILE_DEVICE_SERIALIZE = prev;
+  }
+});
+
+test("TaskExecutor allows parallel mobile ops on different devices", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const session: DriverSession = { id: "drv-android-2", platform: "android" };
+  const plugin: DriverPlugin = {
+    manifest: {
+      id: "test-android-multi-device",
+      version: "0.0.0",
+      platforms: ["android"],
+      capabilities: ["click"],
+      engine: "appium"
+    },
+    async createSession() {
+      return session;
+    },
+    async execute(_session, command) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      active -= 1;
+      return { requestId: command.requestId, success: true, data: {} } satisfies CommandResult;
+    }
+  };
+
+  const prev = process.env.ADA_MOBILE_DEVICE_SERIALIZE;
+  delete process.env.ADA_MOBILE_DEVICE_SERIALIZE;
+  try {
+    const executor = new TaskExecutor(makeHost(plugin), { maxAttempts: 1 });
+    const results = await Promise.all([
+      executor.execute({
+        requestId: "d1",
+        sessionId: "s1",
+        platform: "android",
+        command: "click",
+        payload: { capabilities: { udid: "dev-1" } }
+      }),
+      executor.execute({
+        requestId: "d2",
+        sessionId: "s2",
+        platform: "android",
+        command: "click",
+        payload: { capabilities: { udid: "dev-2" } }
+      })
+    ]);
+    assert.ok(results.every((r) => r.success));
+    assert.equal(maxActive, 2);
+  } finally {
+    if (prev === undefined) delete process.env.ADA_MOBILE_DEVICE_SERIALIZE;
+    else process.env.ADA_MOBILE_DEVICE_SERIALIZE = prev;
+  }
+});
+
 test("TaskExecutor allows concurrent read-only commands on the same session", async () => {
   let active = 0;
   let maxActive = 0;

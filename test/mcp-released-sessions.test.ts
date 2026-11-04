@@ -123,6 +123,9 @@ test("handleSessions prefers playwright-runtime count over kernel list", () => {
   assert.equal(out.playwrightMaxBrowsers, 20);
   assert.equal(out.playwrightBrowserSlotsRemaining, 19);
   assert.equal(typeof out.releasedSessionCount, "number");
+  const defaults = out.playwrightDefaults as { profile?: string; headless?: boolean };
+  assert.ok(defaults && typeof defaults.profile === "string");
+  assert.equal(typeof defaults.headless, "boolean");
 });
 
 test("handleSessions falls back to kernel web count when runtime unavailable", () => {

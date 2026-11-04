@@ -15,7 +15,41 @@ import {
   MCP_VERBOSE_RESULT_HINT,
   resolveResultForMcp
 } from "./mcp-response-mode.js";
+import { appendArtifactTimeline } from "./mcp-artifacts.js";
+import { touchSessionLease } from "./mcp-session-lease.js";
 import { asRecord } from "./mcp-utils.js";
+
+function noteObservability(input: {
+  tool: string;
+  sessionId: string;
+  platform?: string;
+  command?: string;
+  success: boolean;
+  summary?: string;
+  type?: string;
+  args?: Record<string, unknown>;
+}): { artifacts?: { dir: string; file: string } } {
+  touchSessionLease({
+    platform: input.platform ?? "web",
+    sessionId: input.sessionId,
+    tool: input.tool,
+    command: input.command,
+    source: "tool"
+  });
+  const art = appendArtifactTimeline(
+    {
+      tool: input.tool,
+      sessionId: input.sessionId,
+      platform: input.platform,
+      command: input.command,
+      success: input.success,
+      summary: input.summary,
+      type: input.type
+    },
+    input.args
+  );
+  return art.enabled ? { artifacts: { dir: art.dir, file: art.file } } : {};
+}
 
 export type McpErrorKind =
   | "validation"
@@ -246,6 +280,17 @@ export function wrapCommandToolResult(input: {
         payload.previousSessionId = data.previousSessionId;
       }
     }
+    Object.assign(
+      payload,
+      noteObservability({
+        tool,
+        sessionId: envelope.sessionId,
+        platform: envelope.platform,
+        command: envelope.command,
+        success: false,
+        summary: String(result.errorMessage ?? result.errorCode ?? "failed")
+      })
+    );
     return mcpTextResult(payload, buildFailureOptions({ tool, envelope, result }));
   }
 
@@ -261,6 +306,18 @@ export function wrapCommandToolResult(input: {
   payload.summary = url
     ? `${envelope.command} ok · reuse sessionId=${envelope.sessionId} · ${url}`
     : `${envelope.command} ok · reuse sessionId=${envelope.sessionId}`;
+
+  Object.assign(
+    payload,
+    noteObservability({
+      tool,
+      sessionId: envelope.sessionId,
+      platform: envelope.platform,
+      command: envelope.command,
+      success: true,
+      summary: String(payload.summary)
+    })
+  );
 
   return mcpTextResult(payload);
 }
@@ -299,6 +356,19 @@ export function wrapAssertionResult(input: {
       }
     }
   }
+  Object.assign(
+    payload,
+    noteObservability({
+      tool: input.tool,
+      sessionId: input.sessionId,
+      platform: input.platform ?? "web",
+      command: input.type,
+      success: input.pass,
+      summary: input.pass ? `assert ${input.type} ok` : `assert ${input.type} failed`,
+      type: input.type
+    })
+  );
+
   if (!input.pass) {
     const platform = input.platform ?? "web";
     const extractTool = platform !== "web" ? "ada_mobile_extract" : "ada_extract";

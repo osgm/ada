@@ -11,7 +11,7 @@
 | 环境变量 | [`ADA-MCP-环境变量.md`](ADA-MCP-环境变量.md) |
 | npm 发布 | [`scripts/README.md`](../scripts/README.md) |
 
-**推荐版本（2026-06）**：`@ada-mcp/launcher` 与 `@ada-mcp/mcp-server` **同号发布**（当前 monorepo：`0.1.92`；示例：`pnpm dlx @ada-mcp/launcher@0.1.92`）。**勿用 0.1.73 / 0.1.74**（已知启动缺陷，已 deprecate）。
+**推荐版本（2026-06）**：`@ada-mcp/launcher` 与 `@ada-mcp/mcp-server` **同号发布**（当前 monorepo：`0.1.93`；示例：`pnpm dlx @ada-mcp/launcher@0.1.93`）。**勿用 0.1.73 / 0.1.74**（已知启动缺陷，已 deprecate）。
 
 ---
 
@@ -24,7 +24,7 @@
   "mcpServers": {
     "ada-mcp": {
       "command": "pnpm",
-      "args": ["dlx", "@ada-mcp/launcher@0.1.92"]
+      "args": ["dlx", "@ada-mcp/launcher@0.1.93"]
     }
   }
 }
@@ -33,9 +33,9 @@
 命令行：
 
 ```bash
-pnpm dlx @ada-mcp/launcher@0.1.92
+pnpm dlx @ada-mcp/launcher@0.1.93
 # npx 等价（Windows 建议仍用 launcher，勿单独 npx mcp-server）
-npx -y @ada-mcp/launcher@0.1.92
+npx -y @ada-mcp/launcher@0.1.93
 ```
 
 | 包 | 作用 |
@@ -52,7 +52,7 @@ npx -y @ada-mcp/launcher@0.1.92
   "mcpServers": {
     "ada-mcp": {
       "command": "pnpm",
-      "args": ["dlx", "@ada-mcp/launcher@0.1.92", "--install-deps=playwright"]
+      "args": ["dlx", "@ada-mcp/launcher@0.1.93", "--install-deps=playwright"]
     }
   }
 }
@@ -64,14 +64,14 @@ npx -y @ada-mcp/launcher@0.1.92
 
 | 写法 | 行为 |
 |------|------|
-| `@ada-mcp/launcher@0.1.92` | 钉版本（生产推荐，与 mcp-server 同号） |
+| `@ada-mcp/launcher@0.1.93` | 钉版本（生产推荐，与 mcp-server 同号） |
 | `@ada-mcp/launcher` | 安装 registry **latest** |
 | `ADA_MCP_SERVER_VERSION` | 仅覆盖内层 mcp-server 版本 |
 | `ADA_MCP_REGISTRY` | **强制**安装源（跳过测速），如 `https://registry.npmjs.org/` |
 
 ```powershell
 set ADA_MCP_REGISTRY=https://registry.npmjs.org/
-pnpm dlx @ada-mcp/launcher@0.1.92
+pnpm dlx @ada-mcp/launcher@0.1.93
 ```
 
 > **注意**：`pnpm dlx --registry URL pkg` **无效**；不要用 `pnpm dlx --registry` 前缀。镜像未同步新版本时，**0.1.48+ launcher** 会在需要时自动回退 npmjs。
@@ -86,7 +86,7 @@ pnpm dlx @ada-mcp/launcher@0.1.92
 | `playwright` / `mobile` / `android` / `ios` / `harmony` / `drivers` / `all` | 见名；可逗号组合。`all` = Playwright（npm+浏览器）+ 移动驱动（Android/UIA2、iOS/WDA、Harmony/hypium+hdc）；`drivers` = 仅移动工具链/驱动环境检查（不装 Appium 等中心化 Server） |
 | `none` / `skip` 或 `ADA_MCP_SKIP_INSTALL_DEPS=1` | 跳过 |
 
-Host 示例：`"args": ["dlx", "@ada-mcp/launcher@0.1.92", "--install-deps=playwright,mobile"]`
+Host 示例：`"args": ["dlx", "@ada-mcp/launcher@0.1.93", "--install-deps=playwright,mobile"]`
 
 工作区：`.ada-mcp-playwright-host` 写在 **Host 项目目录**（`INIT_CWD`），勿写 monorepo 源码路径。
 
@@ -94,14 +94,14 @@ Host 示例：`"args": ["dlx", "@ada-mcp/launcher@0.1.92", "--install-deps=playw
 
 部分 IDE（如 JoyCode / Cursor）对 MCP **stdio 握手约 60s**。`npx -y @ada-mcp/launcher` 冷启动时，若再执行 **串行** registry + Playwright preinstall 测速，最坏可超过 60s。
 
-**推荐（0.1.75+，当前 monorepo 0.1.92）**：
+**推荐（0.1.75+，当前 monorepo 0.1.93）**：
 
 ```json
 {
   "mcpServers": {
     "ada-mcp": {
       "command": "npx",
-      "args": ["-y", "@ada-mcp/launcher@0.1.92"],
+      "args": ["-y", "@ada-mcp/launcher@0.1.93"],
       "env": {
         "ADA_MCP_REGISTRY": "https://registry.npmmirror.com"
       }
@@ -208,10 +208,12 @@ MCP 服务端对安装与移动探针直接依赖 **`@ada/install-deps`**、**`@
 | 19 | `ada_mobile_assertions` | 数据-Mobile | 移动端可见/文案断言 |
 | 20 | `ada_batch_actions` | 编排 | 同会话多步串联（无文件） |
 | 21 | `ada_run_task_file` | 编排 | 运行 `.tasks.json` 场景文件 |
-| 22 | `ada_sessions` | 会话 | 列出活跃 sessionId |
-| 23 | `ada_close_session` | 会话 | 关闭单个会话 |
-| 24 | `ada_close_all_sessions` | 会话 | 关闭全部会话（收尾/重载 MCP） |
-| 25 | `ada_risk_policy` | 安全（**T3**） | 查看/维护高风险命令白名单 |
+| 22 | `ada_sessions` | 会话 | 列出活跃 sessionId + `tasks[]`（begin_task 登记） |
+| 23 | `ada_begin_task` | 会话 | **可选**：分配 `taskId`+`sessionId`（不开浏览器） |
+| 24 | `ada_end_task` | 会话 | **可选**：按 taskId/sessionId 收尾（关会话+清登记） |
+| 25 | `ada_close_session` | 会话 | 关闭单个会话 |
+| 26 | `ada_close_all_sessions` | 会话 | 关闭全部会话（收尾/重载 MCP） |
+| 27 | `ada_risk_policy` | 安全（**T3**） | 查看/维护高风险命令白名单 |
 
 > MCP `ListTools` 返回的 **description** 含 `[Lx-…]` 层级前缀、`USE WHEN`、`KEY ARGS` 等结构化提示；源码见 `apps/ada-mcp-server/src/mcp-tool-definitions.ts`、`mcp-tool-tiers.ts`。
 
@@ -221,7 +223,7 @@ MCP 服务端对安装与移动探针直接依赖 **`@ada/install-deps`**、**`@
 
 ```text
 探活/装依赖 → ada_health / ada_install_deps
-移动前置    → ada_devices（scan）→ 复用 sessionId + capabilities
+移动前置    → ada_devices（scan）→ 复用 sessionId + capabilities（同物理设备默认串行、无并发，防串台）
 Web E2E     → ada_web_action（playwright=本机浏览器 Profile）
 Web 遍历/搜索 → ada_extract viewTree → ada_web_recipe clickPath / fill_search
 Mobile 遍历 → ada_mobile_extract viewTree → ada_mobile_recipe tap_path
@@ -230,7 +232,8 @@ App         → ada_mobile_action；业务 recipe → ada_mobile_recipe
 Harmony     → ada_invoke（driver-harmony）或 mobile 能力扩展
 底层 API    → ada_invoke（T3，需 riskApproved）
 多步        → ada_batch_actions / ada_run_task_file
-结束        → ada_close_session / ada_close_all_sessions
+会话（推荐）→ ada_begin_task → … → ada_end_task（仍可手写 sessionId + ada_close_session）
+结束        → ada_end_task / ada_close_session / ada_close_all_sessions
 ```
 
 **Web 命令**：`navigate`、`click`、`type`、`screenshot`、`scroll`、`newTab`…（非 `invoke`，用 `ada_invoke`）
@@ -252,7 +255,35 @@ Harmony     → ada_invoke（driver-harmony）或 mobile 能力扩展
 
 **常用 payload**：`sessionId`、`engine`（web）、`headless`、`bringToFront`、`browser`/`channel`、`userDataDir`/`profile`、`cdpEndpoint`、`locator`、`serverUrl`+`capabilities`（移动）
 
-**Web 默认行为（无需每次写 headless）**：未指定时 **有头可见**（`headless` 默认 `false`），并 **`bringToFront` 置前**。CI/无头请设 `payload.headless: true` 或环境变量 `ADA_PLAYWRIGHT_HEADLESS=true`；关闭置前：`bringToFront: false` 或 `ADA_PLAYWRIGHT_BRING_TO_FRONT=false`。
+**Web 默认行为（无需每次写 headless）**：未指定时 **有头可见**（`headless` 默认 `false`），**窗口最大化**（默认 `viewport:null` + `--start-maximized`，避免锁在 1280×720 导致内容裁切），并 **`bringToFront` 置前**。CI/无头：`payload.headless: true` 或 `ADA_PLAYWRIGHT_HEADLESS=true`；关闭最大化：`maximize: false` / `windowState:"normal"` / `ADA_PLAYWRIGHT_MAXIMIZE=0`；关闭置前：`bringToFront: false` 或 `ADA_PLAYWRIGHT_BRING_TO_FRONT=false`。
+
+**本地 vs CI（同一 MCP，用环境区分）**：
+
+| | 单 Agent 本地（默认） | 多任务 CI 并行 |
+|--|----------------------|----------------|
+| 显示 | 有头 + 最大化 + `viewport:null` | `ADA_PLAYWRIGHT_HEADLESS=true`；payload 固定 `contextOptions.viewport`（如 1280×720） |
+| session | 推荐 `ada_begin_task`→复用返回的 `sessionId`→`ada_end_task`；或手写 id | `ada_begin_task(prefix=ci-job-…)`；结束 `ada_end_task` / `close_all` |
+| 占位 id | `ADA_RELEASED_PLACEHOLDER_MODE=warn`（默认，本地友好） | 可选 `=block`（非必须） |
+| 浏览器上限 | 默认 20 | 可按机器调低 `ADA_PLAYWRIGHT_MAX_BROWSERS` |
+| 观测 | `ada_sessions.playwrightDefaults` + `leases[]`（软占用） | 同左；关注 `playwrightBrowserSlotsRemaining`、`leases` |
+| 证据 | 默认不落盘 | `ADA_MCP_ARTIFACTS=1` → `.ada/artifacts/<date>/timeline.jsonl` |
+
+**CI 环境变量配方示例**（不改本地默认，仅 CI job 注入）：
+
+```bash
+ADA_PLAYWRIGHT_HEADLESS=true
+ADA_PLAYWRIGHT_MAXIMIZE=0
+ADA_PLAYWRIGHT_MAX_BROWSERS=4
+ADA_MCP_ARTIFACTS=1
+ADA_MCP_ARTIFACT_DIR=$CI_PROJECT_DIR/ada-artifacts
+# 可选更严：
+# ADA_WEB_SESSION_BUSY_WRITES=all
+# ADA_RELEASED_PLACEHOLDER_MODE=block
+```
+
+Web 固定视口示例 payload：`"contextOptions": { "viewport": { "width": 1280, "height": 720 } }`。
+
+测例放仓库（`tasks/` + `ada_run_task_file` / batch）；MCP 只做执行。失败读 `recoveryHint`，勿在 `SESSION_RELEASED` 后同 id 重试。断言优先 `ada_assertions`（`visible|text|url|title|count|attribute|notVisible`）。
 
 **发布前验证**（维护者，自 monorepo 根目录）：
 
@@ -600,7 +631,7 @@ launcher **阶段 A**：测速选 registry → 写 `npm_config_registry` / 项�
 **直连 mcp-server**（无 launcher 测速）：
 
 ```json
-{ "command": "npx", "args": ["-y", "@ada-mcp/mcp-server@0.1.92"] }
+{ "command": "npx", "args": ["-y", "@ada-mcp/mcp-server@0.1.93"] }
 ```
 
 Windows Host 找不到 `pnpm` 时，将 `command` 改为 `pnpm.cmd` 绝对路径。
@@ -625,14 +656,14 @@ npm run install:deps && npm run health && npm run doctor
 | `ERR_PNPM_FETCH_404` `@ada/download-probe` | **0.1.41** 缺陷；升级到 **0.1.48+**（launcher 已内联探测逻辑） |
 | `ERR_PNPM_NO_MATCHING_VERSION` / `ETARGET` | 镜像未同步；设 `ADA_MCP_REGISTRY=https://registry.npmjs.org/` 或钉已有版本 |
 | dlx 走腾讯源 404 | 本机 `.npmrc` 的 `registry`；launcher 本身无依赖，装 mcp-server 时可设 `ADA_MCP_REGISTRY=https://registry.npmmirror.com` |
-| `'mcp-server' 不是内部或外部命令`（Win） | 勿 `npx @ada-mcp/mcp-server`；用 **`pnpm dlx @ada-mcp/launcher@0.1.92`** |
+| `'mcp-server' 不是内部或外部命令`（Win） | 勿 `npx @ada-mcp/mcp-server`；用 **`pnpm dlx @ada-mcp/launcher@0.1.93`** |
 | `spawn EINVAL`（Win，`npm.cmd` / npx 回退） | 升级到文首推荐版本（≥0.1.75 已修）；或改用 `pnpm dlx` |
 | `spawn EINVAL`（Win，工作目录） | 勿在 `C:\Windows\System32` 运行；`cd %USERPROFILE%` |
 | `ada_web_action` 变 mock | **0.1.48+** 默认真实；检查是否误设 `allowMock`；查 `install-deps`、`ada_diagnostics` |
 | `ada_mobile_action` 失败 | 驱动通道 / capabilities / 设备 |
 | Web 本机浏览器失败 | 执行 `ada_install_deps` 并检查 Playwright 浏览器 |
 | `playwright install` 超时/404 | `PLAYWRIGHT_DOWNLOAD_HOST` 或删 `.ada-mcp-playwright-host` 重试 |
-| zod / `ERR_PACKAGE_PATH_NOT_EXPORTED` | 清 dlx 缓存，钉 `@ada-mcp/launcher@0.1.92` |
+| zod / `ERR_PACKAGE_PATH_NOT_EXPORTED` | 清 dlx 缓存，钉 `@ada-mcp/launcher@0.1.93` |
 | dlx 仍是旧版 | 钉版本或清 `pnpm-cache/dlx` |
 | MCP `-32001 Request timed out`（约 60s） | 设 `ADA_MCP_REGISTRY` 固定镜像；**勿**在 args 加 `--install-deps=all`（launcher 默认降为 playwright）；需完整测速时 `ADA_MCP_SLOW_START=1`；见 §1.4 |
 | Mac `mkdir '/tools' ENOENT`（首次 `install-deps=all`） | MCP Host 未设 `cwd` 时进程可能在 `/`；已修复为改用 `~/.ada/tools`；或 Host 设 `cwd` 为项目目录、`ADA_TOOLS_DIR` 指向已有 tools |

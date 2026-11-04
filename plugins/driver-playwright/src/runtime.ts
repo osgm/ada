@@ -12,8 +12,10 @@ import {
   resolveCdpAutoLaunchPlan,
   resolveCdpBrowserFamily,
   resolveLocalBrowserFields,
+  applyPlaywrightMaximizeDefaults,
   resolvePlaywrightBringToFront,
   resolvePlaywrightHeadless,
+  resolvePlaywrightMaximize,
   serializeRpcResult,
   stopCdpSpawn,
   cleanupAllCdpSpawns,
@@ -125,17 +127,6 @@ function parseHeadless(payload?: Record<string, unknown>): boolean {
   return resolvePlaywrightHeadless(payload);
 }
 
-function shouldForceMaximize(payload?: Record<string, unknown>): boolean {
-  const p = asRecord(payload);
-  const options = asRecord(p.options);
-  const direct = p.maximize;
-  const fromOptions = options.maximize;
-  if (typeof direct === "boolean") return direct;
-  if (typeof fromOptions === "boolean") return fromOptions;
-  const state = String(p.windowState ?? options.windowState ?? "").toLowerCase();
-  return state === "maximized";
-}
-
 /**
  * CDP 默认每个 ADA session 新建 context（并发隔离）。
  * 仅当 reuseCdpContext=true（或 ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT=true）时复用已有 context。
@@ -172,7 +163,7 @@ async function forceMaximizeWindowIfNeeded(
   pw: PlaywrightSession,
   payload?: Record<string, unknown>
 ): Promise<void> {
-  if (pw.headless || pw.browserKind !== "chromium" || !shouldForceMaximize(payload)) {
+  if (pw.headless || pw.browserKind !== "chromium" || !resolvePlaywrightMaximize(payload)) {
     return;
   }
   try {
@@ -358,7 +349,7 @@ async function createPlaywrightSession(
   playwrightModule: any,
   payload?: Record<string, unknown>
 ): Promise<PlaywrightSession> {
-  const merged = mergeOptionsIntoPayload(payload);
+  const merged = applyPlaywrightMaximizeDefaults(mergeOptionsIntoPayload(payload));
   const local = resolveLocalBrowserFields(merged);
   const browserKind = parseBrowserKind(merged);
   const headless = parseHeadless(merged);
@@ -516,7 +507,7 @@ export async function ensurePlaywrightSession(session: DriverSession, payload?: 
     return existed;
   }
   assertPlaywrightBrowserLimit();
-  const merged = mergeOptionsIntoPayload(payload);
+  const merged = applyPlaywrightMaximizeDefaults(mergeOptionsIntoPayload(payload));
   const sessionKey = buildSessionKey(merged);
 
   const playwrightModule = await loadPlaywrightModule();

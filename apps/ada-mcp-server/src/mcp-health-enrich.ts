@@ -1,4 +1,7 @@
-import { resolvePlaywrightMaxBrowsers } from "@ada/driver-rpc";
+import {
+  resolvePlaywrightEffectiveDefaults,
+  resolvePlaywrightMaxBrowsers
+} from "@ada/driver-rpc";
 import { resolvePlaceholderReleasedMode } from "./mcp-released-sessions.js";
 import { getCachedMobileProbes } from "./mcp-runtime-preflight.js";
 import { asRecord } from "./mcp-utils.js";
@@ -19,6 +22,7 @@ export interface SessionPolicy {
   recommendMonitorOnFailure: boolean;
   playwrightMaxBrowsers: number;
   releasedPlaceholderMode: "warn" | "block" | "off";
+  playwrightDefaults: ReturnType<typeof resolvePlaywrightEffectiveDefaults>;
   note: string;
 }
 
@@ -73,6 +77,7 @@ export function buildMcpReadinessHints(
 export function buildSessionPolicy(): SessionPolicy {
   const playwrightMaxBrowsers = resolvePlaywrightMaxBrowsers();
   const releasedPlaceholderMode = resolvePlaceholderReleasedMode();
+  const playwrightDefaults = resolvePlaywrightEffectiveDefaults();
   return {
     defaultTier: "T1",
     maxAutoRetry: 2,
@@ -81,9 +86,12 @@ export function buildSessionPolicy(): SessionPolicy {
     recommendMonitorOnFailure: true,
     playwrightMaxBrowsers,
     releasedPlaceholderMode,
+    playwrightDefaults,
     note:
-      `Browser cap=${playwrightMaxBrowsers || "unlimited"}; check ada_sessions for playwrightBrowsers. ` +
-      `Placeholder released mode=${releasedPlaceholderMode}.`
+      `Browser cap=${playwrightMaxBrowsers || "unlimited"}; profile=${playwrightDefaults.profile}; ` +
+      `check ada_sessions for playwrightBrowsers + playwrightDefaults. ` +
+      `Placeholder released mode=${releasedPlaceholderMode} (CI: ADA_RELEASED_PLACEHOLDER_MODE=block). ` +
+      `Local=headed+maximize; CI=ADA_PLAYWRIGHT_HEADLESS=true + fixed viewport.`
   };
 }
 

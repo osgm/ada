@@ -20,7 +20,7 @@ describe("mcp-tool-catalog", () => {
       assert.equal(shouldHideAdvancedTools(), false);
       const tools = buildAdaMcpToolDefinitions();
       const names = tools.map((tool) => tool.name);
-      assert.equal(names.length, 25);
+      assert.equal(names.length, 27);
       for (const advanced of getT3Names(names)) {
         assert.ok(names.includes(advanced), `missing advanced tool: ${advanced}`);
       }
@@ -39,7 +39,7 @@ describe("mcp-tool-catalog", () => {
     process.env.ADA_MCP_HIDE_ADVANCED = "1";
     try {
       const names = buildAdaMcpToolDefinitions().map((tool) => tool.name);
-      assert.equal(names.length, 23);
+      assert.equal(names.length, 25);
       for (const advanced of ["ada_invoke", "ada_risk_policy"]) {
         assert.equal(names.includes(advanced), false, `T3 tool should be hidden: ${advanced}`);
       }

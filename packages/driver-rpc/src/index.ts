@@ -304,9 +304,11 @@ export {
   type DeviceAdminAction
 } from "./mobile-device-admin.js";
 export {
+  buildExecutionGateKey,
   buildKernelSessionKey,
   parseKernelSessionKey,
-  resolveMobileDeviceId
+  resolveMobileDeviceId,
+  shouldSerializeMobileDevice
 } from "./session-key.js";
 export { UiDumpCache, readUiDumpCacheTtlMs, shouldInvalidateDumpOnAction } from "./ui-dump-cache.js";
 export { RECIPE_ERROR_CODES, platformRecipeErrorCode, recipeErrorCodeForAction } from "./recipe-errors.js";
@@ -371,7 +373,13 @@ export {
   type UiPickResult,
   type ScreenSize
 } from "@ada/mobile-ui";
-export { resolvePlaywrightBringToFront, resolvePlaywrightHeadless } from "./playwright-defaults.js";
+export {
+  applyPlaywrightMaximizeDefaults,
+  resolvePlaywrightBringToFront,
+  resolvePlaywrightEffectiveDefaults,
+  resolvePlaywrightHeadless,
+  resolvePlaywrightMaximize
+} from "./playwright-defaults.js";
 export { ElementIdCache, locatorCacheKey } from "./mobile-element-cache.js";
 export { isTransientMobileErrorCode, MOBILE_TRANSIENT_ERROR_CODES } from "./mobile-transient-errors.js";
 export {

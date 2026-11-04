@@ -12,6 +12,7 @@ import {
   handleRiskPolicy,
   handleSessions
 } from "./mcp-admin.js";
+import { handleBeginTask, handleEndTask } from "./mcp-task-lifecycle.js";
 import { handleMobileAssertions, handleWebAssertions } from "./mcp-assertions.js";
 import { handleBatchActions } from "./mcp-batch-actions.js";
 import { handleInvoke, handleRunTaskFile } from "./mcp-execution.js";
@@ -240,6 +241,18 @@ async function dispatchAdaMcpToolInner(
       return handleSessions({
         listActiveSessions: deps.listActiveSessions,
         countPlaywrightBrowsers: deps.countPlaywrightBrowsers,
+        mcpTextResult: deps.mcpTextResult
+      });
+    case "ada_begin_task":
+      return handleBeginTask(args, {
+        normalizePlatform: deps.normalizePlatform,
+        mcpTextResult: deps.mcpTextResult
+      });
+    case "ada_end_task":
+      return handleEndTask(args, {
+        normalizePlatform: deps.normalizePlatform,
+        mergeWebEngineIntoPayload: deps.mergeWebEngineIntoPayload,
+        closeSession: deps.closeSession,
         mcpTextResult: deps.mcpTextResult
       });
     case "ada_close_session":

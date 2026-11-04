@@ -47,3 +47,78 @@ export function resolvePlaywrightBringToFront(payload?: Record<string, unknown>)
   }
   return true;
 }
+
+/**
+ * 有头模式是否最大化窗口（默认 true）。
+ * 无头始终 false；显式 `maximize:false` / `windowState` / `ADA_PLAYWRIGHT_MAXIMIZE=0` 可关闭。
+ */
+export function resolvePlaywrightMaximize(payload?: Record<string, unknown>): boolean {
+  if (resolvePlaywrightHeadless(payload)) {
+    return false;
+  }
+  const p = asRecord(payload);
+  const options = asRecord(p.options);
+  const explicit = pickBool(p, options, "maximize");
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  const state = String(p.windowState ?? options.windowState ?? "")
+    .trim()
+    .toLowerCase();
+  if (state === "maximized" || state === "maximize") {
+    return true;
+  }
+  if (state === "normal" || state === "minimized" || state === "fullscreen") {
+    return false;
+  }
+  const env = process.env.ADA_PLAYWRIGHT_MAXIMIZE?.trim().toLowerCase();
+  if (env === "false" || env === "0" || env === "off") {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 最大化时补齐 launch/context 默认：`viewport:null`（跟真实窗口）+ `--start-maximized`。
+ * 调用方已显式设置 viewport / args 时不覆盖。
+ */
+export function applyPlaywrightMaximizeDefaults(payload?: Record<string, unknown>): Record<string, unknown> {
+  const merged = { ...asRecord(payload) };
+  if (!resolvePlaywrightMaximize(merged)) {
+    return merged;
+  }
+  const contextOptions = { ...asRecord(merged.contextOptions) };
+  if (!Object.prototype.hasOwnProperty.call(contextOptions, "viewport")) {
+    contextOptions.viewport = null;
+  }
+  const launchOptions = { ...asRecord(merged.launchOptions) };
+  const args = Array.isArray(launchOptions.args)
+    ? (launchOptions.args as unknown[]).map(String)
+    : [];
+  if (!args.some((a) => /start-maximized/i.test(a))) {
+    launchOptions.args = [...args, "--start-maximized"];
+  }
+  merged.contextOptions = contextOptions;
+  merged.launchOptions = launchOptions;
+  return merged;
+}
+
+/** 只读：当前环境解析出的 Web 启动默认（不改行为，供 health/sessions 观测）。 */
+export function resolvePlaywrightEffectiveDefaults(payload?: Record<string, unknown>): {
+  headless: boolean;
+  maximize: boolean;
+  bringToFront: boolean;
+  viewportMode: "window" | "playwright-default";
+  profile: "local-headed" | "ci-headless" | "headed-no-maximize";
+} {
+  const headless = resolvePlaywrightHeadless(payload);
+  const maximize = resolvePlaywrightMaximize(payload);
+  const bringToFront = resolvePlaywrightBringToFront(payload);
+  return {
+    headless,
+    maximize,
+    bringToFront,
+    viewportMode: !headless && maximize ? "window" : "playwright-default",
+    profile: headless ? "ci-headless" : maximize ? "local-headed" : "headed-no-maximize"
+  };
+}

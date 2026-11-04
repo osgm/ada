@@ -46,6 +46,36 @@ export function buildKernelSessionKey(
   return `${platform}:${sessionId}`;
 }
 
+/**
+ * 移动端执行闸门键：同一物理设备共用一把锁（跨 sessionId），避免并行操作串台。
+ * Web 仍按会话键；无 deviceId 时回退到会话键。
+ */
+export function buildExecutionGateKey(
+  platform: string,
+  sessionId: string,
+  payload?: Record<string, unknown>
+): string {
+  if (platform === "android" || platform === "harmony" || platform === "ios") {
+    const deviceId = resolveMobileDeviceId(platform as Platform, payload);
+    if (deviceId) {
+      return `device-gate:${platform}:${deviceId}`;
+    }
+  }
+  return buildKernelSessionKey(platform, sessionId, payload);
+}
+
+/** 默认开：移动端同设备强制互斥（含 extract 等只读），`ADA_MOBILE_DEVICE_SERIALIZE=0` 关闭 */
+export function shouldSerializeMobileDevice(platform: string): boolean {
+  if (platform !== "android" && platform !== "harmony" && platform !== "ios") {
+    return false;
+  }
+  const raw = process.env.ADA_MOBILE_DEVICE_SERIALIZE?.trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "off") {
+    return false;
+  }
+  return true;
+}
+
 export function parseKernelSessionKey(key: string): {
   platform: string;
   sessionId: string;

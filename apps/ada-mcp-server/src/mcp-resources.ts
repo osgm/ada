@@ -22,10 +22,11 @@ ${MCP_GLOBAL_POLICY}
 ## Default flow
 1. ada_health scope=web|mobile
 2. ada_devices action=scan (mobile) → deviceParams.recommended + harmonyLaunchApp (Harmony)
-3. ada_web_action / ada_mobile_action (reuse sessionId). Harmony launchApp: payload.appId + payload.abilityId (EntryAbility)
-4. On gap: L2 batch/recipe → L3 ada_invoke
-5. ada_extract / ada_assertions / ada_mobile_* for verify
-6. ada_close_session when done
+3. Optional ada_begin_task → reuse returned sessionId (hand-written sessionId still OK)
+4. ada_web_action / ada_mobile_action. Harmony launchApp: payload.appId + payload.abilityId (EntryAbility)
+5. On gap: L2 batch/recipe → L3 ada_invoke
+6. ada_extract / ada_assertions / ada_mobile_* for verify
+7. ada_end_task (or ada_close_session) when done
 
 ## Tree walk (Web / Mobile)
 - Web: ada_extract mode=viewTree → ada_web_recipe action=clickPath; search → ada_web_recipe action=fill_search

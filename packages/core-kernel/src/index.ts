@@ -1,5 +1,6 @@
 import type { CommandEnvelope, CommandResult, WebEngine } from "@ada/contracts";
 import {
+  buildExecutionGateKey,
   buildKernelSessionKey,
   CommandTimeoutError,
   isSessionReadOnlyCommand,
@@ -10,6 +11,7 @@ import {
   raceCommandTimeout,
   resolveCommandTimeoutMs,
   shouldReleaseSessionOnTimeout,
+  shouldSerializeMobileDevice,
   suggestNextSessionId
 } from "@ada/driver-rpc";
 import { PluginHost } from "@ada/plugin-host";
@@ -224,13 +226,19 @@ export class TaskExecutor {
     );
   }
 
+  /** 执行互斥闸门：移动同设备跨 sessionId 共用一把锁；会话存储仍用 buildKernelSessionKey */
   private sessionQueueKey(command: CommandEnvelope): string {
-    return buildKernelSessionKey(command.platform, command.sessionId, command.payload);
+    return buildExecutionGateKey(command.platform, command.sessionId, command.payload);
   }
 
   private forceSerializeAll(): boolean {
     const v = process.env.ADA_SESSION_SERIALIZE_ALL?.trim().toLowerCase();
     return v === "1" || v === "true" || v === "yes";
+  }
+
+  /** 移动端同设备：默认全部命令互斥（含 extract），避免并行串台 */
+  private forceMobileDeviceExclusive(command: CommandEnvelope): boolean {
+    return shouldSerializeMobileDevice(command.platform);
   }
 
   private gateFor(key: string): SessionGate {
@@ -348,7 +356,10 @@ export class TaskExecutor {
 
   async execute(command: CommandEnvelope): Promise<CommandResult> {
     const key = this.sessionQueueKey(command);
-    const readOnly = !this.forceSerializeAll() && isSessionReadOnlyCommand(command);
+    const readOnly =
+      !this.forceSerializeAll() &&
+      !this.forceMobileDeviceExclusive(command) &&
+      isSessionReadOnlyCommand(command);
     const gate = this.gateFor(key);
     if (!readOnly && this.shouldRejectBusyWebWrite(command) && gate.isWriteContended()) {
       const suggestedSessionId = suggestNextSessionId(command.sessionId);

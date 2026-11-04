@@ -26,7 +26,7 @@ export {
   riskyCommandAllowlist,
   riskyCommandDefaults,
   runMonitorCapture,
-  toCommandEnvelope,
+    toCommandEnvelope,
   toExtractResponse
 } from "./mcp-runtime-guards.js";
 
