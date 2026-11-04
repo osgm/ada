@@ -133,7 +133,7 @@ Windows 且 PATH 里没有 `pnpm` 时用 `npx`：
 - 直接 `npx @ada-mcp/mcp-server`（Windows 上容易找不到命令；应经 launcher）
 - 在 `C:\Windows\System32` 里启动
 
-`mcp.json` 每个字段的取值见 [MCP 插件配置说明](ADA-MCP-插件配置说明.md)。
+`mcp.json` 每个字段的取值见 [MCP 接入手册 §10](ADA-MCP-接入手册.md#10-host-mcpjson-字段)。
 
 ### 4.2 第一次对话怎么说
 
@@ -540,7 +540,7 @@ await phone.swipe([0.5, 0.8], [0.5, 0.2], { durationMs: 400, relative: true });
 - 脚本末尾调用 `exit()`（Node 为 `await exit()`），关掉执行器并退出进程。
 - 教学示例往往每个场景单独 `open` / `close`。正式用例应复用同一个会话，避免反复冷启动。
 
-方法与 MCP 工具的逐项对照见 [语义命令对照](ADA-语义命令对照.md)。定位矩阵见 [`scripts/lib/LOCATOR_MATRIX.md`](../scripts/lib/LOCATOR_MATRIX.md)。
+方法与 MCP 工具的逐项对照见本文 [§14](#14-脚本方法与-mcp-对照)。定位矩阵见 [`scripts/lib/LOCATOR_MATRIX.md`](../scripts/lib/LOCATOR_MATRIX.md)。参数表见 [`scripts/examples/README.md`](../scripts/examples/README.md)。
 
 ---
 
@@ -639,16 +639,56 @@ web
 
 ### 10.2 Windows 发布包里的四个程序
 
-`npm run build:exe` 产出在 `release/`。日常操作见 [GUI 操作手册](ADA-GUI-操作手册.md)，这里只标用途：
+`npm run build:exe` 的产物在 `release/`。发布包会带上本手册。四个程序：
 
 | 程序 | 用途 |
 |------|------|
-| `ada-gui-win.exe` | 桌面界面：看状态、装依赖、保存 `ANDROID_HOME` |
+| `ada-gui-win.exe` | 桌面界面。日常看状态、装依赖时用这个 |
 | `ada-agent-win.exe` | 命令行：`health`、`doctor`、`start --watch` |
-| `ada-mcp-win.exe` | 给 MCP Host 当 stdio 命令，一般不用手点 |
-| `ada-web-win.exe` | 本地 Web 控制台 |
+| `ada-mcp-win.exe` | 给 MCP Host 当 stdio 命令，由 Host 拉起 |
+| `ada-web-win.exe` | 本地 Web 控制台。在 `release` 里执行 `.\ada-web-win.exe`，按输出提示打开页面 |
 
-只做网页时不必装 JDK。Android 的 UiAutomator2 通道需要 JDK。GUI 里安装依赖、或在本机跑 npm 探测时，需要 Node.js 22。
+GUI：
+
+1. 双击 `ada-gui-win.exe`。
+2. 需要时填写远程管理平台地址和 API Key。
+3. 在「安装依赖」区安装 Playwright 或移动工具链。
+4. 关窗口时可选后台运行，或立即退出。
+
+要用 adb / WDA / hdc 时，在「远程管理平台（可选）」里填写 `ANDROID_HOME`（或点「选择目录」），再点「保存 ANDROID_HOME」。日志出现「已设置进程环境变量」后生效。GUI 会同时写 `ANDROID_HOME` 和 `ANDROID_SDK_ROOT`，并在下次启动时恢复。目录改了要再保存一次。
+
+依赖：
+
+| 场景 | 需要 |
+|------|------|
+| GUI 里点「安装依赖」，或在本机跑 npm / 仓库脚本 | Node.js 22，npm ≥ 10 |
+| 只用已打包的 exe 做 `health` 和常规操作，且不再装依赖 | 可以不装 Node |
+| Android + UiAutomator2，或用 MCP 读真机 App 列表、截图 | JDK（建议 11；GUI 场景 JDK 8 也可） |
+| 只做网页 | 不必装 JDK |
+
+命令行示例（在 `release` 目录）：
+
+```powershell
+.\ada-agent-win.exe health
+.\ada-agent-win.exe doctor
+.\ada-agent-win.exe start --watch
+```
+
+本机 exe 接入 MCP（stdio，不要再加 `mcp` 参数）。镜像变量见 [接入手册 §6](ADA-MCP-接入手册.md#6-镜像与环境变量)：
+
+```json
+{
+  "mcpServers": {
+    "ada-mcp": {
+      "command": "D:\\ada\\release\\ada-mcp-win.exe",
+      "args": [],
+      "cwd": "D:\\ada\\release"
+    }
+  }
+}
+```
+
+npm 启动器的配置仍以本文 [§4.1](#41-写入-host-配置) 为准，不要和 exe 配成两套。
 
 ### 10.3 给团队共用的远程 MCP
 
@@ -660,7 +700,7 @@ npx tsx apps/ada-mcp-server/src/cli.ts server --host=0.0.0.0 --port=8787 --api-k
 
 - `GET /health`、`GET /status` 无需密钥。
 - `POST /mcp` 是 Streamable HTTP，请求头 `Authorization: Bearer YOUR_KEY`。
-- Host 侧用 `url` 而不是 `command`。字段说明见插件配置说明第 4 节。
+- Host 侧用 `url` 而不是 `command`。字段见 [接入手册 §10.4](ADA-MCP-接入手册.md#104-http--sse-字段)。
 
 远程进程所在的机器必须能访问浏览器和手机。密钥不要写进仓库。
 
@@ -742,16 +782,56 @@ npx tsx apps/ada-mcp-server/src/cli.ts server --host=0.0.0.0 --port=8787 --api-k
 
 | 文档 | 什么时候打开 |
 |------|----------------|
-| [MCP 接入手册](ADA-MCP-接入手册.md) | 工具全表、invoke 示例、超时与熔断的精确规则 |
-| [MCP 插件配置说明](ADA-MCP-插件配置说明.md) | `mcp.json` 每个字段 |
-| [MCP 环境变量](ADA-MCP-环境变量.md) | 变量名与别名 |
-| [部署手册](ADA-部署手册.md) | 发布包安装、启动、镜像与发布验证 |
-| [GUI 操作手册](ADA-GUI-操作手册.md) | 四个 Windows 可执行文件的界面步骤 |
-| [语义命令对照](ADA-语义命令对照.md) | 脚本方法 ↔ MCP 工具 ↔ 内部命令 |
+| [MCP 接入手册](ADA-MCP-接入手册.md) | 工具全表、`mcp.json` 字段、环境变量、invoke 与超时规则 |
+| [部署手册](ADA-部署手册.md) | 把发布包装到机器上、常驻运行、发布验证 |
 | [Playwright 兼容映射](Playwright-ADA-兼容映射.md) | 从 Playwright 步骤迁移 |
 | [开发手册](ADA-开发手册.md) | 改驱动、跑门禁、类型检查 |
 | [架构设计方案](ADA-架构设计方案.md) | 分层与模块边界 |
 | [示例脚本说明](../scripts/examples/README.md) | `browser()` / `device()` / `phone.*` 的参数表 |
 | [定位矩阵](../scripts/lib/LOCATOR_MATRIX.md) | 各平台 locator 字段是否支持 |
+
+脚本方法对照在本文下一节，不再单列文件。
+
+---
+
+## 14. 脚本方法与 MCP 对照
+
+对外脚本语法以 [`scripts/lib/ada-client.mjs`](../scripts/lib/ada-client.mjs) 为准。内部在 `executor.runCommand` 入口做 `normalizeCommandEnvelope`。本地和 MCP 用同一套 `page.*` / `phone.*`，MCP 时 `open` 的第二参为 `{ connect: "mcp" }`。
+
+### 14.1 手机 `phone.*`
+
+| 脚本 | MCP | 语义命令 |
+|------|-----|----------|
+| `phone.wake()` | `ada_mobile_action` + `custom` shell | `custom` |
+| `phone.killAllApps()` | 脚本内 ps → kill，不是单条 command | — |
+| `phone.swipe(from, to, opts?)` | `ada_mobile_action` `swipe` | `swipe` |
+| `phone.goto(appId, ability?)` | `ada_mobile_action` `launchApp` | `launchApp` |
+| `phone.goto("首页")` | `ada_mobile_action` `click` | `click`（按文案） |
+| `phone.back(times?)` | `ada_mobile_action` `back` | `back` |
+| `phone.dismissPopups()` | `ada_mobile_dismiss_popups` | 无弹窗仍 `ok`，码 `POPUP_NOT_FOUND` |
+| `phone.fillSearch(text, hints?)` | `ada_mobile_recipe` `fill_search` | `recipe` |
+| `phone.pressHome()` | `ada_mobile_action` | `pressHome`（`home` 是别名） |
+| `phone.screenshot(path)` | `ada_mobile_action` | `screenshot` |
+| `phone.exit(appId)` | `ada_mobile_action` `exitApp` | `exitApp` |
+| `phone.close(opts?)` | `ada_close_session` | 默认先 `exit` 再关会话；`keepApp` 只关会话 |
+
+### 14.2 网页 `page.*`
+
+| 脚本 | MCP | 命令 |
+|------|-----|------|
+| `page.goto(url)` | `ada_web_action` | `navigate` |
+| `page.find(...).fill(text)` | `ada_web_action` | `type`（别名 `fill`） |
+| `page.dismissPopups()` | `ada_web_dismiss_popups` | 无弹窗仍 `ok` |
+| `page.exit()` / `page.close()` | `ada_close_session` | 关闭浏览器和会话 |
+
+### 14.3 入口会改写的字段
+
+| 请写 | 不要再写 |
+|------|----------|
+| `appId` | `bundleId`、`packageId`、`package` |
+| `durationMs` | `speed` |
+| `waitTimeoutMs` | `actionWaitMs` |
+| `pressHome` | `command: home` |
+| `ada_mobile_recipe` / `recipe` | `custom.action: fill_search` |
 
 本手册描述的是使用方式。工具参数若与 MCP 接入手册不一致，以接入手册和当前版本的工具 schema 为准。

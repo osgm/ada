@@ -173,7 +173,7 @@ npm run build:exe
 - `ada-agent-win.exe`、`ada-mcp-win.exe`、`ada-web-win.exe`
 - `ada-gui-win.exe`（Tauri，仅 Windows 构建时复制）
 - `config/`、`tasks/`、`plugins/`（驱动 bundle）
-- `docs/ADA-GUI-操作手册.md`（用户手册）
+- `docs/ADA-使用说明手册.md`（用户手册，含 Windows 发布包）
 - `tools/`（若仓库含 `hdc` 等，供 Harmony 使用）
 
 macOS / Linux 下 agent / mcp / web 为 pkg 输出的无后缀可执行文件（名称与入口 bundle 一致）。
@@ -374,9 +374,9 @@ npm run test:e2e:smoke:full
 
 - 架构变更：`ADA-架构设计方案.md`
 - 部署命令或流程变更：`ADA-部署手册.md`
-- MCP 工具 / Host 配置 / 镜像变量：`ADA-MCP-接入手册.md`
+- MCP 工具 / Host 配置 / 环境变量：`ADA-MCP-接入手册.md`
 - 开发流程 / 测试门禁：`ADA-开发手册.md`（本文）
-- Windows 发布包操作：`ADA-GUI-操作手册.md`
+- 日常操作与 Windows 发布包：`ADA-使用说明手册.md`
 - Playwright 迁移映射：`Playwright-ADA-兼容映射.md`
 - npm 发布 `@ada-mcp/*`：`scripts/README.md`
 

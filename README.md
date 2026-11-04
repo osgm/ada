@@ -219,7 +219,7 @@ npm run install:deps -- --only=ios
 
 **进程恢复**：HTTP 调用失败（连接断开 / 503 / invalid session）时，驱动会先尝试 **bootstrap 重启 Server 进程**（需对应 `ADA_*_BOOTSTRAP=true`），再重建 WebDriver 会话；30s 内不重复重启。
 
-环境变量速查：`ADA_WDA_SERVER_URL`、`ADA_ANDROID_UIA2_SERVER_URL`、`ADA_ANDROID_DEVICE_SN`；Web CDP：`ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH`、`ADA_PLAYWRIGHT_CDP_PORT`（9222）；Smart-Wait：`ADA_WAIT_UNTIL`、`ADA_WAIT_MAX_MS`、`ADA_WAIT_POLL_MS`；性能：`ADA_ANDROID_UIA2_AUTO_HTTP`、`ADA_ANDROID_HIERARCHY_CACHE_MS`。详见 [MCP 接入手册 §3.1](docs/ADA-MCP-接入手册.md)。
+环境变量速查：`ADA_WDA_SERVER_URL`、`ADA_ANDROID_UIA2_SERVER_URL`、`ADA_ANDROID_DEVICE_SN`；Web CDP：`ADA_PLAYWRIGHT_CDP_AUTO_LAUNCH`、`ADA_PLAYWRIGHT_CDP_PORT`（9222）；Smart-Wait：`ADA_WAIT_UNTIL`、`ADA_WAIT_MAX_MS`、`ADA_WAIT_POLL_MS`；性能：`ADA_ANDROID_UIA2_AUTO_HTTP`、`ADA_ANDROID_HIERARCHY_CACHE_MS`。详见 [MCP 接入手册 §11](docs/ADA-MCP-接入手册.md#11-环境变量)。
 
 ---
 
@@ -276,13 +276,12 @@ ada/
 
 | 文档 | 读者 |
 |------|------|
-| [使用说明手册](docs/ADA-使用说明手册.md) | **日常使用者**（首选：MCP / 脚本 / 任务 / CLI） |
-| [MCP 接入手册](docs/ADA-MCP-接入手册.md) | **AI 用户 / 集成方**（工具全表与参数） |
-| [部署手册](docs/ADA-部署手册.md) | 运维、环境搭建 |
+| [使用说明手册](docs/ADA-使用说明手册.md) | **日常使用者**（MCP / 脚本 / 任务 / CLI / Windows exe） |
+| [MCP 接入手册](docs/ADA-MCP-接入手册.md) | **集成方**（工具全表、`mcp.json`、环境变量） |
+| [部署手册](docs/ADA-部署手册.md) | 运维、发布包安装 |
 | [架构设计方案](docs/ADA-架构设计方案.md) | 平台组、扩展驱动 |
 | [架构设计图](架构设计图) | **当前分层 / Smart-Wait / E2E 矩阵**（速览） |
 | [开发手册](docs/ADA-开发手册.md) | 贡献者、测试门禁 |
-| [GUI 操作手册](docs/ADA-GUI-操作手册.md) | 桌面 GUI |
 | [Playwright 兼容映射](docs/Playwright-ADA-兼容映射.md) | Web 能力对照 |
 | [npm 发布流程](scripts/README.md) | 维护者 |
 

@@ -88,7 +88,7 @@ cd ../ada-mcp-launcher
 npm publish --access public --registry https://registry.npmjs.org/
 ```
 
-更完整的 Host 配置、国内镜像与排障见 [`docs/ADA-MCP-接入手册.md`](../docs/ADA-MCP-接入手册.md) §1 与 §5。
+更完整的 Host 配置、国内镜像与排障见 [`docs/ADA-MCP-接入手册.md`](../docs/ADA-MCP-接入手册.md) §1、§6 与 §8。
 
 ---
 

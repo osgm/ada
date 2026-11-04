@@ -102,7 +102,7 @@ chmod +x ./ada-agent
 - `ADA_INSTALL_STRATEGY_TIMEOUT_MS`（默认 `120000` 毫秒，npm/pnpm 装包）
 - `ADA_PLAYWRIGHT_INSTALL_TIMEOUT_MS`（默认 `900000` 毫秒，`playwright install` 下载浏览器）
 
-可通过环境变量覆盖代理地址（`install-deps` / 启动时自动安装阶段会**测速选最快**；`pnpm dlx` 拉包本身不探测，见 `docs/ADA-MCP-接入手册.md` §5）：
+可通过环境变量覆盖代理地址（`install-deps` / 启动时自动安装阶段会**测速选最快**；`pnpm dlx` 拉包本身不探测，见 `docs/ADA-MCP-接入手册.md` §6 与 §11）：
 
 | 变量 | 说明 |
 |------|------|
@@ -425,7 +425,7 @@ npm run mcp:dev
 }
 ```
 
-发布包场景（无需 Node/tsx）可改用 `release/ada-mcp-win.exe`，示例见 `docs/ADA-GUI-操作手册.md` 第 4 节。
+发布包场景（无需 Node/tsx）可改用 `release/ada-mcp-win.exe`，示例见 `docs/ADA-使用说明手册.md` §10.2。
 
 详细工具列表与远程 HTTP（`/mcp` + API Key）接入见：`docs/ADA-MCP-接入手册.md`
 

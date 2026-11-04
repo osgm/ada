@@ -74,7 +74,7 @@ npx -y @ada-mcp/mcp-server@0.1.50
 | `ADA_NPM_PROXY_REGISTRY` / `ADA_PNPM_PROXY_REGISTRY` | 可选；探测时置顶 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | 可选；Playwright 浏览器 CDN |
 
-详见 [ADA-MCP-接入手册 §5](../../docs/ADA-MCP-接入手册.md#5-镜像与环境变量)。
+详见 [ADA-MCP-接入手册 §6](../../docs/ADA-MCP-接入手册.md#6-镜像与环境变量)。
 
 **CLI 参数**（写在 MCP `args` 末尾）：
 

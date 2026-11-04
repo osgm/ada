@@ -231,8 +231,7 @@ checkScriptsLibSync();
 function checkDocsRecommendedVersion(version) {
   const docFiles = [
     "docs/ADA-MCP-接入手册.md",
-    "docs/ADA-MCP-插件配置说明.md",
-    "docs/ADA-MCP-环境变量.md"
+    "docs/ADA-使用说明手册.md"
   ];
   const pinRe = /@ada-mcp\/(?:mcp-server|launcher)@(\d+\.\d+\.\d+)/g;
   for (const rel of docFiles) {

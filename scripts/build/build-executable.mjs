@@ -219,7 +219,7 @@ async function copyRuntimeAssets() {
   const assetTargets = [
     ["config", "config"],
     ["tasks", "tasks"],
-    [path.join("docs", "ADA-GUI-操作手册.md"), path.join("docs", "ADA-GUI-操作手册.md")],
+    [path.join("docs", "ADA-使用说明手册.md"), path.join("docs", "ADA-使用说明手册.md")],
     [path.join("build", "plugins"), "plugins"]
   ];
   for (const [from, to] of assetTargets) {

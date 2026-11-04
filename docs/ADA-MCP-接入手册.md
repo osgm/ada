@@ -2,13 +2,14 @@
 
 将 ADA Web / 移动端自动化能力以 **MCP 工具**对外暴露。Playwright 步骤映射见 [`Playwright-ADA-兼容映射.md`](Playwright-ADA-兼容映射.md)。
 
-| 主题 | 文档 |
+| 主题 | 位置 |
 |------|------|
 | 部署 / 运维 | [`ADA-部署手册.md`](ADA-部署手册.md) |
 | 架构 | [`ADA-架构设计方案.md`](ADA-架构设计方案.md) |
 | 开发 / 测试 | [`ADA-开发手册.md`](ADA-开发手册.md) |
-| Host `mcp.json` 字段注解 | [`ADA-MCP-插件配置说明.md`](ADA-MCP-插件配置说明.md) |
-| 环境变量 | [`ADA-MCP-环境变量.md`](ADA-MCP-环境变量.md) |
+| 日常操作路径 | [`ADA-使用说明手册.md`](ADA-使用说明手册.md) |
+| Host `mcp.json` 字段 | 本文 [§10](#10-host-mcpjson-字段) |
+| 环境变量与别名 | 本文 [§11](#11-环境变量) |
 | npm 发布 | [`scripts/README.md`](../scripts/README.md) |
 
 **推荐版本（2026-06）**：`@ada-mcp/launcher` 与 `@ada-mcp/mcp-server` **同号发布**（当前 monorepo：`0.1.93`；示例：`pnpm dlx @ada-mcp/launcher@0.1.93`）。**勿用 0.1.73 / 0.1.74**（已知启动缺陷，已 deprecate）。
@@ -45,7 +46,7 @@ npx -y @ada-mcp/launcher@0.1.93
 
 传输：**stdio**（默认）；亦支持远程 HTTP（见 §4）。本仓库开发：`npm run mcp:dev`。
 
-**推荐最小 Host 配置**（可不写这三项 env；未设时服务端默认 **`HIDE_ADVANCED=0` / `DESC_MODE=advanced` / `HEADLESS=false`**，见 [`ADA-MCP-插件配置说明.md`](ADA-MCP-插件配置说明.md) §7.1）：
+**推荐最小 Host 配置**（可不写这三项 env；未设时服务端默认 **`HIDE_ADVANCED=0` / `DESC_MODE=advanced` / `HEADLESS=false`**，字段表见 [§10](#10-host-mcpjson-字段)）：
 
 ```json
 {
@@ -611,20 +612,7 @@ MCP 与控制面 inbound **共用**同一 `TaskExecutor` / `PluginHost`（进程
 
 launcher **阶段 A**：测速选 registry → 写 `npm_config_registry` / 项目 `.npmrc`。**阶段 B**（`install-deps`）：npm 包 + Playwright CDN 再测速。
 
-| 变量 | 说明 |
-|------|------|
-| `ADA_MCP_REGISTRY` | 强制安装 registry（推荐官方源兜底） |
-| `ADA_MCP_PACKAGE_RUNNER` | `pnpm` \| `npx` \| `auto` |
-| `ADA_MCP_INSTALL_DEPS` / `ADA_MCP_SKIP_INSTALL_DEPS` | 启动时装依赖（`only` 含 `drivers`） |
-| `ADA_MCP_HIDE_ADVANCED` / `ADA_MCP_TOOL_VISIBILITY` | 隐藏 T3 工具（`hide` / `1`） |
-| `ADA_MCP_VERBOSE_RESULT` / `ADA_MCP_SLIM_RESULT` | MCP 响应 slim / verbose 控制 |
-| `ADA_ANDROID_DEVICE_SN` | 默认 Android 设备 serial |
-| `ADA_NPM_PROXY_REGISTRY` | install-deps 时 registry 候选置顶 |
-| `ADA_REGISTRY_CANDIDATES` | 额外 registry，逗号分隔 |
-| `PLAYWRIGHT_DOWNLOAD_HOST` | 强制 Playwright CDN |
-| `ADA_PLAYWRIGHT_*` | 浏览器路径、无头等 |
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK 路径 |
-| `ADA_TOOLS_DIR` / `ADA_HARMONY_DEVICE_SN` | 鸿蒙 hdc 工具与设备 SN |
+变量名、别名和默认值的完整表在 [§11](#11-环境变量)，这里不另列一份。和镜像直接相关的是：`ADA_MCP_REGISTRY`（钉死安装源、跳过测速）、`ADA_NPM_PROXY_REGISTRY`、`ADA_REGISTRY_CANDIDATES`、`PLAYWRIGHT_DOWNLOAD_HOST`。
 
 内置 registry 候选（仅 3 个，并行测速 ≤5s）：**npmmirror（阿里）** → **华为云** → **npmjs 官网**。
 
@@ -685,3 +673,163 @@ npm run install:deps && npm run health && npm run doctor
 ```bash
 npm run mcp:check:versions && npm run test:mcp:unit && npm run mcp:preflight
 ```
+
+---
+
+## 10. Host mcp.json 字段
+
+可直接粘贴的 ada-mcp 配置以 [§1](#1-快速开始) 为准（钉版本）。不钉版本时，把包名写成 `@ada-mcp/launcher@latest` 或 `@ada-mcp/launcher`。JSON 不能写注释；下表只说明填什么。
+
+### 10.1 配置文件位置
+
+| 范围 | 路径（Cursor） | 说明 |
+|------|----------------|------|
+| 全局 | `~/.cursor/mcp.json`（Windows：`%USERPROFILE%\.cursor\mcp.json`） | 所有工作区可用 |
+| 项目 | `<repo>/.cursor/mcp.json` | 仅当前项目；同名 server 时项目级覆盖全局 |
+
+根对象只有 `mcpServers`。`serverName` 建议字母数字、`-`、`_`，不要重复。
+
+### 10.2 传输类型
+
+| `type` | 何时使用 | 必填字段 |
+|--------|----------|----------|
+| `stdio`（有 `command` 时可省略） | 本机拉起进程 | `command` |
+| `http`（有 `url` 时可省略） | 远程 Streamable HTTP | `url` |
+| `sse` | 提供方只有 SSE | `url` |
+
+一条 server 只走 stdio（`command`）或远程（`url`）其中一种。
+
+### 10.3 stdio 字段
+
+| 字段 | 必填 | 填法 |
+|------|------|------|
+| `command` | 是 | PATH 命令或绝对路径：`npx`、`pnpm`、`node`，或 `ada-mcp-win.exe` |
+| `args` | 否 | 字符串数组，顺序有意义 |
+| `env` | 否 | 注入子进程。密钥优先 `${env:NAME}` |
+| `envFile` | 否 | 仅 stdio。如 `${workspaceFolder}/.env` |
+| `cwd` | 否 | 已存在的目录。云端 Agent 的 stdio 不支持 `cwd` |
+
+部分 Host 仍认 `disabled`（true/false）和 `autoApprove`（工具名数组）。Cursor 里更常用 Customize 开关和 Agent Approvals。
+
+### 10.4 HTTP / SSE 字段
+
+| 字段 | 必填 | 填法 |
+|------|------|------|
+| `url` | 是 | `http(s)://host[:port]/path`。HTTP 常见 `/mcp`，SSE 常见 `/sse` |
+| `headers` | 否 | 常见 `Authorization`。远程配置不要依赖 `env` / `envFile` |
+| `auth` | 否 | 静态 OAuth：`CLIENT_ID` 必填，`CLIENT_SECRET`、`scopes` 可选 |
+
+Cursor OAuth 回调：Web / Agents 为 `https://www.cursor.com/agents/mcp/oauth/callback`；Desktop 为 `http://localhost:8787/callback`。
+
+插值可用于 `command`、`args`、`env`、`url`、`headers`、`auth`：
+
+| 写法 | 来源 |
+|------|------|
+| `${env:NAME}` | 本机环境变量 |
+| `${userHome}` | 用户主目录 |
+| `${workspaceFolder}` | 含这份 `mcp.json` 的项目根 |
+| `${workspaceFolderBasename}` | 项目根目录名 |
+| `${pathSeparator}` / `${/}` | `\` 或 `/` |
+
+### 10.5 ada-mcp 参数
+
+| 路径 | 取值 | 说明 |
+|------|------|------|
+| `args` 里的包名 | `@ada-mcp/launcher@0.1.93` | 生产钉版本，与 mcp-server 同号。`@latest` 跟随 registry |
+| `--install-deps=` | `playwright` / `mobile` / `android` / `ios` / `harmony` / `drivers` / `all`，可逗号组合；`none` / `skip` 或 `--skip-install-deps` 跳过 | 与 `ADA_MCP_INSTALL_DEPS` 等价，只写一处。`all` 容易超过约 60 秒握手，默认会被降成 `playwright`，保留全量需 `ADA_MCP_ALLOW_BOOTSTRAP_ALL=1` |
+| `env.ADA_MCP_REGISTRY` | registry URL | 强制安装源并跳过测速 |
+| `env.ADA_MCP_HIDE_ADVANCED` | 未设为 `0`（显示 T3）；`1` 隐藏 | 别名 `ADA_MCP_TOOL_VISIBILITY=hide` |
+| `env.ADA_MCP_DESC_MODE` | 未设为 `advanced`；`compact` / `short` 为短描述 | |
+| `env.ADA_PLAYWRIGHT_HEADLESS` | 未设为有头；CI 设 `true` | |
+| `env.ADA_MCP_SERVER_VERSION` | semver | 只覆盖内层 mcp-server |
+| `env.ADA_MCP_SLOW_START` | `1` | 关闭默认快速握手 |
+| `env.ADA_PLUGIN_DIR` | 插件目录绝对路径 | 源码开发 |
+
+本仓库源码开发示例见 [`config/mcp.cursor.example.json`](../config/mcp.cursor.example.json)：`cwd` 必须是仓库根，`ADA_PLUGIN_DIR` 指向 `apps/ada-mcp-server/plugins`。
+
+用本机 `ada-mcp-win.exe` 时，`command` 写该 exe 的绝对路径，`args` 为空，`cwd` 设为 `release` 目录。操作步骤见 [使用说明手册 §10.2](ADA-使用说明手册.md#102-windows-发布包里的四个程序)。
+
+检查：每个 server 只有一套传输；stdio 的 `command` 能在 PATH 里找到；密钥用 `${env:...}`，不要提交明文；改完后在 Host 里重新加载 MCP。Host 通用字段以 [Cursor MCP 文档](https://cursor.com/docs/mcp) 为准。
+
+---
+
+## 11. 环境变量
+
+实现侧统一解析见 `packages/core-runtime/src/ada-env.ts`。新增变量时扩展该模块，避免在业务代码里再读一套别名。
+
+### 11.1 工具可见性 / 响应体积
+
+| Canonical | 别名 | 说明 |
+|-----------|------|------|
+| `ADA_MCP_HIDE_ADVANCED` | `ADA_MCP_TOOL_VISIBILITY`（`hide` / `1` / `primary-only`） | 隐藏 T3：`ada_invoke`、`ada_risk_policy` |
+| `ADA_MCP_VERBOSE_RESULT` | — | `1` 时返回完整 `CommandResult` |
+| `ADA_MCP_SLIM_RESULT` | — | `0` 等同 verbose |
+| `ADA_MCP_DESC_MODE` | — | 默认 `advanced`；`compact` / `short` 才用短描述 |
+| `ADA_MCP_MAX_PAYLOAD_CHARS` | 默认约 `12000` | 返回 JSON 软上限；超限先裁大字段，保留 `summary` / `recoveryHint` / `errorCode` |
+| `ADA_BATCH_TIMEOUT_MS` | — | 未传顶层 `timeoutMs` 时的整批墙钟预算 |
+
+### 11.2 启动 / 握手 / 依赖
+
+| Canonical | 别名或相关项 | 说明 |
+|-----------|----------------|------|
+| `ADA_MCP_FAST_START` | `ADA_MCP_QUICK_START` | 快速握手，默认开启 |
+| `ADA_MCP_SLOW_START` | — | `1` 关闭快速握手 |
+| `ADA_PLUGIN_AUTO_INSTALL_DEPS` | — | 插件启动时缺依赖则补装。`0` / `false` 只检查不补装 |
+| `ADA_MCP_SKIP_INSTALL_DEPS` | — | 跳过 MCP bootstrap 安装；未另设自动补装时，插件启停门禁也不再补装 |
+| `ADA_MCP_INSTALL_DEPS` | `--install-deps=` | 启动时装依赖的范围 |
+| `ADA_MCP_REGISTRY` | `ADA_NPM_PROXY_REGISTRY` 钉死时同样跳过测速 | 强制 npm registry |
+| `ADA_REGISTRY_CANDIDATES` | — | 额外 registry，逗号分隔 |
+| `ADA_MCP_REGISTRY_PROBE_TTL_MS` | `ADA_DEPS_MIRROR_PROBE_TTL_MS` | 测速缓存 TTL，默认 1 小时 |
+| `ADA_MCP_FORCE_REGISTRY_PROBE` | — | `1` 强制重测 npm registry |
+| `ADA_MCP_FORCE_PLAYWRIGHT_PROBE` | — | `1` 强制重测 Playwright CDN |
+| `PLAYWRIGHT_DOWNLOAD_HOST` | — | 钉死 CDN 时跳过 Playwright 测速 |
+| `ADA_MCP_PACKAGE_RUNNER` | — | `pnpm` / `npx` / `auto` |
+| `ADA_MCP_ALLOW_BOOTSTRAP_ALL` | — | `1` 时保留 `--install-deps=all` |
+| `ADA_MCP_LOG_LEVEL` | `ADA_MCP_QUIET=1` 静默 | 默认 `info` |
+
+### 11.3 缓存 / 会话 / 浏览器
+
+| Canonical | 别名 | 说明 |
+|-----------|------|------|
+| `ADA_UI_DUMP_CACHE_MS` | `ADA_ANDROID_HIERARCHY_CACHE_MS` | 移动 UI dump 缓存，默认 4000 |
+| `ADA_MCP_PREFLIGHT_CACHE_MS` | — | 移动 preflight 缓存，默认 60000 |
+| `ADA_MCP_PROBE_CACHE_MS` | — | 移动 probe 缓存，默认 45000 |
+| `ADA_WEB_PAGE_PROBE_TTL_MS` | — | Web 页探活缓存，默认 5000 |
+| `ADA_MOBILE_SESSION_PROBE_TTL_MS` | — | 移动会话探活缓存，默认 5000 |
+| `ADA_SETTLE_SMART` | — | recipe settle 智能早退；`0` 退回固定等待 |
+| `ADA_SESSION_SERIALIZE_ALL` | — | `1` 时同 session 全串行 |
+| `ADA_MOBILE_DEVICE_SERIALIZE` | — | 默认开：同一物理设备跨 session 串行；`0` 关闭 |
+| `ADA_MCP_ARTIFACTS` | — | `1` 时写 `.ada/artifacts/<date>/timeline.jsonl` |
+| `ADA_MCP_ARTIFACT_DIR` | — | artifact 根目录 |
+| `ADA_LOCATOR_HINT_TTL_MS` | — | 成功 locator 温缓存，默认 12000；`0` 禁用 |
+| `ADA_LOCATOR_WARM_TIMEOUT_MS` | — | 温 locator 超时上限，默认 1200 |
+| `ADA_WEB_EXPAND_SETTLE_MS` | — | Web expand 后 settle，默认 50 |
+| `ADA_WEB_NAVIGATION_TIMEOUT_MS` | payload `navigationTimeoutMs` | 打开页等待，默认 75000 |
+| `ADA_RELEASE_ON_WAIT_TIMEOUT_MS` | — | 等待达到该毫秒数即释放连接，默认 60000 |
+| `ADA_PLAYWRIGHT_HEADLESS` | — | `true` 无头；默认有头 |
+| `ADA_PLAYWRIGHT_MAXIMIZE` | payload `maximize` | 有头默认最大化；`0` 关闭 |
+| `ADA_PLAYWRIGHT_BRING_TO_FRONT` | — | 有头默认置前 |
+| `ADA_PLAYWRIGHT_CDP_SHARE_EXISTING` | payload `shareCdpBrowser` | `true` 时允许附着已有调试端口 |
+| `ADA_PLAYWRIGHT_REUSE_CDP_CONTEXT` | payload `reuseCdpContext` | `true` 时复用已有 BrowserContext |
+| `ADA_PLAYWRIGHT_MAX_BROWSERS` | — | 同时打开的浏览器上限，默认 20；`0` 不限制 |
+| `ADA_WEB_SESSION_BUSY_ON_PARALLEL_START` | — | 默认同 session 写冲突返回 `SESSION_BUSY` |
+| `ADA_WEB_SESSION_BUSY_WRITES` | — | `heavy`（默认）/ `open` / `all` |
+| `ADA_RELEASED_SESSION_TTL_MS` | — | 已释放 session 登记 TTL，默认 1 小时 |
+| `ADA_RELEASED_SESSION_MAX` | — | 登记表上限，默认 200 |
+| `ADA_RELEASED_PLACEHOLDER_MODE` | — | `warn`（默认）/ `block` / `off` |
+| `ADA_COMMAND_TIMEOUT_MS` | payload `commandTimeoutMs` | 单条命令墙钟超时，默认 30 秒 |
+
+### 11.4 动作熔断与设备
+
+| Canonical | 说明 |
+|-----------|------|
+| `ADA_WEB_ACTION_LEDGER_MAX_CONSECUTIVE` | 连续相同动作阈值，默认 3 |
+| `ADA_WEB_ACTION_LEDGER_MAX_WINDOW` | 时间窗内次数阈值，默认 5 |
+| `ADA_WEB_ACTION_LEDGER_WINDOW_MS` | 熔断时间窗，默认 60000 |
+| `ADA_ANDROID_DEVICE_SN` | 默认 Android serial。别名场景用 `ADA_ANDROID_UDID`；`capabilities` 优先 |
+| `ADA_IOS_DEVICE_UDID` | iOS 真机 UDID |
+| `ADA_HARMONY_DEVICE_SN` | 鸿蒙设备 SN |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK 路径 |
+| `ADA_TOOLS_DIR` | 鸿蒙 hdc 等工具目录 |
+
+移动 bootstrap、WDA / UIA2 端口和 CDP 端口见 [§3.3](#33-ada_invoke多驱动低层通道)。`payload.custom.method` 已移除，改用 `payload.http` 或顶层 `method` + `target`。
