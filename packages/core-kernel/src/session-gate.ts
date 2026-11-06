@@ -15,6 +15,11 @@ export class SessionGate {
     return this.writer || this.waiters.some((w) => w.kind === "write");
   }
 
+  /** 无读者/写者/等待者时可从 Map 移除，避免长期运行按 session 堆积闸门 */
+  isIdle(): boolean {
+    return this.readers === 0 && !this.writer && this.waiters.length === 0;
+  }
+
   private pump(): void {
     while (this.waiters.length > 0) {
       const next = this.waiters[0]!;

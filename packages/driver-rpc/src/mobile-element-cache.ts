@@ -36,7 +36,15 @@ export class ElementIdCache {
   }
 
   set(key: string, elementId: string): void {
-    this.entries.set(key, { elementId, at: Date.now() });
+    const now = Date.now();
+    for (const [entryKey, entry] of this.entries) {
+      if (now - entry.at > this.ttlMs) this.entries.delete(entryKey);
+    }
+    this.entries.set(key, { elementId, at: now });
+    const max = 256;
+    if (this.entries.size <= max) return;
+    const oldest = [...this.entries.entries()].sort((a, b) => a[1].at - b[1].at)[0]?.[0];
+    if (oldest) this.entries.delete(oldest);
   }
 
   clear(): void {

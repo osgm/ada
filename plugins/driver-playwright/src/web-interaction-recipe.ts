@@ -67,14 +67,14 @@ export async function waitAfterNavigation(
   if (payload.waitNavigation !== true && payload.waitNavigation !== "true") {
     return { navigated: false, url: page.url() };
   }
-  const timeoutMs = typeof payload.navigationTimeoutMs === "number" ? payload.navigationTimeoutMs : 8000;
+  const timeoutMs = typeof payload.navigationTimeoutMs === "number" ? payload.navigationTimeoutMs : 20_000;
   const before = beforeUrl || page.url();
   try {
     await page.waitForURL((url: URL) => url.href !== before, { timeout: timeoutMs });
     return { navigated: true, url: page.url() };
   } catch {
     try {
-      await page.waitForLoadState("domcontentloaded", { timeout: Math.min(timeoutMs, 3000) });
+      await page.waitForLoadState("domcontentloaded", { timeout: Math.min(timeoutMs, 10_000) });
     } catch {
       // ignore
     }

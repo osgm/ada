@@ -1,16 +1,16 @@
 /** 内核命令墙钟超时：payload.commandTimeoutMs / ADA_COMMAND_TIMEOUT_MS / 默认值（与 payload.timeoutMs 语义等待分离） */
 
-/** 未配置 env 时的默认墙钟超时，避免插件调用无限挂起 */
-export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+/** 未配置 env 时的默认墙钟超时。需盖住控件等待（可见 + 点击），避免慢页被 COMMAND_TIMEOUT 提前释放 */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 
 /**
- * 打开页默认导航超时（毫秒）。登录墙/重定向常见需 ≥60s；
+ * 打开页默认导航超时（毫秒），默认 2 分钟。
  * 可用 `ADA_WEB_NAVIGATION_TIMEOUT_MS` 或 payload.navigationTimeoutMs / timeoutMs 覆盖。
  */
-export const DEFAULT_NAVIGATION_TIMEOUT_MS = 75_000;
+export const DEFAULT_NAVIGATION_TIMEOUT_MS = 120_000;
 
-/** 内核墙钟相对导航超时额外缓冲，避免 Playwright goto 未结束就被 COMMAND_TIMEOUT 杀掉 */
-export const NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS = 5_000;
+/** 内核墙钟相对导航超时额外缓冲，避免慢重定向/置前尚未结束就被 COMMAND_TIMEOUT 杀掉 */
+export const NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS = 15_000;
 
 export class CommandTimeoutError extends Error {
   override readonly name = "CommandTimeoutError";
@@ -86,8 +86,8 @@ export function resolveLocatorTimeoutMs(
   options?: { defaultMs?: number; maxMs?: number }
 ): number {
   const p = payload ?? {};
-  const defaultMs = options?.defaultMs ?? 2_500;
-  const maxMs = options?.maxMs ?? 8_000;
+  const defaultMs = options?.defaultMs ?? 8_000;
+  const maxMs = options?.maxMs ?? 20_000;
   const explicit =
     typeof p.locatorTimeoutMs === "number"
       ? p.locatorTimeoutMs

@@ -250,6 +250,13 @@ export class TaskExecutor {
     return gate;
   }
 
+  private forgetIdleGate(key: string): void {
+    const gate = this.sessionGates.get(key);
+    if (gate?.isIdle()) {
+      this.sessionGates.delete(key);
+    }
+  }
+
   private shouldRetryCommand(result: CommandResult, attempt: number, platform: CommandEnvelope["platform"]): boolean {
     if (result.errorCode === "COMMAND_TIMEOUT") {
       return false;
@@ -308,6 +315,7 @@ export class TaskExecutor {
       plugin.destroySession(session),
       new Promise<void>((resolve) => setTimeout(resolve, TaskExecutor.DESTROY_SESSION_MS))
     ]).catch(() => undefined);
+    this.forgetIdleGate(this.sessionQueueKey(command));
   }
 
   private withSessionReleasedMeta(
@@ -529,6 +537,7 @@ export class TaskExecutor {
         new Promise<void>((resolve) => setTimeout(resolve, TaskExecutor.DESTROY_SESSION_MS))
       ]).catch(() => undefined);
     }
+    this.forgetIdleGate(buildExecutionGateKey(platform, sessionId, options?.payload));
     return true;
   }
 

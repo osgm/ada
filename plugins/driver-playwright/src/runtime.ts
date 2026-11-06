@@ -263,22 +263,16 @@ export function forceKillPlaywrightProcessDetached(pw: PlaywrightSession): void 
 
 export async function closePlaywrightSessionBody(pw: PlaywrightSession): Promise<void> {
   if (pw.connectedOverCdp) {
-    const connected =
-      pw.browser && typeof pw.browser.isConnected === "function" ? pw.browser.isConnected() : true;
-    if (!connected) {
-      if (pw.cdpSpawn) {
-        await stopCdpSpawn(pw.cdpSpawn);
-        pw.cdpSpawn = null;
-      }
-      return;
-    }
-    await pw.browser?.close().catch(() => undefined);
+    // 先关本会话 context，避免 connectOverCDP 只断连、Chrome 里 context/page 一直堆积
+    await pw.context?.close?.().catch(() => undefined);
     if (pw.cdpSpawn) {
+      await pw.browser?.close?.().catch(() => undefined);
       await stopCdpSpawn(pw.cdpSpawn);
       pw.cdpSpawn = null;
     }
     return;
   }
+  await pw.page?.close?.().catch(() => undefined);
   await pw.context.close().catch(() => undefined);
   if (!pw.persistent && pw.browser) {
     await pw.browser.close().catch(() => undefined);

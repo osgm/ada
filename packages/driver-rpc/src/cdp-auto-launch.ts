@@ -399,10 +399,23 @@ export function forceKillProcessTreeDetached(pid: number): void {
   }
 }
 
+function removeEphemeralCdpProfile(handle: CdpSpawnHandle): void {
+  const dir = handle.userDataDir;
+  if (!dir || !dir.includes("ada-cdp-chromium-")) {
+    return;
+  }
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // 进程刚退出时目录可能仍被占用
+  }
+}
+
 export async function stopCdpSpawn(handle?: CdpSpawnHandle | null): Promise<void> {
   if (!handle?.pid) return;
   spawnRegistry.delete(handle.pid);
   await forceKillProcessTree(handle.pid);
+  removeEphemeralCdpProfile(handle);
 }
 
 /** 结束指定类型的 cdpAutoLaunch 进程；不传 browser 则清理全部 */

@@ -2,6 +2,7 @@ import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 
 const DEFAULT_TTL_MS = 12_000;
 const WARM_LOCATOR_TIMEOUT_MS = 1_200;
+const DEFAULT_MAX_ENTRIES = 400;
 
 type CacheEntry = { at: number; locator: Record<string, unknown> };
 
@@ -21,6 +22,29 @@ function ttlMs(): number {
   const raw = process.env.ADA_LOCATOR_HINT_TTL_MS?.trim();
   const n = raw ? Number(raw) : DEFAULT_TTL_MS;
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_TTL_MS;
+}
+
+function maxEntries(): number {
+  const raw = process.env.ADA_LOCATOR_HINT_MAX?.trim();
+  const n = raw ? Number(raw) : DEFAULT_MAX_ENTRIES;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_MAX_ENTRIES;
+}
+
+function pruneLocatorCache(now = Date.now()): void {
+  const ttl = ttlMs();
+  if (ttl > 0) {
+    for (const [key, entry] of cache) {
+      if (now - entry.at > ttl) cache.delete(key);
+    }
+  }
+  const max = maxEntries();
+  if (max <= 0 || cache.size <= max) return;
+  const ordered = [...cache.entries()].sort((a, b) => a[1].at - b[1].at);
+  const overflow = cache.size - max;
+  for (let i = 0; i < overflow; i += 1) {
+    const key = ordered[i]?.[0];
+    if (key) cache.delete(key);
+  }
 }
 
 function warmCapMs(): number {
@@ -110,6 +134,7 @@ export function rememberLocatorSuccess(command: CommandEnvelope, result: Command
     at: Date.now(),
     locator: { ...locator }
   });
+  pruneLocatorCache();
 }
 
 export function clearLocatorHintCache(sessionId?: string): void {

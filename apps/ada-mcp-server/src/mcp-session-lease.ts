@@ -25,6 +25,21 @@ type LeaseRecord = {
 };
 
 const leases = new Map<string, LeaseRecord>();
+const DEFAULT_LEASE_TTL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_LEASE_MAX = 200;
+
+function pruneLeases(now = Date.now()): void {
+  for (const [key, item] of leases) {
+    if (now - item.lastActiveAt > DEFAULT_LEASE_TTL_MS) leases.delete(key);
+  }
+  if (leases.size <= DEFAULT_LEASE_MAX) return;
+  const ordered = [...leases.entries()].sort((a, b) => a[1].lastActiveAt - b[1].lastActiveAt);
+  const overflow = leases.size - DEFAULT_LEASE_MAX;
+  for (let i = 0; i < overflow; i += 1) {
+    const key = ordered[i]?.[0];
+    if (key) leases.delete(key);
+  }
+}
 
 function keyOf(platform: string, sessionId: string): string {
   return `${platform}::${sessionId}`;
@@ -54,6 +69,7 @@ export function touchSessionLease(input: {
     command: input.command ?? prev?.command,
     deviceId: input.deviceId ?? prev?.deviceId
   });
+  pruneLeases(now);
 }
 
 export function clearSessionLease(platform: string, sessionId: string): void {

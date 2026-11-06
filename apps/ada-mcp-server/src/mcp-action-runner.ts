@@ -1,6 +1,7 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { runCommand } from "./executor.js";
 import { applyLocatorWarmHint, rememberLocatorSuccess } from "./mcp-locator-cache.js";
+import { releaseMcpSessionCaches } from "./mcp-session-gc.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
 import {
   assertSessionNotReleased,
@@ -82,6 +83,7 @@ function annotateReleasedResult(command: CommandEnvelope, result: CommandResult)
     command.sessionId,
     String(result.errorMessage ?? result.errorCode ?? "timeout/precondition release")
   );
+  releaseMcpSessionCaches(command.platform, command.sessionId);
   const suggestedSessionId =
     (typeof data.suggestedSessionId === "string" && data.suggestedSessionId) ||
     record?.suggestedSessionId ||

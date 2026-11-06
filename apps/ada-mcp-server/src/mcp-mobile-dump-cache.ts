@@ -17,6 +17,23 @@ function ttlMs(): number {
   return readUiDumpCacheTtlMs();
 }
 
+function pruneDumpCache(now = Date.now()): void {
+  const ttl = ttlMs();
+  if (ttl > 0) {
+    for (const [key, entry] of caches) {
+      if (now - entry.at > ttl) caches.delete(key);
+    }
+  }
+  const max = 24;
+  if (caches.size <= max) return;
+  const ordered = [...caches.entries()].sort((a, b) => a[1].at - b[1].at);
+  const overflow = caches.size - max;
+  for (let i = 0; i < overflow; i += 1) {
+    const key = ordered[i]?.[0];
+    if (key) caches.delete(key);
+  }
+}
+
 export async function getCachedMobilePageSource(
   platform: AdaPlatform,
   sessionId: string,
@@ -31,6 +48,7 @@ export async function getCachedMobilePageSource(
   const result = await loader();
   if (result.success && ttl > 0) {
     caches.set(key, { at: Date.now(), result });
+    pruneDumpCache();
   }
   return { result, cacheHit: false };
 }

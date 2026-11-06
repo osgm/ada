@@ -128,7 +128,7 @@ function applyPlaywrightMaximizeDefaults(payload) {
 }
 
 // ../../packages/driver-rpc/src/command-timeout.ts
-var DEFAULT_NAVIGATION_TIMEOUT_MS = 75e3;
+var DEFAULT_NAVIGATION_TIMEOUT_MS = 12e4;
 function resolveNavigationTimeoutMs(payload) {
   const p = payload ?? {};
   const fromPayload = typeof p.navigationTimeoutMs === "number" ? p.navigationTimeoutMs : typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : void 0;
@@ -909,10 +909,21 @@ function forceKillProcessTreeDetached(pid) {
     }
   }
 }
+function removeEphemeralCdpProfile(handle) {
+  const dir = handle.userDataDir;
+  if (!dir || !dir.includes("ada-cdp-chromium-")) {
+    return;
+  }
+  try {
+    import_node_fs.default.rmSync(dir, { recursive: true, force: true });
+  } catch {
+  }
+}
 async function stopCdpSpawn(handle) {
   if (!handle?.pid) return;
   spawnRegistry.delete(handle.pid);
   await forceKillProcessTree(handle.pid);
+  removeEphemeralCdpProfile(handle);
 }
 function cleanupAllCdpSpawnsDetached() {
   const handles = [...spawnRegistry.values()];
@@ -1215,10 +1226,10 @@ function resolveAutoWaitMs(payload) {
   const options = asRecord4(p.options);
   const fromPayload = typeof p.waitTimeoutMs === "number" ? p.waitTimeoutMs : typeof p.timeoutMs === "number" ? p.timeoutMs : typeof p.locatorTimeoutMs === "number" ? p.locatorTimeoutMs : void 0;
   const fromOptions = typeof options.waitTimeoutMs === "number" ? options.waitTimeoutMs : void 0;
-  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "5000");
+  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "15000");
   const raw = fromPayload ?? fromOptions ?? env;
-  if (!Number.isFinite(raw) || raw <= 0) return 5e3;
-  return Math.floor(raw);
+  if (!Number.isFinite(raw) || raw <= 0) return 15e3;
+  return Math.min(45e3, Math.floor(raw));
 }
 async function autoWaitLocator(locator, timeoutMs) {
   await locator.waitFor({ state: "visible", timeout: timeoutMs });
@@ -1314,14 +1325,14 @@ async function waitAfterNavigation(page, payload, beforeUrl) {
   if (payload.waitNavigation !== true && payload.waitNavigation !== "true") {
     return { navigated: false, url: page.url() };
   }
-  const timeoutMs = typeof payload.navigationTimeoutMs === "number" ? payload.navigationTimeoutMs : 8e3;
+  const timeoutMs = typeof payload.navigationTimeoutMs === "number" ? payload.navigationTimeoutMs : 2e4;
   const before = beforeUrl || page.url();
   try {
     await page.waitForURL((url) => url.href !== before, { timeout: timeoutMs });
     return { navigated: true, url: page.url() };
   } catch {
     try {
-      await page.waitForLoadState("domcontentloaded", { timeout: Math.min(timeoutMs, 3e3) });
+      await page.waitForLoadState("domcontentloaded", { timeout: Math.min(timeoutMs, 1e4) });
     } catch {
     }
     const after = page.url();
@@ -1682,6 +1693,7 @@ async function executeClickPath(command, page, payload) {
 
 // ../../plugins/driver-playwright/src/web-navigation.ts
 var VALID_WAIT_UNTIL = /* @__PURE__ */ new Set(["load", "domcontentloaded", "networkidle", "commit"]);
+var POST_GOTO_LOAD_WAIT_MS = 15e3;
 function resolveGotoOptions(payload) {
   const raw = payload?.waitUntil;
   const waitUntil = typeof raw === "string" && VALID_WAIT_UNTIL.has(raw) ? raw : "domcontentloaded";
@@ -1690,6 +1702,12 @@ function resolveGotoOptions(payload) {
 async function gotoPage(page, url, payload) {
   const opts = resolveGotoOptions(payload);
   await page.goto(url, { waitUntil: opts.waitUntil, timeout: opts.timeout });
+  if (opts.waitUntil === "load" || opts.waitUntil === "networkidle") return;
+  if (typeof page.waitForLoadState !== "function") return;
+  try {
+    await page.waitForLoadState("load", { timeout: POST_GOTO_LOAD_WAIT_MS });
+  } catch {
+  }
 }
 
 // ../../scripts/lib/popups-dismiss-dom.mjs
@@ -2209,21 +2227,15 @@ function forceKillPlaywrightProcessDetached(pw) {
 }
 async function closePlaywrightSessionBody(pw) {
   if (pw.connectedOverCdp) {
-    const connected = pw.browser && typeof pw.browser.isConnected === "function" ? pw.browser.isConnected() : true;
-    if (!connected) {
-      if (pw.cdpSpawn) {
-        await stopCdpSpawn(pw.cdpSpawn);
-        pw.cdpSpawn = null;
-      }
-      return;
-    }
-    await pw.browser?.close().catch(() => void 0);
+    await pw.context?.close?.().catch(() => void 0);
     if (pw.cdpSpawn) {
+      await pw.browser?.close?.().catch(() => void 0);
       await stopCdpSpawn(pw.cdpSpawn);
       pw.cdpSpawn = null;
     }
     return;
   }
+  await pw.page?.close?.().catch(() => void 0);
   await pw.context.close().catch(() => void 0);
   if (!pw.persistent && pw.browser) {
     await pw.browser.close().catch(() => void 0);

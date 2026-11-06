@@ -25,11 +25,11 @@ test("resolveCommandTimeoutMs: payload, env, default", () => {
   else process.env.ADA_COMMAND_TIMEOUT_MS = prev;
 });
 
-test("resolveNavigationTimeoutMs defaults to >=60s for login walls", () => {
+test("resolveNavigationTimeoutMs defaults to 2 minutes", () => {
   const prev = process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS;
   delete process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS;
   assert.equal(resolveNavigationTimeoutMs({}), DEFAULT_NAVIGATION_TIMEOUT_MS);
-  assert.ok(DEFAULT_NAVIGATION_TIMEOUT_MS >= 60_000);
+  assert.equal(DEFAULT_NAVIGATION_TIMEOUT_MS, 120_000);
   assert.equal(resolveNavigationTimeoutMs({ navigationTimeoutMs: 90_000 }), 90_000);
   assert.equal(resolveNavigationTimeoutMs({ timeoutMs: 120_000 }), 120_000);
   process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS = "65000";
@@ -58,8 +58,10 @@ test("resolveCommandTimeoutMs: navigate floors to navigation timeout + buffer", 
 
 test("resolveLocatorTimeoutMs: caps and payload.timeoutMs", () => {
   assert.equal(resolveLocatorTimeoutMs({ locatorTimeoutMs: 2000 }), 2000);
-  assert.equal(resolveLocatorTimeoutMs({ timeoutMs: 12_000 }), 8000);
-  assert.equal(resolveLocatorTimeoutMs({}), 2500);
+  assert.equal(resolveLocatorTimeoutMs({ timeoutMs: 30_000 }), 20_000);
+  assert.equal(resolveLocatorTimeoutMs({}), 8000);
+  assert.equal(DEFAULT_COMMAND_TIMEOUT_MS, 60_000);
+  assert.equal(NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS, 15_000);
 });
 
 test("resolveSubOperationTimeoutMs", () => {
