@@ -58,9 +58,9 @@ test("resolveCommandTimeoutMs: navigate floors to navigation timeout + buffer", 
 
 test("resolveLocatorTimeoutMs: caps and payload.timeoutMs", () => {
   assert.equal(resolveLocatorTimeoutMs({ locatorTimeoutMs: 2000 }), 2000);
-  assert.equal(resolveLocatorTimeoutMs({ timeoutMs: 30_000 }), 20_000);
-  assert.equal(resolveLocatorTimeoutMs({}), 8000);
-  assert.equal(DEFAULT_COMMAND_TIMEOUT_MS, 60_000);
+  assert.equal(resolveLocatorTimeoutMs({ timeoutMs: 40_000 }), 30_000);
+  assert.equal(resolveLocatorTimeoutMs({}), 12_000);
+  assert.equal(DEFAULT_COMMAND_TIMEOUT_MS, 90_000);
   assert.equal(NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS, 15_000);
 });
 

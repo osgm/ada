@@ -26,6 +26,7 @@ const MCP_UNIT_FILES = new Set([
   "mcp-payload-slim.test.ts",
   "mcp-payload-clip.test.ts",
   "mcp-locator-cache.test.ts",
+  "mcp-adaptive-wait.test.ts",
   "shared-runtime.test.ts",
   "session-serialize.test.ts",
   "session-command-class.test.ts",

@@ -68,10 +68,10 @@ export function resolveAutoWaitMs(payload?: Record<string, unknown>): number {
           ? p.locatorTimeoutMs
           : undefined;
   const fromOptions = typeof options.waitTimeoutMs === "number" ? options.waitTimeoutMs : undefined;
-  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "15000");
+  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "25000");
   const raw = fromPayload ?? fromOptions ?? env;
-  if (!Number.isFinite(raw) || raw <= 0) return 15_000;
-  return Math.min(45_000, Math.floor(raw));
+  if (!Number.isFinite(raw) || raw <= 0) return 25_000;
+  return Math.min(60_000, Math.floor(raw));
 }
 
 export async function autoWaitLocator(locator: any, timeoutMs: number): Promise<void> {

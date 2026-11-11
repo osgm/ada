@@ -4,6 +4,7 @@
  */
 export * from "./mcp-action-ledger.js";
 export * from "./mcp-action-runner.js";
+export * from "./mcp-adaptive-wait.js";
 export * from "./mcp-admin.js";
 export * from "./mcp-artifacts.js";
 export * from "./mcp-session-lease.js";

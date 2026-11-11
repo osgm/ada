@@ -39,7 +39,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // ../../packages/driver-rpc/src/command-timeout.ts
-var DEFAULT_COMMAND_TIMEOUT_MS = 6e4;
+var DEFAULT_COMMAND_TIMEOUT_MS = 9e4;
 var DEFAULT_NAVIGATION_TIMEOUT_MS = 12e4;
 var NAVIGATION_COMMAND_TIMEOUT_BUFFER_MS = 15e3;
 var CommandTimeoutError = class extends Error {
@@ -94,8 +94,8 @@ function resolveCommandTimeoutMs(payload, command) {
 }
 function resolveLocatorTimeoutMs(payload, options) {
   const p = payload ?? {};
-  const defaultMs = options?.defaultMs ?? 8e3;
-  const maxMs = options?.maxMs ?? 2e4;
+  const defaultMs = options?.defaultMs ?? 12e3;
+  const maxMs = options?.maxMs ?? 3e4;
   const explicit = typeof p.locatorTimeoutMs === "number" ? p.locatorTimeoutMs : typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : defaultMs;
   return Math.min(Math.max(500, explicit), maxMs);
 }

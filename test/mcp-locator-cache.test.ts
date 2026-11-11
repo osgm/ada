@@ -20,7 +20,7 @@ test("applyLocatorWarmHint shortens timeout after a successful locator", () => {
   rememberLocatorSuccess(base, ok);
   const warmed = applyLocatorWarmHint({ ...base, requestId: "2" });
   assert.equal(warmed.payload?.locatorWarm, true);
-  assert.equal(warmed.payload?.locatorTimeoutMs, 1200);
+  assert.equal(warmed.payload?.locatorTimeoutMs, 2500);
   clearLocatorHintCache();
 });
 

@@ -1226,10 +1226,10 @@ function resolveAutoWaitMs(payload) {
   const options = asRecord4(p.options);
   const fromPayload = typeof p.waitTimeoutMs === "number" ? p.waitTimeoutMs : typeof p.timeoutMs === "number" ? p.timeoutMs : typeof p.locatorTimeoutMs === "number" ? p.locatorTimeoutMs : void 0;
   const fromOptions = typeof options.waitTimeoutMs === "number" ? options.waitTimeoutMs : void 0;
-  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "15000");
+  const env = Number(process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS ?? "25000");
   const raw = fromPayload ?? fromOptions ?? env;
-  if (!Number.isFinite(raw) || raw <= 0) return 15e3;
-  return Math.min(45e3, Math.floor(raw));
+  if (!Number.isFinite(raw) || raw <= 0) return 25e3;
+  return Math.min(6e4, Math.floor(raw));
 }
 async function autoWaitLocator(locator, timeoutMs) {
   await locator.waitFor({ state: "visible", timeout: timeoutMs });

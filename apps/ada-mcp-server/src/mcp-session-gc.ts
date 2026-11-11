@@ -1,4 +1,5 @@
 import { clearActionLedger } from "./mcp-action-ledger.js";
+import { clearAdaptiveWait } from "./mcp-adaptive-wait.js";
 import { clearLocatorHintCache } from "./mcp-locator-cache.js";
 import { invalidateMobilePageSourceCache } from "./mcp-mobile-dump-cache.js";
 import { clearMobileSessionProbeCache } from "./mcp-mobile-session-liveness.js";
@@ -13,6 +14,7 @@ export function releaseMcpSessionCaches(platform: string, sessionId: string): vo
   if (!id) return;
   clearSessionLease(platform, id);
   clearLocatorHintCache(id);
+  clearAdaptiveWait(id);
   clearActionLedger(id);
   if (platform === "web") {
     clearWebSessionTrack(id);

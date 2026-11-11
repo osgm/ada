@@ -12,7 +12,7 @@ ADA（AllDriverAgent）用同一套命令驱动浏览器和手机，并让 AI �
 
 字段全集、环境变量和架构推导不在这里重复展开，文末 [§13](#13-延伸阅读) 指向对应专册。
 
-**版本**：npm 包 `@ada-mcp/launcher` 与 `@ada-mcp/mcp-server` 必须同号。本仓库当前示例为 **`0.1.94`**。不要使用已废弃的 `0.1.73` / `0.1.74`。发布前以两个包的 `package.json` 为准。
+**版本**：npm 包 `@ada-mcp/launcher` 与 `@ada-mcp/mcp-server` 必须同号。本仓库当前示例为 **`0.1.95`**。不要使用已废弃的 `0.1.73` / `0.1.74`。发布前以两个包的 `package.json` 为准。
 
 ---
 
@@ -114,7 +114,7 @@ Windows 且 PATH 里没有 `pnpm` 时用 `npx`：
   "mcpServers": {
     "ada-mcp": {
       "command": "npx",
-      "args": ["-y", "@ada-mcp/launcher@0.1.94"],
+      "args": ["-y", "@ada-mcp/launcher@0.1.95"],
       "env": {
         "ADA_MCP_REGISTRY": "https://registry.npmmirror.com"
       }
@@ -123,7 +123,7 @@ Windows 且 PATH 里没有 `pnpm` 时用 `npx`：
 }
 ```
 
-有 `pnpm` 时把 `command` 换成 `pnpm`，`args` 换成 `["dlx", "@ada-mcp/launcher@0.1.94", "--install-deps=playwright"]`。
+有 `pnpm` 时把 `command` 换成 `pnpm`，`args` 换成 `["dlx", "@ada-mcp/launcher@0.1.95", "--install-deps=playwright"]`。
 
 保存后重载 MCP。部分 IDE 的 stdio 握手大约 60 秒，冷启动若再去装全部移动依赖会超时。首启只装 Playwright；手机工具链连上之后再用 `ada_install_deps`。
 
@@ -199,7 +199,7 @@ ada_end_task            → 关掉会话并清掉登记
 
 ### 5.2 超时之后不能复用旧 id
 
-命令有墙钟超时，默认约 60 秒；打开页面会自动抬到导航超时（默认 2 分钟）再加 15 秒。页面 DOM 就绪后还会再等最多 15 秒完整 load（等不到也不判失败）。点击、输入默认再等控件 15 秒。超时、打开页失败、长时间等待失败时，驱动会释放会话，返回里带 `sessionReleased: true`，并给出 `suggestedSessionId`。
+命令有墙钟超时，默认约 90 秒；打开页面会自动抬到导航超时（默认 2 分钟）再加 15 秒。页面 DOM 就绪后还会再等最多 15 秒完整 load（等不到也不判失败）。点击、输入默认再等控件 25 秒；同一会话里失败/重试变多时，会自动再加长等待和重试间隔，减少空转重试。超时、打开页失败、长时间等待失败时，驱动会释放会话，返回里带 `sessionReleased: true`，并给出 `suggestedSessionId`。
 
 接下来必须：
 
@@ -409,7 +409,7 @@ Android 截图示例：
 
 滑动时长用 `durationMs`（毫秒，越大越慢）。鸿蒙可用 `swipePreset`：`fast`（200）、`normal`（400）、`slow`（800）。
 
-控件查找超时写 `locatorTimeoutMs`。Web 点击/输入未写时默认约 15 秒（`ADA_PLAYWRIGHT_AUTO_WAIT_MS`）。移动端查找默认约 8 秒、上限约 20 秒，和整条命令的墙钟超时是两回事。
+控件查找超时写 `locatorTimeoutMs`。Web 点击/输入未写时默认约 25 秒（`ADA_PLAYWRIGHT_AUTO_WAIT_MS`）。移动端查找默认约 12 秒、上限约 30 秒，和整条命令的墙钟超时是两回事。近期失败多时会自适应加长（`ADA_ADAPTIVE_WAIT=0` 可关）。
 
 ### 7.3 先看界面再点
 

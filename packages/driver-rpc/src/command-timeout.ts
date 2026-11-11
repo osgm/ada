@@ -1,7 +1,7 @@
 /** 内核命令墙钟超时：payload.commandTimeoutMs / ADA_COMMAND_TIMEOUT_MS / 默认值（与 payload.timeoutMs 语义等待分离） */
 
-/** 未配置 env 时的默认墙钟超时。需盖住控件等待（可见 + 点击），避免慢页被 COMMAND_TIMEOUT 提前释放 */
-export const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
+/** 未配置 env 时的默认墙钟超时。需盖住加长后的控件等待（可见 + 点击），避免慢页被 COMMAND_TIMEOUT 提前释放 */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 90_000;
 
 /**
  * 打开页默认导航超时（毫秒），默认 2 分钟。
@@ -86,8 +86,8 @@ export function resolveLocatorTimeoutMs(
   options?: { defaultMs?: number; maxMs?: number }
 ): number {
   const p = payload ?? {};
-  const defaultMs = options?.defaultMs ?? 8_000;
-  const maxMs = options?.maxMs ?? 20_000;
+  const defaultMs = options?.defaultMs ?? 12_000;
+  const maxMs = options?.maxMs ?? 30_000;
   const explicit =
     typeof p.locatorTimeoutMs === "number"
       ? p.locatorTimeoutMs

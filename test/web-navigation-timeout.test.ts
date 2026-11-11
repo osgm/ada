@@ -16,11 +16,11 @@ test("resolveGotoOptions uses navigation default >=60s", () => {
   else process.env.ADA_WEB_NAVIGATION_TIMEOUT_MS = prev;
 });
 
-test("resolveAutoWaitMs defaults to 15s for slow hydration", () => {
+test("resolveAutoWaitMs defaults to 25s for slow hydration", () => {
   const prev = process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS;
   delete process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS;
-  assert.equal(resolveAutoWaitMs({}), 15_000);
-  assert.equal(resolveAutoWaitMs({ timeoutMs: 90_000 }), 45_000);
+  assert.equal(resolveAutoWaitMs({}), 25_000);
+  assert.equal(resolveAutoWaitMs({ timeoutMs: 90_000 }), 60_000);
   if (prev === undefined) delete process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS;
   else process.env.ADA_PLAYWRIGHT_AUTO_WAIT_MS = prev;
 });

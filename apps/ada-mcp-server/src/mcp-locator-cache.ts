@@ -1,7 +1,7 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 
 const DEFAULT_TTL_MS = 12_000;
-const WARM_LOCATOR_TIMEOUT_MS = 1_200;
+const WARM_LOCATOR_TIMEOUT_MS = 2_500;
 const DEFAULT_MAX_ENTRIES = 400;
 
 type CacheEntry = { at: number; locator: Record<string, unknown> };

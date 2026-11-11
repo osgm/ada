@@ -88,7 +88,7 @@ function buildBatchDryRunPreview(
       const timeoutMs = typeof item.timeoutMs === "number" ? Math.max(0, Math.floor(item.timeoutMs)) : 0;
       const retry = typeof item.retry === "number" ? Math.max(0, Math.floor(item.retry)) : 0;
       const retryDelayMs =
-        typeof item.retryDelayMs === "number" ? Math.max(0, Math.floor(item.retryDelayMs)) : 500;
+        typeof item.retryDelayMs === "number" ? Math.max(0, Math.floor(item.retryDelayMs)) : 1_500;
       steps.push({
         index: i,
         requestId: stepRequestId,
@@ -149,7 +149,7 @@ export async function handleBatchActions(args: Record<string, unknown>, deps: Ba
   const dryRun = args.dryRun === true;
   const continueOnError = onFailure === "continue";
   const defaultRetryDelayMs =
-    typeof args.retryDelayMs === "number" ? Math.max(0, Math.floor(args.retryDelayMs)) : 500;
+    typeof args.retryDelayMs === "number" ? Math.max(0, Math.floor(args.retryDelayMs)) : 1_500;
 
   // dryRun 只做校验：跳过 runtime / session 探活，避免无意义的 Playwright/adb 等待
   if (dryRun) {

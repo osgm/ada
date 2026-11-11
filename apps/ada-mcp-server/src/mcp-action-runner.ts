@@ -1,5 +1,12 @@
 import type { CommandEnvelope, CommandResult } from "@ada/contracts";
 import { runCommand } from "./executor.js";
+import {
+  applyAdaptiveWaitHint,
+  DEFAULT_RETRY_DELAY_MS,
+  getAdaptiveWaitBoostMs,
+  recordAdaptiveWaitOutcome,
+  resolveRetryDelayMs
+} from "./mcp-adaptive-wait.js";
 import { applyLocatorWarmHint, rememberLocatorSuccess } from "./mcp-locator-cache.js";
 import { releaseMcpSessionCaches } from "./mcp-session-gc.js";
 import type { AdaPlatform } from "./mcp-normalize.js";
@@ -144,7 +151,7 @@ export async function runCommandWithRetry(
   options: ActionRunOptions
 ): Promise<{ result: CommandResult; attempts: number }> {
   const maxAttempts = Math.max(1, 1 + Math.floor(options.retry ?? 0));
-  const delayMs = Math.max(0, Math.floor(options.retryDelayMs ?? 500));
+  const baseDelayMs = Math.max(0, Math.floor(options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS));
   let last: CommandResult = {
     requestId: command.requestId,
     success: false,
@@ -160,8 +167,10 @@ export async function runCommandWithRetry(
             ...command,
             requestId: `${command.requestId}-r${attempt}`
           };
-    const warmed = applyLocatorWarmHint(attemptCommand);
+    // warm 可能缩短等待；自适应在其后抬升，避免慢页被压回 1~2s
+    const warmed = applyAdaptiveWaitHint(applyLocatorWarmHint(attemptCommand), { attempt });
     last = await executeWithTimeout(warmed, options.timeoutMs);
+    recordAdaptiveWaitOutcome(command.platform, command.sessionId, last.success);
     if (last.success) {
       rememberLocatorSuccess(warmed, last);
       return { result: last, attempts: attempt };
@@ -176,8 +185,9 @@ export async function runCommandWithRetry(
     if (attempt < maxAttempts && !isTransientCommandFailure(last)) {
       return { result: last, attempts: attempt };
     }
-    if (attempt < maxAttempts && delayMs > 0) {
-      await sleep(delayMs);
+    if (attempt < maxAttempts && baseDelayMs > 0) {
+      const boost = getAdaptiveWaitBoostMs(command.platform, command.sessionId);
+      await sleep(resolveRetryDelayMs(baseDelayMs, attempt, boost));
     }
   }
 
@@ -187,7 +197,8 @@ export async function runCommandWithRetry(
 export function parseActionRunOptions(args: Record<string, unknown>): ActionRunOptions {
   return {
     retry: typeof args.retry === "number" ? Math.max(0, Math.floor(args.retry)) : 0,
-    retryDelayMs: typeof args.retryDelayMs === "number" ? Math.max(0, Math.floor(args.retryDelayMs)) : 500,
+    retryDelayMs:
+      typeof args.retryDelayMs === "number" ? Math.max(0, Math.floor(args.retryDelayMs)) : DEFAULT_RETRY_DELAY_MS,
     timeoutMs: typeof args.timeoutMs === "number" ? Math.max(0, Math.floor(args.timeoutMs)) : 0
   };
 }
